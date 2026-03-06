@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+OverlayLayer = Literal["pivot", "leg", "major_lh", "breakout_start"]
+SessionProfile = Literal["eth_full", "rth"]
+
+
+class ChartBarModel(BaseModel):
+    bar_id: int
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+    session_id: int
+    session_date: int
+
+
+class OverlayModel(BaseModel):
+    overlay_id: str
+    kind: str
+    source_structure_id: str
+    anchor_bars: list[int]
+    anchor_prices: list[float]
+    style_key: str
+    rulebook_version: str
+    structure_version: str
+    data_version: str
+    overlay_version: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChartWindowMetaModel(BaseModel):
+    data_version: str
+    source_data_version: str
+    aggregation_version: str
+    session_profile: SessionProfile
+    timeframe: str
+    feature_version: str | None
+    feature_params_hash: str | None
+    rulebook_version: str | None
+    structure_version: str | None
+    overlay_version: str | None
+
+
+class ChartWindowResponse(BaseModel):
+    bars: list[ChartBarModel]
+    overlays: list[OverlayModel]
+    meta: ChartWindowMetaModel
+
+
+class StructureSummaryModel(BaseModel):
+    structure_id: str
+    kind: str
+    state: str
+    start_bar_id: int
+    end_bar_id: int | None
+    confirm_bar_id: int | None
+    anchor_bar_ids: list[int]
+    explanation_codes: list[str]
+
+
+class StructureDetailResponse(BaseModel):
+    structure: StructureSummaryModel
+    anchor_bars: list[ChartBarModel]
+    confirm_bar: ChartBarModel | None
+    feature_refs: list[str]
+    structure_refs: list[str]
+    versions: ChartWindowMetaModel

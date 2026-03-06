@@ -5,14 +5,16 @@ Status date: 2026-03-06
 ## Current State
 
 The project is in the first implemented backend stage.
-`pa_core` now has a real canonical bars pipeline, the first edge-feature pipeline, and a rulebook-backed first structure slice through bearish breakout starts.
-`pa_api` and `pa_inspector` are placeholders for future work.
+`pa_core` now has a real canonical bars pipeline, the first edge-feature pipeline, a rulebook-backed first structure slice through bearish breakout starts, and an on-demand overlay layer.
+`pa_api` now has a first thin FastAPI read path for chart-window and structure-detail reads.
+`pa_inspector` now has a real React + TypeScript + Vite shell on top of the chosen charting dependency.
 
 ## Python
 
 Current package:
 
 - `packages/pa_core`
+- `packages/pa_api`
 
 Minimum working assumption:
 
@@ -27,12 +29,14 @@ Current project-local Python environment also has:
 - `fastapi`
 - `uvicorn`
 - `pydantic`
+- `httpx`
 - `pytest`
 
 Notes:
 
 - `duckdb` is installed for the canonical query/storage direction defined in the spec and for upcoming artifact-serving workflows
-- `fastapi`, `uvicorn`, and `pydantic` are installed for the future `pa_api` layer
+- `fastapi`, `uvicorn`, and `pydantic` are installed for the new `pa_api` layer
+- `httpx` is installed for local API testing through FastAPI's test client
 - `pytest` is available, but the current checked-in test workflow still uses `python3 -m unittest discover -s tests -v`
 - the user-level script directory `/Users/simongu/Library/Python/3.14/bin` is not on `PATH`, so prefer `python3 -m pytest` and `python3 -m uvicorn` unless shell config is updated
 
@@ -74,6 +78,18 @@ Current local test command:
 
 `cd packages/pa_core && PYTHONPATH=src python3 -m unittest discover -s tests -v`
 
+`pa_api` local import check:
+
+`cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -c "from pa_api import app, create_app, ChartApiService; print(app.title, callable(create_app), ChartApiService.__name__)"`
+
+`pa_api` local test command:
+
+`cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest discover -s tests -v`
+
+`pa_api` local dev server command:
+
+`cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m uvicorn pa_api.app:app --reload`
+
 ## JavaScript
 
 Current frontend package:
@@ -88,15 +104,25 @@ Current working assumption:
 
 - Node.js and `npm`
 - `lightweight-charts` is the chosen chart-rendering substrate for `pa_inspector` v1
+- React + TypeScript + Vite are the current app-shell stack for the inspector MVP
 
 Current package verification command:
 
 `cd packages/pa_inspector && npm ls lightweight-charts`
 
+Current inspector dev command:
+
+`cd packages/pa_inspector && npm run dev -- --host 127.0.0.1 --port 4173`
+
+Current inspector build command:
+
+`cd packages/pa_inspector && npm run build`
+
 Notes:
 
-- `pa_inspector` now has a local `package.json` and `package-lock.json`
-- the inspector application itself is not scaffolded yet; only the first chart-library dependency has been installed
+- `pa_inspector` now has a local `package.json`, `package-lock.json`, TypeScript config, Vite config, and `src/` app scaffold
+- the current dev setup expects the FastAPI service to be running separately; Vite proxies `/api` to `http://127.0.0.1:8000`
+- the current inspector shell supports toolbar-driven window fetches, viewport-aware edge refetch, neighboring-window prefetch, canvas overlay rendering, and side-panel detail loading
 
 ## Git
 
@@ -168,7 +194,6 @@ These have not been scaffolded yet:
 
 - virtual environment instructions
 - dependency lockfiles
-- API app entrypoint
 - frontend app entrypoint
 
 Add them only when the corresponding subsystem actually exists.

@@ -62,6 +62,7 @@ def build_major_lh_structure_frame(
     feature_refs: Sequence[str],
     rulebook_version: str = MAJOR_LH_RULEBOOK_VERSION,
     structure_version: str = MAJOR_LH_STRUCTURE_VERSION,
+    structure_scope: str | None = None,
 ) -> pa.Table:
     empty = pa.Table.from_pylist([], schema=STRUCTURE_ARTIFACT_SCHEMA)
     if leg_frame.num_rows == 0:
@@ -134,6 +135,7 @@ def build_major_lh_structure_frame(
                 rulebook_version=rulebook_version,
                 structure_version=structure_version,
                 confirmed=is_confirmed,
+                structure_scope=structure_scope,
             )
         )
 
@@ -274,6 +276,7 @@ def _build_major_lh_row(
     rulebook_version: str,
     structure_version: str,
     confirmed: bool,
+    structure_scope: str | None,
 ) -> dict[str, object]:
     h1_bar_id = int(u1["end_bar_id"])
     l1_bar_id = int(d1["end_bar_id"])
@@ -318,6 +321,7 @@ def _build_major_lh_row(
             anchor_bar_ids=anchor_bar_ids,
             rulebook_version=rulebook_version,
             structure_version=structure_version,
+            scope_ref=structure_scope,
         ),
         "kind": MAJOR_LH_KIND_GROUP,
         "state": "confirmed" if confirmed else "candidate",

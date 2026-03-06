@@ -96,6 +96,8 @@ def compute_initial_edge_feature_bundle(bar_arrays: BarArrays) -> dict[str, pa.T
 
     edge_valid = np.ones(len(bar_arrays), dtype=np.bool_)
     edge_valid[0] = False
+    if len(bar_arrays) > 1:
+        edge_valid[1:] = bar_arrays.session_id[1:] == bar_arrays.session_id[:-1]
     previous_bar_id = np.empty(len(bar_arrays), dtype=np.int64)
     previous_bar_id[0] = -1
     previous_bar_id[1:] = bar_arrays.bar_id[:-1]

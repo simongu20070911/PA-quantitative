@@ -60,6 +60,7 @@ def build_leg_structure_frame(
     feature_refs: Sequence[str],
     rulebook_version: str = LEG_RULEBOOK_VERSION,
     structure_version: str = LEG_STRUCTURE_VERSION,
+    structure_scope: str | None = None,
 ) -> pa.Table:
     if pivot_frame.num_rows == 0:
         return pa.Table.from_pylist([], schema=STRUCTURE_ARTIFACT_SCHEMA)
@@ -99,6 +100,7 @@ def build_leg_structure_frame(
                 rulebook_version=rulebook_version,
                 structure_version=structure_version,
                 had_same_type_replacement=active_replaced,
+                structure_scope=structure_scope,
             )
         )
         active = current
@@ -268,6 +270,7 @@ def _build_leg_row(
     rulebook_version: str,
     structure_version: str,
     had_same_type_replacement: bool,
+    structure_scope: str | None,
 ) -> dict[str, object]:
     start_bar_id = int(start_pivot["bar_id"])
     end_bar_id = int(end_pivot["bar_id"])
@@ -291,6 +294,7 @@ def _build_leg_row(
             anchor_bar_ids=anchor_bar_ids,
             rulebook_version=rulebook_version,
             structure_version=structure_version,
+            scope_ref=structure_scope,
         ),
         "kind": kind,
         "state": state,

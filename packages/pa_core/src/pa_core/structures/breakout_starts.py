@@ -69,6 +69,7 @@ def build_bearish_breakout_start_frame(
     feature_refs: Sequence[str],
     rulebook_version: str = BREAKOUT_START_RULEBOOK_VERSION,
     structure_version: str = BREAKOUT_START_STRUCTURE_VERSION,
+    structure_scope: str | None = None,
 ) -> pa.Table:
     empty = pa.Table.from_pylist([], schema=STRUCTURE_ARTIFACT_SCHEMA)
     if leg_frame.num_rows == 0 or major_lh_frame.num_rows == 0:
@@ -135,6 +136,7 @@ def build_bearish_breakout_start_frame(
                 feature_refs=tuple(str(value) for value in feature_refs),
                 rulebook_version=rulebook_version,
                 structure_version=structure_version,
+                structure_scope=structure_scope,
             )
         )
 
@@ -328,6 +330,7 @@ def _build_breakout_row(
     feature_refs: tuple[str, ...],
     rulebook_version: str,
     structure_version: str,
+    structure_scope: str | None,
 ) -> dict[str, object]:
     breakout_bar = bar_lookup[breakout_bar_id]
     explanation_codes = list(BREAKOUT_START_EXPLANATION_CODES)
@@ -343,6 +346,7 @@ def _build_breakout_row(
             anchor_bar_ids=anchor_bar_ids,
             rulebook_version=rulebook_version,
             structure_version=structure_version,
+            scope_ref=structure_scope,
         ),
         "kind": "bearish_breakout_start",
         "state": "confirmed",

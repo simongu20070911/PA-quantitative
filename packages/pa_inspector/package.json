@@ -3,7 +3,21 @@
   "private": true,
   "version": "0.1.0",
   "description": "Continuous chart inspector for PA Quantitative.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "lightweight-charts": "^5.1.0"
+    "lightweight-charts": "^5.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
   }
 }

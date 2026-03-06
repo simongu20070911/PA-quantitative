@@ -13,6 +13,7 @@ The project currently has:
 - the canonical ES source data file in `Data/`
 - a frozen architecture spec in `docs/canonical_spec.md`
 - an artifact storage contract in `docs/artifact_contract.md`
+- a dedicated session/timeframe spec in `docs/session_timeframe_spec.md`
 - a draft standalone rulebook in `docs/rulebooks/pa_rulebook_v0_1.md`
 - a handoff protocol in `docs/handoff_protocol.md`
 - an append-only session log in `docs/work_log.md`
@@ -28,13 +29,12 @@ The project currently has:
 - rulebook-backed leg, `major_lh`, and bearish breakout-start materialization layers in `packages/pa_core/src/pa_core/structures/`
 - materialized pivot, leg, `major_lh`, and breakout-start artifacts under `artifacts/structures/`
 - an on-demand overlay projection layer for `pivot`, `leg`, `major_lh`, and bearish breakout-start structures in `packages/pa_core/src/pa_core/overlays/`
-- a minimal npm package scaffold for `packages/pa_inspector` with `lightweight-charts` installed as the chosen chart substrate
+- a thin `pa_api` FastAPI layer for `GET /chart-window` and `GET /structure/{structure_id}`
+- an initial `pa_inspector` React + TypeScript + Vite shell with a `Lightweight Charts` adapter, canvas overlay rendering, layer toggles, and side-panel detail loading
 
 The project does not yet have:
 
-- API endpoints
 - overlay artifacts
-- an inspector frontend
 - review persistence
 
 ## Current Code State
@@ -71,18 +71,19 @@ Implemented:
 - spec-aligned on-demand overlay projection helpers for `pivot-marker`, `leg-line`, `major-lh-marker`, and `breakout-marker`
 - explicit overlay version propagation plus deterministic z-order and hit-test priority helpers for the MVP overlay families
 - current-chain overlay loading that resolves `pivot`, `leg`, `major_lh`, and breakout-start structure inputs from backend artifacts
+- a thin `pa_api` package with cached artifact-backed chart-window and structure-detail reads over the current overlay-enabled structure slice
+- FastAPI app wiring for `GET /chart-window`, `GET /structure/{structure_id}`, and a minimal `/health` check
+- focused `unittest` coverage for chart-window selector validation, overlay-layer filtering, and structure-detail responses
+- a `pa_inspector` app scaffold with React + TypeScript + Vite, a `Lightweight Charts` adapter boundary, synchronized canvas overlay drawing, toolbar-driven window loads, and selection-based side-panel detail fetches
 - focused fixture coverage for leg tie-breaking, `major_lh`, breakout starts, and structure dependency hashing
 - focused `unittest` coverage for overlay geometry mapping, stable overlay IDs, current-chain overlay loading, and render-priority ordering
 - fixture-based `unittest` coverage for pivot confirmation, candidates, tie suppression, cross-session scans, and kernel/reference agreement
-- placeholder package directory for `pa_api`
-- minimal npm package scaffold plus `lightweight-charts` dependency for `pa_inspector`
 
 Not implemented:
 
 - materialized overlay artifacts
-- inspector UI
-- API endpoints
-- chart rendering
+- structured review mode
+- diff mode
 
 ## Canonical Data Source
 
@@ -95,6 +96,7 @@ This is currently the canonical project-local input feed.
 Current derived canonical bars policy:
 
 - downstream computation should read bar artifacts from `artifacts/bars/`, not the raw CSV
+- the current canonical base bar family corresponds to `session_profile = eth_full` and `timeframe = 1m`
 - `session_date` uses the ET trading date with an `18:00` America/New_York rollover
 - `session_id` currently matches numeric `session_date`
 - the current materialized `data_version` from the project-local ES file is `es_1m_v1_4f3eda8a678d3c41`
@@ -122,6 +124,7 @@ Current derived structure policy:
 - current materialized breakout-start dataset contains `4,164` confirmed `bearish_breakout_start` rows
 - structure manifests carry explicit `timing_semantics`, `bar_finalization`, `feature_refs`, and manifest-level `structure_refs`
 - structure artifacts preserve `rulebook_version`, `confirm_bar_id`, `session_id`, and `session_date`
+- non-canonical derived families now also support a backend-native runtime structure chain that computes family-specific edge features plus `pivot`, `leg`, `major_lh`, and breakout-start rows directly from the requested session/timeframe bar family instead of projecting canonical `1m` structures
 
 Current derived overlay policy:
 
@@ -130,6 +133,34 @@ Current derived overlay policy:
 - overlays carry explicit `data_version`, `rulebook_version`, `structure_version`, and `overlay_version`
 - overlay geometry follows `docs/overlay_spec.md` for `pivot-marker`, `leg-line`, `major-lh-marker`, and `breakout-marker`
 - z-order and hit-test priority follow the canonical MVP ordering from `docs/overlay_spec.md`
+- canonical `eth_full` `1m` still projects from the shipped structure artifacts
+- non-canonical session/timeframe families now project overlays from backend-native runtime structures built on the requested family bars
+
+Current API policy:
+
+- `pa_api` is now the thin read layer over the current `pa_core` artifact chain
+- `GET /chart-window` supports `center_bar_id`, `session_date`, or explicit `start_time` / `end_time` selectors plus overlay-layer filtering
+- `GET /chart-window` now also supports `session_profile` plus derived minute `timeframe` families backed by deterministic backend filtering/aggregation from canonical `eth_full 1m`
+- for non-canonical families such as `eth_full 5m`, `GET /chart-window` now builds native family features and structures in `pa_core` before projecting overlays, instead of returning structure-less derived bars
+- `GET /structure/{structure_id}` returns structure summary, anchor bars, confirm bar, feature refs, structure refs, and version metadata
+- API responses now carry explicit `session_profile`, `timeframe`, `source_data_version`, `aggregation_version`, `overlay_version`, and `feature_params_hash` in the window metadata
+
+Current inspector policy:
+
+- `pa_inspector` now consumes the shipped `pa_api` read endpoints rather than mocking structure semantics locally
+- candles render through `Lightweight Charts`, while overlays render on a synchronized canvas layer
+- overlay family toggles are currently local view-state over the loaded overlay payload
+- inspector session-profile and timeframe controls are now wired to real backend/API reads rather than frontend-local filtering or aggregation
+- the inspector no longer hardcodes overlay availability to canonical `eth_full 1m`; it now renders and filters whatever overlay payload the backend returns for the selected family, including backend-native non-canonical families such as `eth_full 5m`
+- clicking an overlay triggers lazy structure-detail loading for the detail popup rather than a persistent side column
+- panning or zooming near a loaded edge now triggers a centered window refetch, and the inspector prefetches neighboring windows into a small in-memory cache
+- chart window updates now preserve the visible logical viewport instead of refitting content on every fetch, which keeps navigation closer to the TradingView-like interaction target in `docs/inspector_spec.md`
+- the overlay canvas no longer intercepts chart wheel and drag interactions; selection and hover now ride through chart-level events so the underlying chart surface keeps TV-like pan/zoom and axis-drag behavior
+- viewport-triggered edge refetch is now explicitly toggleable in the toolbar, and the default is off so manual drag/zoom inspection is not disrupted by surprise recentering
+- overlay rendering is now explicitly stacked above the chart pane so projected legs and markers remain visible during normal inspection
+- the inspector layout now treats the continuous chart as the dominant surface, with a compact top command bar and flyout controls instead of a large always-open configuration slab
+- selection detail now anchors near the chart click location instead of living in a fixed side region, and the chart stage once again occupies the full available workspace width
+- the live chart-window path now supplements missing canonical anchor bars before overlay projection, which prevents long-span overlays from crashing the inspector on real data windows
 
 ## Current Priority
 
@@ -146,13 +177,12 @@ That means:
 ## Known Gaps
 
 - No materialized overlay artifacts exist yet for the current structure slice.
-- No actual inspector app scaffold exists yet beyond the local `pa_inspector` package manifest and chart-library dependency.
-- No API app has been built to serve the artifact chain.
 - Review capture is still unimplemented.
+- Browser-level smoke checks now work locally through Playwright CLI, but they are not yet packaged into a repeatable automated test target.
 
 ## Working Assumption
 
 The rulebook-backed artifact chain is now the correct source layer for the next stage.
-The next move is to expose windowed bars plus overlay projections through `pa_api` and begin the first inspector workflow on top of those backend outputs rather than adding new semantics in the UI.
+The next move is to deepen the inspector workflow further with more polished overlay interaction, explicit cache/prefetch controls, and eventually review-mode scaffolding on top of the current shipped API reads.
 
 If a user asks for a different priority, follow the user and update this document afterward.

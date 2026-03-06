@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pa-api"
+version = "0.1.0"
+description = "Thin FastAPI service boundary for PA Quantitative inspector reads."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.135,<0.136",
+    "pydantic>=2.12,<2.13",
+    "uvicorn>=0.41,<0.42",
+    "httpx>=0.28,<0.29",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

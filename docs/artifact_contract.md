@@ -130,6 +130,9 @@ It may cache for interaction, but it must not create canonical structure state b
 Overlays are always derived from source structures.
 Overlay projection behavior and schema are defined in `docs/overlay_spec.md`.
 
+Session-profile and timeframe-aggregation behavior are defined in `docs/session_timeframe_spec.md`.
+Future filtered or aggregated bar families must expose explicit `session_profile` provenance in manifests and API metadata.
+
 ## First Implementation Targets
 
 The first derived artifacts to build are:

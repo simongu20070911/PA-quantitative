@@ -20,7 +20,8 @@ dist/
 
 # JavaScript / frontend
 node_modules/
-
+.playwright-cli/
+/output
 # Local environment files
 .env
 .env.*

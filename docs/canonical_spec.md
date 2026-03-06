@@ -181,6 +181,17 @@ Where applicable, structures should support states such as:
 This project does not optimize for full real-time deployment first.
 It optimizes for a historically grounded, visually auditable system that can later be extended into live-compatible computation without semantic redefinition.
 
+## Session And Timeframe Reference
+
+Named session profiles and derived timeframe aggregation behavior are defined in:
+
+- `/Users/simongu/Projects/PA quantitative/docs/session_timeframe_spec.md`
+
+Cross-cutting rule:
+
+- the current canonical base dataset corresponds to `session_profile = eth_full` and `timeframe = 1m`
+- future `RTH` filters, derived multi-minute bars, and custom minute timeframes must follow the session/timeframe spec rather than being defined ad hoc in code or UI
+
 ## Canonical Bar Model
 
 The universal coordinate is `bar_id`, not timestamp alone.
@@ -246,6 +257,34 @@ Index type policy:
 ## Canonical Feature Model
 
 Features must be theory-first, interpretable, and model-agnostic.
+
+### Bar-Family Generic Feature Policy
+
+Feature and structure definitions must treat bar series as a generic analytical object type.
+
+This means:
+
+- the same feature family should be usable on `1m`, `5m`, `10m`, `1h`, and other supported bar families
+- core formulas should operate on bars uniformly rather than embedding timeframe-specific branches
+- timeframe changes the input bar family, not the meaning of the feature function itself
+
+This does not imply:
+
+- invariant output behavior across timeframes
+- invariant feature distributions across timeframes
+- invariant thresholds or downstream scoring across timeframes
+
+The invariant requirement is computational treatment, not empirical market behavior.
+
+Allowed:
+
+- timeframe-specific parameter sets outside the core formula
+- timeframe-specific validation and calibration
+- different downstream structure behavior arising from the same feature family applied to different bar families
+
+Not allowed:
+
+- feature formulas that silently special-case `1m` versus `5m` versus `1h` inside the core implementation unless the project spec explicitly introduces a distinct feature family
 
 Features are classified by alignment:
 

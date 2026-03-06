@@ -1,11 +1,17 @@
 # `pa_api`
 
-Future FastAPI service boundary for:
+Thin FastAPI service boundary for:
 
 - bar window queries
-- artifact queries
+- structure detail queries
 - inspector metadata
 - review writes
 
+Current implemented endpoints:
+
+- `GET /health`
+- `GET /chart-window`
+- `GET /structure/{structure_id}`
+
 This package should stay thin.
-Business logic belongs in `pa_core`.
+Business logic and projection logic belong in `pa_core`.

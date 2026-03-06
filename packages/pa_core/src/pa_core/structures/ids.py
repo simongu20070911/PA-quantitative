@@ -14,12 +14,14 @@ def build_structure_id(
     anchor_bar_ids: Sequence[int],
     rulebook_version: str,
     structure_version: str,
+    scope_ref: str | None = None,
 ) -> str:
     payload = json.dumps(
         {
             "anchor_bar_ids": list(anchor_bar_ids),
             "kind": kind,
             "rulebook_version": rulebook_version,
+            "scope_ref": scope_ref,
             "start_bar_id": start_bar_id,
             "structure_version": structure_version,
         },

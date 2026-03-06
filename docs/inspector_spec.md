@@ -7,6 +7,7 @@ Spec dependencies:
 
 - `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/artifact_contract.md`
+- `/Users/simongu/Projects/PA quantitative/docs/session_timeframe_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/rulebooks/pa_rulebook_v0_1.md`
 
 ## Purpose
@@ -26,6 +27,10 @@ The inspector is the continuous visual workstation for:
 
 The inspector is not a semantics engine.
 It consumes backend artifacts and presents them in a TradingView-like interactive surface.
+
+Session-profile and timeframe-selector semantics are defined in:
+
+- `/Users/simongu/Projects/PA quantitative/docs/session_timeframe_spec.md`
 
 ## Product Goal
 
@@ -151,6 +156,94 @@ The adapter should own:
 
 This keeps the rendering backend replaceable without making it a likely near-term priority.
 
+## TV-Like Chart Defaults
+
+The inspector should mimic TradingView chart-surface behavior as closely as practical for MVP.
+Exact product parity is not required, but the default feel should be recognizably close.
+
+### Visual Defaults
+
+Default visual direction:
+
+- light theme first
+- clean neutral background
+- subtle grid
+- TV-like candlestick color polarity
+- uncluttered axes and crosshair
+
+Default candle styling target:
+
+- up candles use a TradingView-like green
+- down candles use a TradingView-like red
+- wick colors match candle direction
+- borders stay subtle and should not dominate the candle body
+- default spacing should feel close to TradingView's standard readable intraday density
+
+Default chart-surface guidance:
+
+- background should stay visually quiet so overlays remain legible
+- grid lines should be present but low-contrast
+- price labels and last-price line should remain readable without overpowering overlays
+- crosshair should be visible and precise, not decorative
+
+### Mouse and Scroll Behavior
+
+Default viewport interaction target:
+
+- dragging in the main plot area pans the chart
+- mouse-wheel interaction over the main plot area zooms the time scale around the cursor
+- trackpad and wheel interaction should affect the chart, not trigger page scroll, when the pointer is over the chart
+
+Price-axis behavior target:
+
+- dragging on the right price axis rescales the visible price range
+- this should feel like grabbing and stretching the vertical chart scale
+- double-clicking the price axis may reset to auto-scale if supported cleanly
+
+Time-axis behavior target:
+
+- dragging on the bottom time axis rescales horizontal spacing
+- this should feel like grabbing and stretching bar width
+- double-clicking the time axis may reset to a sensible default zoom if supported cleanly
+
+### Bar Height and Width Management
+
+The chart should support TradingView-like manual scale control.
+
+Required behaviors:
+
+- users can adjust bar height by dragging the right-side price axis
+- users can adjust bar width and density by dragging the bottom time axis
+- the visible range should update smoothly during these interactions
+- overlays must stay aligned while axes are being dragged
+
+### Interaction Quality Rules
+
+The following interaction quality rules are required:
+
+- viewport changes must feel smooth and continuous
+- zoom should occur around the local cursor context when practical
+- chart interactions should not cause obvious overlay lag
+- selection state should remain stable through modest panning and zooming
+- the chart should not unexpectedly snap to a distant range during ordinary scale gestures
+
+### Deferred UI Parity
+
+The following TradingView-like surface details are desirable but deferred beyond MVP:
+
+- full toolbar parity
+- extensive keyboard shortcut parity
+- advanced drawing-tool parity
+- layout and panel parity with the full TradingView product
+
+MVP priority remains the chart surface itself:
+
+- candle look
+- pan and zoom feel
+- axis-drag scale behavior
+- crosshair clarity
+- overlay alignment during interaction
+
 ## Rendering Model
 
 The rendering pipeline is:
@@ -231,9 +324,9 @@ Required request parameters:
 
 - `symbol`
 - `timeframe`
-- one of `center_bar_id`, `session_date`, or explicit start/end
+- one of `center_bar_id`, `session_date`, or explicit `start_time` / `end_time`
 - visible-span sizing controls such as `left_bars` and `right_bars`
-- requested overlay layers
+- requested overlay layers such as repeated `overlay_layer=pivot`
 
 Required response shape:
 
@@ -258,18 +351,21 @@ Required response shape:
       "source_structure_id": "leg-123",
       "anchor_bars": [600, 615],
       "anchor_prices": [5338.25, 5328.5],
-      "style_key": "leg.confirmed",
+      "style_key": "leg.down.confirmed",
       "rulebook_version": "v0_1",
       "structure_version": "v1",
       "data_version": "es_1m_v1_4f3eda8a678d3c41",
+      "overlay_version": "v1",
       "meta": {}
     }
   ],
   "meta": {
     "data_version": "es_1m_v1_4f3eda8a678d3c41",
     "feature_version": "v1",
+    "feature_params_hash": "44136fa355b3678a",
     "rulebook_version": "v0_1",
-    "structure_version": "v1"
+    "structure_version": "v1",
+    "overlay_version": "v1"
   }
 }
 ```

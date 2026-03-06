@@ -139,6 +139,7 @@ def build_pivot_structure_frame(
     rulebook_version: str = PIVOT_RULEBOOK_VERSION,
     structure_version: str = PIVOT_STRUCTURE_VERSION,
     right_window: int = PIVOT_RIGHT_WINDOW,
+    structure_scope: str | None = None,
 ) -> pa.Table:
     rows: list[dict[str, object]] = []
     n = len(structure_inputs.bar_arrays)
@@ -159,6 +160,7 @@ def build_pivot_structure_frame(
                 rulebook_version=rulebook_version,
                 structure_version=structure_version,
                 cross_session_window=bool(scan_result.cross_session_window[index]),
+                structure_scope=structure_scope,
             )
         )
 
@@ -179,6 +181,7 @@ def build_pivot_structure_frame(
                 rulebook_version=rulebook_version,
                 structure_version=structure_version,
                 cross_session_window=bool(scan_result.cross_session_window[index]),
+                structure_scope=structure_scope,
             )
         )
 
@@ -326,6 +329,7 @@ def _build_pivot_row(
     rulebook_version: str,
     structure_version: str,
     cross_session_window: bool,
+    structure_scope: str | None,
 ) -> dict[str, object]:
     start_bar_id = int(structure_inputs.bar_arrays.bar_id[pivot_index])
     anchor_bar_ids = (start_bar_id,)
@@ -342,6 +346,7 @@ def _build_pivot_row(
             anchor_bar_ids=anchor_bar_ids,
             rulebook_version=rulebook_version,
             structure_version=structure_version,
+            scope_ref=structure_scope,
         ),
         "kind": kind,
         "state": state,
