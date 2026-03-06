@@ -1,10 +1,14 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { Overlay, StructureDetailResponse } from "../lib/types";
+import type { FloatingPosition, Overlay, StructureDetailResponse } from "../lib/types";
 
 export interface InspectorPanelProps {
   overlay: Overlay | null;
   anchorPoint: { x: number; y: number } | null;
+  initialPosition: FloatingPosition;
+  initialManualPosition: boolean;
+  onPositionChange: (position: FloatingPosition) => void;
+  onManualPositionChange: (manual: boolean) => void;
   detail: StructureDetailResponse | null;
   loading: boolean;
   error: string | null;
@@ -14,17 +18,33 @@ export interface InspectorPanelProps {
 export function InspectorPanel({
   overlay,
   anchorPoint,
+  initialPosition,
+  initialManualPosition,
+  onPositionChange,
+  onManualPositionChange,
   detail,
   loading,
   error,
   onClose,
 }: InspectorPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
-  const [position, setPosition] = useState({ left: 24, top: 24 });
+  const dragHandleRef = useRef<HTMLDivElement | null>(null);
+  const hasInitializedOverlayRef = useRef(false);
+  const [position, setPosition] = useState(initialPosition);
+  const [manualPosition, setManualPosition] = useState(initialManualPosition);
+  const overlayKey = overlay?.overlay_id ?? null;
+
+  useEffect(() => {
+    onPositionChange(position);
+  }, [onPositionChange, position]);
+
+  useEffect(() => {
+    onManualPositionChange(manualPosition);
+  }, [manualPosition, onManualPositionChange]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
-    if (!panel || !anchorPoint) {
+    if (!panel || !anchorPoint || manualPosition) {
       return;
     }
     const parent = panel.offsetParent;
@@ -45,7 +65,71 @@ export function InspectorPanel({
     left = Math.max(gap, Math.min(left, parentRect.width - panelRect.width - gap));
     top = Math.max(gap, Math.min(top, parentRect.height - panelRect.height - gap));
     setPosition({ left, top });
-  }, [anchorPoint, detail, error, loading, overlay]);
+  }, [anchorPoint, detail, error, loading, manualPosition, overlay]);
+
+  useEffect(() => {
+    if (!hasInitializedOverlayRef.current) {
+      hasInitializedOverlayRef.current = true;
+      return;
+    }
+    setManualPosition(false);
+  }, [anchorPoint, overlayKey]);
+
+  useEffect(() => {
+    const handle = dragHandleRef.current;
+    const panel = panelRef.current;
+    if (!handle || !panel) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("button")) {
+        return;
+      }
+      const parent = panel.offsetParent;
+      if (!(parent instanceof HTMLElement)) {
+        return;
+      }
+      const panelRect = panel.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      const offsetX = event.clientX - panelRect.left;
+      const offsetY = event.clientY - panelRect.top;
+      setManualPosition(true);
+      handle.setPointerCapture(event.pointerId);
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        const nextLeft = moveEvent.clientX - parentRect.left - offsetX;
+        const nextTop = moveEvent.clientY - parentRect.top - offsetY;
+        const gap = 14;
+        setPosition({
+          left: Math.max(gap, Math.min(nextLeft, parentRect.width - panelRect.width - gap)),
+          top: Math.max(gap, Math.min(nextTop, parentRect.height - panelRect.height - gap)),
+        });
+      };
+
+      const stopDrag = (endEvent: PointerEvent) => {
+        if (handle.hasPointerCapture(endEvent.pointerId)) {
+          handle.releasePointerCapture(endEvent.pointerId);
+        }
+        handle.removeEventListener("pointermove", onPointerMove);
+        handle.removeEventListener("pointerup", stopDrag);
+        handle.removeEventListener("pointercancel", stopDrag);
+      };
+
+      handle.addEventListener("pointermove", onPointerMove);
+      handle.addEventListener("pointerup", stopDrag);
+      handle.addEventListener("pointercancel", stopDrag);
+    };
+
+    handle.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      handle.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, []);
 
   if (!overlay && !detail && !loading && !error) {
     return null;
@@ -57,7 +141,7 @@ export function InspectorPanel({
       ref={panelRef}
       style={{ left: `${position.left}px`, top: `${position.top}px` }}
     >
-      <div className="panel-head">
+      <div className="panel-head panel-drag-handle" ref={dragHandleRef}>
         <div>
           <p className="eyebrow">Selection</p>
           <h2>Structure Detail</h2>

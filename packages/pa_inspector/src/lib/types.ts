@@ -1,6 +1,27 @@
 export type OverlayLayer = "pivot" | "leg" | "major_lh" | "breakout_start";
 export type SelectorMode = "session_date" | "center_bar_id" | "time_range";
 export type SessionProfile = "eth_full" | "rth";
+export type AnnotationTool = "none" | "line" | "box" | "fib50";
+export type AnnotationKind = Exclude<AnnotationTool, "none">;
+export type AnnotationLineStyle = "solid" | "dashed" | "dotted";
+export type InspectorToolbarPanel = "jump" | "display" | "layers" | "data" | null;
+export type AnnotationToolbarPopover =
+  | "stroke"
+  | "fill"
+  | "width"
+  | "style"
+  | "opacity"
+  | null;
+
+export interface FloatingPosition {
+  left: number;
+  top: number;
+}
+
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
 
 export interface ChartBar {
   bar_id: number;
@@ -25,6 +46,35 @@ export interface Overlay {
   data_version: string;
   overlay_version: string;
   meta: Record<string, unknown>;
+}
+
+export interface AnnotationAnchor {
+  bar_id: number;
+  price: number;
+}
+
+export interface AnnotationStyle {
+  strokeColor: string;
+  fillColor: string;
+  lineWidth: number;
+  lineStyle: AnnotationLineStyle;
+  opacity: number;
+  locked: boolean;
+}
+
+export interface ChartAnnotation {
+  id: string;
+  familyKey: string;
+  kind: AnnotationKind;
+  start: AnnotationAnchor;
+  end: AnnotationAnchor;
+  style: AnnotationStyle;
+}
+
+export interface ConfirmationGuide {
+  sourceStructureId: string;
+  confirmBarId: number;
+  confirmPrice: number;
 }
 
 export interface ChartWindowMeta {

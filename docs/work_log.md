@@ -221,6 +221,126 @@ Copy this shape for new entries:
 - Next: If manual testing still finds any residual X drift on the price axis, expose the logical/time-range debug state temporarily so we can measure wheel behavior numerically instead of only visually.
 
 ### 2026-03-06
+- Summary: Added a new local `fib50` annotation tool that draws three yellow horizontal levels at the top, midpoint, and bottom of a dragged range, giving the inspector a lightweight 0/50/100 retracement-style markup tool.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/types.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want this tool to behave even more like a true fib object, the next step is optional level labels and configurable colors or percentages.
+
+### 2026-03-06
+- Summary: Added a command-click overlay shortcut that fetches the source structure confirmation bar in the background and renders a blue horizontal confirmation guide on the chart without opening the floating structure-detail panel.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/types.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If this guide becomes part of a larger inspection workflow, the next step is supporting multiple stacked confirmation guides and an explicit clear action in the chart UI.
+
+### 2026-03-06
+- Summary: Made the left annotation tool rail draggable inside the chart surface by adding a compact grip handle at the top of the panel and constraining its movement within the visible plotting area.
+- Files: `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want panel layout persistence, the next step is storing the last rail position in local UI state across reloads and family switches.
+
+### 2026-03-06
+- Summary: Moved annotation editing onto dedicated shape-sized hitboxes above the chart so lines and boxes can be selected more reliably, dragged by their body, and edited from endpoint handles without blocking normal chart interaction outside the drawings.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we still want richer editing, the next step is adding midpoint or edge handles plus a small selection HUD for duplicate, delete, and lock actions.
+
+### 2026-03-06
+- Summary: Improved local annotation ergonomics by enlarging selection hit targets, adding body-drag plus endpoint editing for selected shapes, and making the floating structure-detail panel draggable from its header.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/InspectorPanel.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want these interactions to feel even closer to TradingView, the next step is visual hover affordances for draggable handles and a dedicated move cursor while dragging shapes.
+
+### 2026-03-06
+- Summary: Fully isolated the floating annotation toolbar from chart interaction by stopping toolbar pointer and click events in capture phase, preventing the underlying chart substrate from hijacking toolbar clicks and popovers.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any chart-adjacent floating UI remains flaky, the next cleanup should wrap these controls in a shared event-isolation helper instead of repeating local stop-propagation logic.
+
+### 2026-03-06
+- Summary: Fixed the annotation toolbar interaction regression by teaching the chart-surface pointer controller to ignore toolbar events, so toolbar buttons, popovers, and the drag grip no longer get treated as chart clicks.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: The next cleanup should carve out a small allowlist helper for all non-chart UI overlays inside the chart surface so future floating controls don't need ad hoc exemptions.
+
+### 2026-03-06
+- Summary: Fixed the follow-up drag regression after primitive migration by moving the active annotation draw and drag sessions into refs, so pointer gestures survive selection-triggered rerenders instead of losing state mid-drag.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: The next cleanup should stabilize more of the interaction callbacks with a dedicated controller hook so the chart-surface event logic is easier to reason about and less sensitive to rerender churn.
+
+### 2026-03-06
+- Summary: Restored post-migration annotation interaction by replacing the split click-plus-state timing path with one chart-surface pointer controller, so selection, dragging, and tool drawing all ride the same direct hit-test stream again.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: The next cleanup should remove the remaining naming mismatch around `OverlayCanvas`, since it now acts as the chart-surface interaction controller while persistent rendering lives in the primitive layer.
+
+### 2026-03-06
+- Summary: Migrated persistent inspector overlays and annotations onto a series-attached `Lightweight Charts` primitive, removed the always-on DOM annotation layer from the chart tree, and reduced the old overlay canvas component to interaction and draft-tool state so chart objects move in the same render loop as candles.
+- Files: `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: The next refinement should move the remaining annotation drag and draft interaction logic out of the legacy overlay interaction component and into a thinner chart-surface controller so the primitive path owns even more of the experience.
+
+### 2026-03-06
+- Summary: Tightened line-annotation hit testing so only the actual line stroke and endpoint handles capture clicks, which lets clicks in nearby empty space fall through and deselect cleanly.
+- Files: `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If deselection still feels inconsistent, the next refinement should centralize all annotation hit-testing in one layer and retire the older overlay-canvas fallback path.
+
+### 2026-03-06
+- Summary: Changed the floating annotation toolbar to open in a fixed top-right chart position instead of following the selected drawing, while keeping it user-draggable within the chart surface.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want even steadier behavior, the next pass should persist the toolbar position across reloads and clamp it live on chart resize with a small resize observer.
+
+### 2026-03-06
+- Summary: Added a draggable floating annotation toolbar for selected drawings with live stroke color, fill color, line width, dash style, opacity, duplicate, lock, and delete controls, and extended the annotation model to carry per-object style state.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/index.css`, `packages/pa_inspector/src/lib/annotationStyle.ts`, `packages/pa_inspector/src/lib/types.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want to push closer to TradingView, the next pass should add per-tool presets and persist toolbar position per selected object instead of resetting it on reselection.
+
+### 2026-03-06
+- Summary: Fixed the `fib50` drag jump by resolving annotation pointer coordinates against the chart surface instead of individual line hitboxes, which keeps measured-move pickup aligned with the cursor.
+- Files: `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any annotation tool still feels sticky, the next place to tighten is drag-preview smoothing and per-tool cursor feedback rather than changing coordinate math again.
+
+### 2026-03-06
+- Summary: Limited visible annotation endpoint handles to the currently selected drawing so inactive annotations no longer show drag circles across the chart.
+- Files: `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want the selection state to read more clearly, the next refinement is a slightly stronger selected stroke or subtle hover affordance without reintroducing visual clutter.
+
+### 2026-03-06
+- Summary: Tightened `fib50` annotation hit-testing so only the three measured-move lines and endpoint handles are selectable, letting clicks in the empty interior fall through to the chart or overlay layer below.
+- Files: `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If users want parity with TradingView tools, the next refinement is adding line labels and per-tool hover cursors without expanding the click footprint again.
+
+### 2026-03-06
+- Summary: Added `Option`-drag duplication for selected local annotations so users can clone a line, box, or `fib50` drawing and move the duplicate in one gesture without disturbing the original.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If annotation editing keeps expanding, add a tiny selected-object HUD with duplicate and lock actions so the interaction is discoverable without relying on modifier keys.
+
+### 2026-03-06
+- Summary: Simplified the chart surface further by removing horizontal plot-grid lines and shrinking the left annotation rail into an icon-only tool strip so the drawing controls occupy less candle space.
+- Files: `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/index.css`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want the rail even closer to TradingView, the next pass should add hover tooltips and one or two more recognizable tool glyphs before changing layout again.
+
+### 2026-03-06
+- Summary: Restyled the inspector toward a flatter TradingView-like minimal light theme by removing the decorative background treatment, simplifying card chrome, neutralizing the control palette, and aligning the chart substrate colors with a cleaner white workspace.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/index.css`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want to push even closer to TradingView, the next visual pass should focus on iconography and tighter toolbar density rather than more color tweaks.
+
+### 2026-03-06
+- Summary: Added a left-side chart annotation rail with local line and box drawing tools, chart-scaled selection hit-testing, and delete or clear actions so users can mark up the inspector without breaking overlay alignment during pan and zoom.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If these local annotations need to persist across reloads or become shareable, add an explicit non-canonical annotation storage contract before wiring any backend save path.
+
+### 2026-03-06
 - Summary: Smoothed the inspector leg-line rendering by replacing the hard bright under-stroke with a softer colored glow pass before the main line stroke, which makes diagonal legs read less pixelated without changing overlay semantics.
 - Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`; live inspector screenshot check on `http://127.0.0.1:4173/`
@@ -231,3 +351,99 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`; live inspector screenshot check on `http://127.0.0.1:4173/`
 - Next: If markers still feel off, the next tweak should be shape-specific sizing and stroke widths rather than adding blur back.
+
+### 2026-03-06
+- Summary: Aligned the session/timeframe spec with the shipped backend state by removing stale language that said non-base bar families were unsupported at runtime and replacing it with the current runtime-versus-materialized boundary.
+- Files: `docs/session_timeframe_spec.md`, `docs/work_log.md`
+- Verification: Reviewed the `Current Scope` and `Current Implementation Boundary` sections in `docs/session_timeframe_spec.md` after the update and confirmed they now match the shipped `rth` and derived-minute runtime support.
+- Next: Materialize non-canonical family-native bar, feature, and structure artifacts so the implementation fully matches the artifact-first contract instead of relying on runtime-only derived-family paths.
+
+### 2026-03-06
+- Summary: Tightened the inspector top bar into a denser chart-first layout by reducing toolbar padding, heading size, chip size, and action-button spacing without removing any controls.
+- Files: `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the bar still feels too tall in live use, the next clean step is shortening a few chip labels or collapsing low-value summary chips before removing any controls.
+
+### 2026-03-06
+- Summary: Removed the redundant chart-stage header so the plotting area starts directly under the main toolbar and reclaims that vertical space for candles and overlays.
+- Files: `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the chart still feels cramped vertically, the next clean pass is trimming the bottom chart footnote or reducing outer shell padding before changing chart internals.
+
+### 2026-03-06
+- Summary: Added a dashed session-separator guide for `rth` chart windows by drawing a faint vertical line at each adjacent `session_date` boundary inside the chart overlay canvas.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the separator feels too subtle or too loud in live use, tune dash spacing and opacity before adding labels or other session chrome.
+
+### 2026-03-06
+- Summary: Fixed overlay desynchronization during Y-axis scaling by adding an adapter-level presentation invalidation path that forces overlay-canvas redraws during right price-axis wheel zoom and price-axis drag interactions.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any residual lag remains on unusually dense windows, profile the overlay redraw path and consider narrowing invalidation to only the visible overlay subset before changing chart interaction behavior again.
+
+### 2026-03-06
+- Summary: Fixed the annotation settings toolbar controls after the primitive interaction migration by switching toolbar actions, swatches, and menu items to direct pointer activation and isolating slider pointer events from the chart-surface controller.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any toolbar control still feels unreliable in live use, broaden the event shield from the toolbar to the rest of the floating chart UI chrome before revisiting primitive interaction logic.
+
+### 2026-03-06
+- Summary: Fixed the floating annotation settings toolbar interaction by moving the toolbar out of the chart interaction container and clamping it against the chart surface bounds, so toolbar buttons and popovers no longer route through the chart's native pointer handlers.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any remaining floating chart UI still fights the chart, move that chrome to the chart-shell overlay layer too instead of nesting it inside the chart surface.
+
+### 2026-03-06
+- Summary: Fixed dragging for the floating annotation settings toolbar by replacing the grip-local pointer-capture path with a window-level drag session and hardening the toolbar surface with no-select and no-touch-action behavior.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If users still expect more flexible movement, allow dragging from the whole toolbar background while keeping buttons and popovers excluded from drag start.
+
+### 2026-03-06
+- Summary: Fixed the actual annotation-toolbar interaction failure by removing the parent capture-phase pointer swallowing that was blocking child buttons and the drag grip from receiving their own pointer handlers; verified in a live browser that popovers open, color selection applies, and the toolbar drag grip moves the panel.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; Playwright live check against `http://127.0.0.1:4173/` for stroke popover open, swatch selection, and toolbar drag
+- Next: If any remaining control still feels off, test each toolbar action in-browser before changing the event model again, because this panel is sensitive to React event phase changes.
+
+### 2026-03-06
+- Summary: Fixed sticky toolbar dragging by making the annotation-toolbar drag session self-terminate whenever move events report no pressed buttons, with extra cleanup on `mouseup` and window blur so the panel no longer keeps following the mouse after release.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; Playwright live check against `http://127.0.0.1:4173/` for drag, release, and post-release mouse movement without toolbar drift
+- Next: If toolbar movement still feels fragile on some devices, consider switching the grip to pointer capture plus the same `buttons===0` safeguard rather than broadening the drag area.
+
+### 2026-03-06
+- Summary: Changed the inspector chart cursor back to a normal arrow cursor by removing the crosshair-style cursor assignment from both idle hover and draw mode.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want more nuanced cursor feedback later, add tool-specific cursors only for concrete edit targets like handles and overlay hits rather than restoring a global crosshair.
+
+### 2026-03-06
+- Summary: Removed the visible dashed chart crosshair guides by disabling the lightweight-charts horizontal and vertical crosshair lines while keeping hover tracking available for inspector interactions.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any hover affordance still feels necessary later, add a subtler inspector-owned highlight rather than turning the full chart crosshair back on.
+
+### 2026-03-06
+- Summary: Added browser-local workspace persistence for the inspector so reload restores chart selector inputs, session/timeframe family, overlay layer toggles, and non-canonical local annotations without changing backend semantics or review persistence.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; Playwright check on `http://127.0.0.1:4173/` confirmed the app writes `pa_inspector.workspace.v1` to local storage and restores saved `timeframe` plus layer-toggle state after reload
+- Next: If we want the workspace to feel even more continuous, persist floating UI chrome positions such as the annotation rail and annotation toolbar in the same browser-local snapshot.
+
+### 2026-03-06
+- Summary: Expanded inspector reload persistence from basic chart preferences to fuller workspace restore, including active drawing tool, selected overlay/drawing IDs, confirmation guide state, top-toolbar open panel, and floating annotation/detail panel positions, while keeping the whole snapshot browser-local and non-canonical.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/InspectorPanel.tsx`, `packages/pa_inspector/src/lib/types.ts`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; Playwright live check on `http://127.0.0.1:4173/` confirmed a saved open `Layers` panel and saved layer-toggle state restore after reload
+- Next: If we want true “resume exactly where I was” behavior, the next extension is to persist and restore chart viewport range itself in addition to the surrounding workspace UI state.
+
+### 2026-03-06
+- Summary: Reduced chart stutter from viewport persistence by moving live viewport updates off the React hot path, debouncing persistence commits, and routing viewport callbacks through refs so normal app rerenders do not recreate the chart subscription effect.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the chart still feels heavier than desired, the next cleanup is separating viewport persistence into its own tiny storage key so full-workspace JSON serialization never rides with unrelated UI state.
+
+### 2026-03-06
+- Summary: Removed the remaining end-of-pan/end-of-zoom nudge by treating restored viewport state as one-time startup input per chart family instead of a live `ChartPane` dependency, which prevents debounced persistence commits from re-running `setBars(...)` against an already-settled chart.
+- Files: `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any tiny motion hitch still remains after refresh, isolate viewport persistence into its own storage write path so no unrelated workspace snapshot work happens at gesture-settle time.

@@ -127,13 +127,13 @@ Preferred frontend architecture:
 
 - React + TypeScript for application shell and UI state
 - `TradingView Lightweight Charts` as the candle, time-scale, and price-scale substrate
-- a custom synchronized `canvas` overlay layer for structure objects
+- series-attached `Lightweight Charts` primitives for persistent overlay and annotation rendering
 
 Why this stack:
 
 - `Lightweight Charts` provides mature pan, zoom, time scale, and price scale behavior
-- a custom overlay layer preserves our own object model and avoids forcing PA semantics into chart-library primitives
-- canvas rendering supports smoother dense overlay drawing than large DOM or SVG object sets
+- chart-native primitives keep persistent visuals in the same rendering loop as candles, which improves alignment and motion feel during pan or zoom
+- our own primitive layer still preserves our object model and avoids forcing PA semantics into foreign backend layers
 
 Frontend rendering rule:
 
@@ -250,7 +250,7 @@ The rendering pipeline is:
 
 1. fetch a visible chart window from `pa_api`
 2. render candles through `Lightweight Charts`
-3. render visible overlays on a synchronized canvas layer
+3. render visible overlays and persistent annotations through series-attached chart primitives
 4. perform hit testing against the visible overlay set
 5. show object metadata in a side panel on selection
 
@@ -484,6 +484,18 @@ Recommended frontend state categories:
 - active artifact versions
 - current mode
 
+Allowed browser-local persistence:
+
+- requested layers
+- current window selector inputs
+- current chart viewport location and zoom span
+- non-canonical local annotations anchored to `bar_id + price`
+- local selection state, confirmation guides, and floating-panel placement used only for workspace continuity
+
+Rule:
+
+- browser-local persistence may restore workspace convenience across reloads, but it must remain clearly non-canonical and must not be treated as backend review or structure state
+
 Do not use global mutable state for semantics.
 The frontend state is a view-state layer over backend artifacts.
 
@@ -531,7 +543,7 @@ Recommended implementation order:
 1. overlay projection logic in `pa_core`
 2. windowed bar and overlay read endpoint in `pa_api`
 3. `pa_inspector` shell and chart substrate
-4. canvas overlay rendering for `pivot` and `leg`
+4. primitive-based overlay rendering for `pivot` and `leg`
 5. `major_lh` and `breakout_start` marker rendering
 6. selection and side-panel evidence loading
 7. viewport cache and adjacent-window prefetch

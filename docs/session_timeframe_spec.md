@@ -39,8 +39,8 @@ Current implementation status:
 - `session_date` is computed from ET time with an `18:00` America/New_York rollover
 - no dedicated `RTH`-filtered bar artifacts exist yet
 - no derived multi-minute bar artifacts exist yet
-
-Until new bar families are implemented, any session profile or timeframe other than the canonical base feed should be treated as unsupported at runtime.
+- backend runtime support now exists for `rth`-filtered `1m` and derived minute families such as `eth_full 5m`
+- non-canonical session/timeframe families are currently runtime-derived from canonical `eth_full 1m`; they are not yet materialized as their own bar, feature, or structure artifact families
 
 ## Core Principles
 
@@ -385,9 +385,10 @@ If the existing bar `data_version` convention is extended to encode session prof
 
 As of 2026-03-06, the implemented boundary is:
 
-- canonical `eth_full 1m` bars only
+- materialized canonical bars only for `eth_full 1m`
 - `session_date` rollover at `18:00` ET
-- no runtime support yet for `rth`-filtered bars
-- no runtime support yet for derived multi-minute bars
+- backend runtime support for `rth`-filtered `1m`
+- backend runtime support for derived minute families such as `eth_full 5m`
+- non-canonical families currently rely on runtime-derived bars and runtime-native feature/structure computation rather than materialized family-specific artifacts
 
-This spec defines the required behavior for those future additions so they can be implemented without semantic drift.
+This spec continues to define the required behavior for fuller artifact-backed family support so future materialization work can proceed without semantic drift.

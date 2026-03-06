@@ -30,7 +30,7 @@ The project currently has:
 - materialized pivot, leg, `major_lh`, and breakout-start artifacts under `artifacts/structures/`
 - an on-demand overlay projection layer for `pivot`, `leg`, `major_lh`, and bearish breakout-start structures in `packages/pa_core/src/pa_core/overlays/`
 - a thin `pa_api` FastAPI layer for `GET /chart-window` and `GET /structure/{structure_id}`
-- an initial `pa_inspector` React + TypeScript + Vite shell with a `Lightweight Charts` adapter, canvas overlay rendering, layer toggles, and side-panel detail loading
+- an initial `pa_inspector` React + TypeScript + Vite shell with a `Lightweight Charts` adapter, native primitive overlay rendering, layer toggles, and side-panel detail loading
 
 The project does not yet have:
 
@@ -74,7 +74,7 @@ Implemented:
 - a thin `pa_api` package with cached artifact-backed chart-window and structure-detail reads over the current overlay-enabled structure slice
 - FastAPI app wiring for `GET /chart-window`, `GET /structure/{structure_id}`, and a minimal `/health` check
 - focused `unittest` coverage for chart-window selector validation, overlay-layer filtering, and structure-detail responses
-- a `pa_inspector` app scaffold with React + TypeScript + Vite, a `Lightweight Charts` adapter boundary, synchronized canvas overlay drawing, toolbar-driven window loads, and selection-based side-panel detail fetches
+- a `pa_inspector` app scaffold with React + TypeScript + Vite, a `Lightweight Charts` adapter boundary, series-attached primitive rendering for persistent overlays and annotations, toolbar-driven window loads, and selection-based side-panel detail fetches
 - focused fixture coverage for leg tie-breaking, `major_lh`, breakout starts, and structure dependency hashing
 - focused `unittest` coverage for overlay geometry mapping, stable overlay IDs, current-chain overlay loading, and render-priority ordering
 - fixture-based `unittest` coverage for pivot confirmation, candidates, tie suppression, cross-session scans, and kernel/reference agreement
@@ -150,17 +150,21 @@ Current inspector policy:
 - `pa_inspector` now consumes the shipped `pa_api` read endpoints rather than mocking structure semantics locally
 - candles render through `Lightweight Charts`, while overlays render on a synchronized canvas layer
 - overlay family toggles are currently local view-state over the loaded overlay payload
+- local layer toggles, chart selector inputs, current viewport location/zoom span, non-canonical annotations, current selections, confirmation guides, and floating-panel placement now persist across browser reloads through browser-local storage only
 - inspector session-profile and timeframe controls are now wired to real backend/API reads rather than frontend-local filtering or aggregation
 - the inspector no longer hardcodes overlay availability to canonical `eth_full 1m`; it now renders and filters whatever overlay payload the backend returns for the selected family, including backend-native non-canonical families such as `eth_full 5m`
 - clicking an overlay triggers lazy structure-detail loading for the detail popup rather than a persistent side column
 - panning or zooming near a loaded edge now triggers a centered window refetch, and the inspector prefetches neighboring windows into a small in-memory cache
 - chart window updates now preserve the visible logical viewport instead of refitting content on every fetch, which keeps navigation closer to the TradingView-like interaction target in `docs/inspector_spec.md`
-- the overlay canvas no longer intercepts chart wheel and drag interactions; selection and hover now ride through chart-level events so the underlying chart surface keeps TV-like pan/zoom and axis-drag behavior
+- persistent overlays and annotations now render through chart-native `Lightweight Charts` primitives instead of a separate always-on canvas or DOM layer, which keeps them visually closer to the candle surface during pan and zoom
+- the old overlay canvas has been reduced to interaction and draft-tool state only; persistent annotation DOM rendering has been removed from the chart tree
 - viewport-triggered edge refetch is now explicitly toggleable in the toolbar, and the default is off so manual drag/zoom inspection is not disrupted by surprise recentering
-- overlay rendering is now explicitly stacked above the chart pane so projected legs and markers remain visible during normal inspection
+- overlay rendering now rides the chart primitive stack itself, so projected legs and markers stay visually bound to the candle surface during normal inspection
 - the inspector layout now treats the continuous chart as the dominant surface, with a compact top command bar and flyout controls instead of a large always-open configuration slab
 - selection detail now anchors near the chart click location instead of living in a fixed side region, and the chart stage once again occupies the full available workspace width
 - the live chart-window path now supplements missing canonical anchor bars before overlay projection, which prevents long-span overlays from crashing the inspector on real data windows
+- the inspector now also includes a local left-rail annotation layer for chart markup with line and box tools anchored to `bar_id + price`, plus selection and deletion behavior that scales with chart pan and zoom while remaining non-canonical UI state
+- those non-canonical local annotations now survive browser reloads alongside the current chart-family controls, selections, floating-panel placement, and layer-toggle preferences, but they are still browser-local state rather than canonical review artifacts
 
 ## Current Priority
 

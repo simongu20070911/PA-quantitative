@@ -1,6 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { OverlayLayer, SelectorMode, SessionProfile } from "../lib/types";
+import type {
+  InspectorToolbarPanel,
+  OverlayLayer,
+  SelectorMode,
+  SessionProfile,
+} from "../lib/types";
 
 const OVERLAY_LABELS: Record<OverlayLayer, string> = {
   pivot: "Pivots",
@@ -8,8 +13,6 @@ const OVERLAY_LABELS: Record<OverlayLayer, string> = {
   major_lh: "Major LH",
   breakout_start: "Breakouts",
 };
-
-type OpenPanel = "jump" | "display" | "layers" | "data" | null;
 
 export interface ToolbarProps {
   apiBaseUrl: string;
@@ -43,12 +46,20 @@ export interface ToolbarProps {
   overlayLayerCounts: Record<OverlayLayer, number>;
   overlayLayers: Record<OverlayLayer, boolean>;
   onOverlayLayerChange: (layer: OverlayLayer, enabled: boolean) => void;
+  initialOpenPanel: InspectorToolbarPanel;
+  onOpenPanelChange: (panel: InspectorToolbarPanel) => void;
   loading: boolean;
   onLoad: () => void;
 }
 
 export function Toolbar(props: ToolbarProps) {
-  const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+  const [openPanel, setOpenPanel] = useState<InspectorToolbarPanel>(
+    props.initialOpenPanel,
+  );
+
+  useEffect(() => {
+    props.onOpenPanelChange(openPanel);
+  }, [openPanel, props]);
 
   const selectorSummary = useMemo(() => {
     if (props.selectorMode === "session_date") {
@@ -73,7 +84,7 @@ export function Toolbar(props: ToolbarProps) {
     Object.keys(props.overlayLayers) as OverlayLayer[]
   ).filter((layer) => props.overlayLayers[layer]).length;
 
-  function togglePanel(panel: Exclude<OpenPanel, null>) {
+  function togglePanel(panel: Exclude<InspectorToolbarPanel, null>) {
     setOpenPanel((current) => (current === panel ? null : panel));
   }
 
