@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Virtual environments
+.venv/
+venv/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+
+# JavaScript / frontend
+node_modules/
+
+# Local environment files
+.env
+.env.*
+
+# Project-local raw data stays outside git
+Data/*
+!Data/README.md
+
+# Generated artifacts stay outside git
+artifacts/*
+!artifacts/.gitkeep
