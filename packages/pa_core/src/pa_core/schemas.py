@@ -5,7 +5,8 @@ from typing import Literal, Mapping
 
 Alignment = Literal["bar", "edge", "segment", "structure"]
 StructureState = Literal["candidate", "confirmed", "invalidated"]
-MetadataValue = str | int | float | bool
+MetadataScalar = str | int | float | bool
+MetadataValue = MetadataScalar | tuple[MetadataScalar, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +59,10 @@ class OverlayObject:
     anchor_bars: tuple[int, ...]
     anchor_prices: tuple[float, ...]
     style_key: str
+    data_version: str
     rulebook_version: str
+    structure_version: str
+    overlay_version: str
     meta: Mapping[str, MetadataValue]
 
 

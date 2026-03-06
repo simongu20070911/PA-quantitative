@@ -1,0 +1,9 @@
+{
+  "name": "pa-inspector",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Continuous chart inspector for PA Quantitative.",
+  "dependencies": {
+    "lightweight-charts": "^5.1.0"
+  }
+}

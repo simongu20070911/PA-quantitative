@@ -6,36 +6,39 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import pyarrow as pa
 
 from pa_core.artifacts.bars import list_bar_data_versions, load_bar_manifest
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structures import (
     StructureArtifactManifest,
+    STRUCTURE_ARTIFACT_SCHEMA,
     StructureArtifactWriter,
 )
 from pa_core.data.bar_arrays import BarArrays
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
+from pa_core.rulebooks.v0_1 import (
+    PIVOT_BAR_FINALIZATION,
+    PIVOT_BASE_EXPLANATION_CODES,
+    PIVOT_CROSS_SESSION_CODE,
+    PIVOT_KIND_GROUP,
+    PIVOT_LEFT_WINDOW,
+    PIVOT_RIGHT_WINDOW,
+    PIVOT_RULEBOOK_VERSION,
+    PIVOT_STRUCTURE_VERSION,
+    PIVOT_TIMING_SEMANTICS,
+)
 from pa_core.structures.ids import build_structure_id
 from pa_core.structures.input import (
     StructureInputs,
     iter_structure_input_part_frames,
-    structure_inputs_from_frames,
+    structure_inputs_from_arrays,
 )
 from pa_core.structures.kernels import (
     strict_window_pivot_kernel,
     strict_window_pivot_reference,
 )
-
-PIVOT_KIND_GROUP = "pivot"
-PIVOT_RULEBOOK_VERSION = "v0_1"
-PIVOT_STRUCTURE_VERSION = "v1"
-PIVOT_LEFT_WINDOW = 5
-PIVOT_RIGHT_WINDOW = 5
-PIVOT_TIMING_SEMANTICS = "candidate_on_pivot_bar_close__confirmed_after_5_right_closed_bars"
-PIVOT_BAR_FINALIZATION = "closed_bar_only"
-PIVOT_BASE_EXPLANATION_CODES = ("window_5x5", "strict_tie_rule")
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +139,7 @@ def build_pivot_structure_frame(
     rulebook_version: str = PIVOT_RULEBOOK_VERSION,
     structure_version: str = PIVOT_STRUCTURE_VERSION,
     right_window: int = PIVOT_RIGHT_WINDOW,
-) -> pd.DataFrame:
+) -> pa.Table:
     rows: list[dict[str, object]] = []
     n = len(structure_inputs.bar_arrays)
     for index in np.flatnonzero(scan_result.confirmed_high | scan_result.candidate_high):
@@ -180,34 +183,18 @@ def build_pivot_structure_frame(
         )
 
     if not rows:
-        return pd.DataFrame(
-            columns=[
-                "_pivot_index",
-                "structure_id",
-                "kind",
-                "state",
-                "start_bar_id",
-                "end_bar_id",
-                "confirm_bar_id",
-                "session_id",
-                "session_date",
-                "anchor_bar_ids",
-                "feature_refs",
-                "rulebook_version",
-                "explanation_codes",
-            ]
-        )
+        return pa.Table.from_pylist([], schema=STRUCTURE_ARTIFACT_SCHEMA.append(pa.field("_pivot_index", pa.int64())))
 
-    frame = pd.DataFrame(rows)
-    return frame.sort_values(["start_bar_id", "kind"], kind="stable").reset_index(drop=True)
+    schema = STRUCTURE_ARTIFACT_SCHEMA.append(pa.field("_pivot_index", pa.int64()))
+    return pa.Table.from_pylist(rows, schema=schema).sort_by([("start_bar_id", "ascending"), ("kind", "ascending")])
 
 
 def materialize_pivots(config: PivotMaterializationConfig) -> StructureArtifactManifest:
     data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
     bar_manifest = load_bar_manifest(config.artifacts_root, data_version)
     writer: StructureArtifactWriter | None = None
-    carry_bar_frame: pd.DataFrame | None = None
-    carry_feature_frame: pd.DataFrame | None = None
+    carry_bar_arrays: BarArrays | None = None
+    carry_feature_arrays = None
 
     part_iter = iter_structure_input_part_frames(
         artifacts_root=config.artifacts_root,
@@ -218,22 +205,22 @@ def materialize_pivots(config: PivotMaterializationConfig) -> StructureArtifactM
         parquet_engine=config.parquet_engine,
     )
 
-    for part_index, (bar_frame, feature_frame) in enumerate(part_iter):
+    for part_index, (bar_arrays, feature_arrays) in enumerate(part_iter):
         is_final = part_index == len(bar_manifest.parts) - 1
-        combined_bar_frame = (
-            pd.concat([carry_bar_frame, bar_frame], ignore_index=True)
-            if carry_bar_frame is not None
-            else bar_frame.reset_index(drop=True)
+        combined_bar_arrays = (
+            carry_bar_arrays.concat(bar_arrays)
+            if carry_bar_arrays is not None
+            else bar_arrays
         )
-        combined_feature_frame = (
-            pd.concat([carry_feature_frame, feature_frame], ignore_index=True)
-            if carry_feature_frame is not None
-            else feature_frame.reset_index(drop=True)
+        combined_feature_arrays = (
+            carry_feature_arrays.concat(feature_arrays)
+            if carry_feature_arrays is not None
+            else feature_arrays
         )
 
-        structure_inputs = structure_inputs_from_frames(
-            bar_frame=combined_bar_frame,
-            feature_bundle=combined_feature_frame,
+        structure_inputs = structure_inputs_from_arrays(
+            bar_arrays=combined_bar_arrays,
+            feature_arrays=combined_feature_arrays,
             data_version=data_version,
             feature_version=config.feature_version,
             feature_params_hash=config.feature_params_hash,
@@ -267,12 +254,16 @@ def materialize_pivots(config: PivotMaterializationConfig) -> StructureArtifactM
         )
         if not is_final:
             cutoff_index = max(len(structure_inputs.bar_arrays) - config.right_window, 0)
-            pivot_frame = pivot_frame.loc[pivot_frame["_pivot_index"] < cutoff_index].reset_index(drop=True)
-        if not pivot_frame.empty:
-            writer.write_chunk(pivot_frame.drop(columns="_pivot_index"))
+            keep_mask = np.asarray(
+                pivot_frame.column("_pivot_index").combine_chunks().to_numpy(zero_copy_only=False),
+                dtype=np.int64,
+            ) < cutoff_index
+            pivot_frame = pivot_frame.filter(pa.array(keep_mask, type=pa.bool_()))
+        if pivot_frame.num_rows:
+            writer.write_chunk(pivot_frame.drop(["_pivot_index"]))
 
-        carry_bar_frame = combined_bar_frame.tail(config.right_window).reset_index(drop=True)
-        carry_feature_frame = combined_feature_frame.tail(config.right_window).reset_index(drop=True)
+        carry_bar_arrays = combined_bar_arrays.tail(config.right_window)
+        carry_feature_arrays = combined_feature_arrays.tail(config.right_window)
 
     if writer is None:
         raise ValueError("No bar parts were available for pivot materialization.")
@@ -340,7 +331,7 @@ def _build_pivot_row(
     anchor_bar_ids = (start_bar_id,)
     explanation_codes = list(PIVOT_BASE_EXPLANATION_CODES)
     if cross_session_window:
-        explanation_codes.append("cross_session_window")
+        explanation_codes.append(PIVOT_CROSS_SESSION_CODE)
     return {
         "_pivot_index": pivot_index,
         "structure_id": build_structure_id(

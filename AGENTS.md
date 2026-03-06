@@ -27,17 +27,19 @@ Before making changes, read these files in order:
 6. `docs/handoff_protocol.md`
 
 If the requested work touches rule semantics, also read the relevant rulebook document once it exists.
+If the requested work touches the inspector or overlay rendering, also read `docs/inspector_spec.md`.
+If the requested work touches overlay projection or overlay artifacts, also read `docs/overlay_spec.md`.
 
 ## Current Priority
 
 The active implementation priority is:
 
 1. treat canonical bar and edge-feature artifacts as the source computation layers
-2. extend the first structure slice beyond the shipped pivot baseline
-3. materialize deterministic structure artifacts under `artifacts/structures/`
-4. only then move into overlays and inspector work
+2. treat the shipped rulebook-backed structure artifacts as the semantic source layer
+3. derive overlays and inspector workflows from backend artifacts instead of UI-local logic
+4. keep new work stream-compatible by design without moving semantics into the UI
 
-Do not jump ahead to a rich inspector or complex structure logic before the artifact foundation is in place, unless the user explicitly reprioritizes.
+Do not move market-structure semantics into the inspector or API.
 
 ## Non-Negotiable Constraints
 
@@ -111,5 +113,17 @@ Current edge feature materialization command:
 Current pivot structure materialization command:
 
 `cd packages/pa_core && PYTHONPATH=src python3 -m pa_core.structures.pivots --data-version es_1m_v1_4f3eda8a678d3c41 --feature-version v1 --params-hash 44136fa355b3678a`
+
+Current leg structure materialization command:
+
+`cd packages/pa_core && PYTHONPATH=src python3 -m pa_core.structures.legs --data-version es_1m_v1_4f3eda8a678d3c41 --feature-version v1 --params-hash 44136fa355b3678a`
+
+Current major lower-high materialization command:
+
+`cd packages/pa_core && PYTHONPATH=src python3 -m pa_core.structures.major_lh --data-version es_1m_v1_4f3eda8a678d3c41 --feature-version v1 --params-hash 44136fa355b3678a`
+
+Current bearish breakout-start materialization command:
+
+`cd packages/pa_core && PYTHONPATH=src python3 -m pa_core.structures.breakout_starts --data-version es_1m_v1_4f3eda8a678d3c41 --feature-version v1 --params-hash 44136fa355b3678a`
 
 Expand `docs/dev_setup.md` as the project gains real commands, test targets, and services.

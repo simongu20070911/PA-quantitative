@@ -4,12 +4,14 @@ import json
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
-import pandas as pd
+import numpy as np
+import pyarrow as pa
 
 from pa_core.schemas import StructureObject
 
+from .arrow import concat_tables, empty_table, read_table, sort_table, write_table
 from .layout import (
     structure_dataset_root,
     structure_manifest_path,
@@ -30,6 +32,22 @@ STRUCTURE_ARTIFACT_COLUMNS = (
     "rulebook_version",
     "explanation_codes",
 )
+STRUCTURE_ARTIFACT_SCHEMA = pa.schema(
+    [
+        ("structure_id", pa.string()),
+        ("kind", pa.string()),
+        ("state", pa.string()),
+        ("start_bar_id", pa.int64()),
+        ("end_bar_id", pa.int64()),
+        ("confirm_bar_id", pa.int64()),
+        ("session_id", pa.int64()),
+        ("session_date", pa.int64()),
+        ("anchor_bar_ids", pa.list_(pa.int64())),
+        ("feature_refs", pa.list_(pa.string())),
+        ("rulebook_version", pa.string()),
+        ("explanation_codes", pa.list_(pa.string())),
+    ]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +60,7 @@ class StructureArtifactManifest:
     input_ref: str
     data_version: str
     feature_refs: tuple[str, ...]
+    structure_refs: tuple[str, ...]
     row_count: int
     candidate_count: int
     confirmed_count: int
@@ -66,6 +85,7 @@ class StructureArtifactManifest:
             input_ref=str(payload["input_ref"]),
             data_version=str(payload["data_version"]),
             feature_refs=tuple(str(value) for value in payload["feature_refs"]),
+            structure_refs=tuple(str(value) for value in payload.get("structure_refs", [])),
             row_count=int(payload["row_count"]),
             candidate_count=int(payload["candidate_count"]),
             confirmed_count=int(payload["confirmed_count"]),
@@ -91,6 +111,7 @@ class StructureArtifactWriter:
         input_ref: str,
         data_version: str,
         feature_refs: Sequence[str],
+        structure_refs: Sequence[str] = (),
         parquet_engine: str = "pyarrow",
     ) -> None:
         self.artifacts_root = artifacts_root
@@ -102,6 +123,7 @@ class StructureArtifactWriter:
         self.input_ref = input_ref
         self.data_version = data_version
         self.feature_refs = tuple(feature_refs)
+        self.structure_refs = tuple(structure_refs)
         self.parquet_engine = parquet_engine
         self.dataset_root = structure_dataset_root(
             artifacts_root=artifacts_root,
@@ -122,24 +144,29 @@ class StructureArtifactWriter:
         self._max_session_date: int | None = None
         self._reset_output_root()
 
-    def write_chunk(self, structures: pd.DataFrame) -> None:
-        if structures.empty:
+    def write_chunk(self, structures: Any) -> None:
+        table = _coerce_structure_table(structures)
+        if table.num_rows == 0:
             return
         missing_columns = [
-            column for column in STRUCTURE_ARTIFACT_COLUMNS if column not in structures.columns
+            column for column in STRUCTURE_ARTIFACT_COLUMNS if column not in table.column_names
         ]
         if missing_columns:
             raise ValueError(f"Structure chunk is missing columns: {missing_columns}")
 
-        ordered = structures.loc[:, STRUCTURE_ARTIFACT_COLUMNS].copy()
-        ordered["anchor_bar_ids"] = ordered["anchor_bar_ids"].map(list)
-        ordered["feature_refs"] = ordered["feature_refs"].map(list)
-        ordered["explanation_codes"] = ordered["explanation_codes"].map(list)
-        ordered["end_bar_id"] = ordered["end_bar_id"].astype("Int64")
-        ordered["confirm_bar_id"] = ordered["confirm_bar_id"].astype("Int64")
-
-        partition_years = ordered["session_date"] // 10_000
-        for year, year_chunk in ordered.groupby(partition_years, sort=True):
+        ordered = table.select(list(STRUCTURE_ARTIFACT_COLUMNS)).combine_chunks()
+        session_dates = np.asarray(
+            ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
+            dtype=np.int64,
+        )
+        start_bar_ids = np.asarray(
+            ordered.column("start_bar_id").combine_chunks().to_numpy(zero_copy_only=False),
+            dtype=np.int64,
+        )
+        state_values = ordered.column("state").combine_chunks().to_pylist()
+        partition_years = session_dates // 10_000
+        for year in np.unique(partition_years):
+            indices = np.nonzero(partition_years == year)[0]
             part_index = self._part_index_by_year.get(int(year), 0)
             part_path = structure_part_path(
                 artifacts_root=self.artifacts_root,
@@ -150,18 +177,15 @@ class StructureArtifactWriter:
                 year=int(year),
                 part_index=part_index,
             )
-            part_path.parent.mkdir(parents=True, exist_ok=True)
-            year_chunk.to_parquet(part_path, index=False, engine=self.parquet_engine)
+            year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
+            write_table(year_chunk, part_path)
             self._part_index_by_year[int(year)] = part_index + 1
             self._part_paths.append(part_path.relative_to(self.dataset_root).as_posix())
             self._years.add(int(year))
 
-        start_bar_ids = ordered["start_bar_id"].astype("int64")
-        session_dates = ordered["session_date"].astype("int64")
-        state_counts = ordered["state"].value_counts()
-        self._row_count += len(ordered)
-        self._candidate_count += int(state_counts.get("candidate", 0))
-        self._confirmed_count += int(state_counts.get("confirmed", 0))
+        self._row_count += ordered.num_rows
+        self._candidate_count += sum(1 for value in state_values if value == "candidate")
+        self._confirmed_count += sum(1 for value in state_values if value == "confirmed")
         chunk_min_start_bar_id = int(start_bar_ids.min())
         chunk_max_start_bar_id = int(start_bar_ids.max())
         chunk_min_session_date = int(session_dates.min())
@@ -200,6 +224,7 @@ class StructureArtifactWriter:
             input_ref=self.input_ref,
             data_version=self.data_version,
             feature_refs=self.feature_refs,
+            structure_refs=self.structure_refs,
             row_count=self._row_count,
             candidate_count=self._candidate_count,
             confirmed_count=self._confirmed_count,
@@ -284,7 +309,8 @@ def load_structure_artifact(
     years: Iterable[int] | None = None,
     columns: Sequence[str] | None = None,
     parquet_engine: str = "pyarrow",
-) -> pd.DataFrame:
+) -> pa.Table:
+    del parquet_engine
     manifest = load_structure_manifest(
         artifacts_root=artifacts_root,
         rulebook_version=rulebook_version,
@@ -310,17 +336,15 @@ def load_structure_artifact(
         selected_parts.append(dataset_root / part)
 
     if not selected_parts:
-        frame_columns = list(columns) if columns is not None else list(STRUCTURE_ARTIFACT_COLUMNS)
-        return pd.DataFrame(columns=frame_columns)
+        return empty_table(STRUCTURE_ARTIFACT_SCHEMA, columns)
 
-    frames = [
-        pd.read_parquet(part, columns=list(columns) if columns is not None else None, engine=parquet_engine)
-        for part in selected_parts
-    ]
-    structures = pd.concat(frames, ignore_index=True)
-    if "start_bar_id" not in structures.columns:
-        return structures.reset_index(drop=True)
-    return structures.sort_values(["start_bar_id", "structure_id"], kind="stable").reset_index(drop=True)
+    structures = concat_tables(
+        [read_table(part, columns=columns) for part in selected_parts],
+        schema=STRUCTURE_ARTIFACT_SCHEMA,
+    )
+    if "start_bar_id" not in structures.column_names:
+        return structures
+    return sort_table(structures, [("start_bar_id", "ascending"), ("structure_id", "ascending")])
 
 
 def load_structure_bundle(
@@ -332,7 +356,7 @@ def load_structure_bundle(
     kinds: Sequence[str],
     years: Iterable[int] | None = None,
     parquet_engine: str = "pyarrow",
-) -> pd.DataFrame:
+) -> pa.Table:
     frames = [
         load_structure_artifact(
             artifacts_root=artifacts_root,
@@ -345,19 +369,18 @@ def load_structure_bundle(
         )
         for kind in kinds
     ]
-    non_empty = [frame for frame in frames if not frame.empty]
+    non_empty = [frame for frame in frames if frame.num_rows]
     if not non_empty:
-        return pd.DataFrame(columns=STRUCTURE_ARTIFACT_COLUMNS)
-    return pd.concat(non_empty, ignore_index=True).sort_values(
-        ["start_bar_id", "structure_id"],
-        kind="stable",
-    ).reset_index(drop=True)
+        return empty_table(STRUCTURE_ARTIFACT_SCHEMA)
+    return sort_table(
+        concat_tables(non_empty, schema=STRUCTURE_ARTIFACT_SCHEMA),
+        [("start_bar_id", "ascending"), ("structure_id", "ascending")],
+    )
 
-
-def frame_to_structure_objects(frame: pd.DataFrame) -> list[StructureObject]:
+def frame_to_structure_objects(frame: pa.Table) -> list[StructureObject]:
     objects: list[StructureObject] = []
-    for row in frame.itertuples(index=False):
-        row_dict = row._asdict()
+    payload = frame.to_pylist()
+    for row_dict in payload:
         objects.append(
             StructureObject(
                 structure_id=str(row_dict["structure_id"]),
@@ -400,6 +423,21 @@ def load_structure_objects(
 def _optional_int(value: object) -> int | None:
     if value is None:
         return None
-    if pd.isna(value):
+    if isinstance(value, pa.Scalar):
+        if not value.is_valid:
+            return None
+        value = value.as_py()
+    if value is None:
         return None
     return int(value)
+
+
+def _coerce_structure_table(structures: Any) -> pa.Table:
+    if isinstance(structures, pa.Table):
+        return structures.combine_chunks()
+    if hasattr(structures, "to_dict"):
+        records = structures.to_dict(orient="records")
+        return pa.Table.from_pylist(records, schema=STRUCTURE_ARTIFACT_SCHEMA).combine_chunks()
+    if isinstance(structures, list):
+        return pa.Table.from_pylist(structures, schema=STRUCTURE_ARTIFACT_SCHEMA).combine_chunks()
+    raise TypeError(f"Unsupported structure chunk type: {type(structures)!r}")

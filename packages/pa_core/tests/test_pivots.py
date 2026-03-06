@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import pyarrow as pa
 
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.structures import (
@@ -53,14 +53,14 @@ class PivotStructureTests(unittest.TestCase):
 
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
 
-        self.assertEqual(len(frame), 1)
-        row = frame.iloc[0]
+        self.assertEqual(frame.num_rows, 1)
+        row = frame.to_pylist()[0]
         self.assertEqual(row["kind"], "pivot_high")
         self.assertEqual(row["state"], "confirmed")
         self.assertEqual(row["start_bar_id"], 105)
         self.assertIsNone(row["end_bar_id"])
         self.assertEqual(row["confirm_bar_id"], 110)
-        self.assertEqual(row["anchor_bar_ids"], (105,))
+        self.assertEqual(tuple(row["anchor_bar_ids"]), (105,))
         self.assertIn("window_5x5", row["explanation_codes"])
         self.assertIn("strict_tie_rule", row["explanation_codes"])
         self.assertNotIn("cross_session_window", row["explanation_codes"])
@@ -76,14 +76,14 @@ class PivotStructureTests(unittest.TestCase):
 
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
 
-        self.assertEqual(len(frame), 1)
-        row = frame.iloc[0]
+        self.assertEqual(frame.num_rows, 1)
+        row = frame.to_pylist()[0]
         self.assertEqual(row["kind"], "pivot_low")
         self.assertEqual(row["state"], "confirmed")
         self.assertEqual(row["start_bar_id"], 205)
         self.assertIsNone(row["end_bar_id"])
         self.assertEqual(row["confirm_bar_id"], 210)
-        self.assertEqual(row["anchor_bar_ids"], (205,))
+        self.assertEqual(tuple(row["anchor_bar_ids"]), (205,))
         self.assertIn("window_5x5", row["explanation_codes"])
         self.assertIn("strict_tie_rule", row["explanation_codes"])
         self.assertNotIn("cross_session_window", row["explanation_codes"])
@@ -99,8 +99,8 @@ class PivotStructureTests(unittest.TestCase):
 
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
 
-        self.assertEqual(len(frame), 1)
-        row = frame.iloc[0]
+        self.assertEqual(frame.num_rows, 1)
+        row = frame.to_pylist()[0]
         self.assertEqual(row["kind"], "pivot_high")
         self.assertEqual(row["state"], "candidate")
         self.assertEqual(row["start_bar_id"], 305)
@@ -119,7 +119,7 @@ class PivotStructureTests(unittest.TestCase):
 
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
 
-        self.assertTrue(frame.empty)
+        self.assertEqual(frame.num_rows, 0)
 
     def test_strict_tie_suppression_for_lows(self) -> None:
         inputs = _make_structure_inputs(
@@ -132,7 +132,7 @@ class PivotStructureTests(unittest.TestCase):
 
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
 
-        self.assertTrue(frame.empty)
+        self.assertEqual(frame.num_rows, 0)
 
     def test_cross_session_window_confirmed_pivot(self) -> None:
         inputs = _make_structure_inputs(
@@ -149,13 +149,13 @@ class PivotStructureTests(unittest.TestCase):
             low=np.zeros(11, dtype=np.float64),
         )
 
-        self.assertTrue(inputs.feature_bundle["edge_valid"].iloc[5])
-        self.assertEqual(int(inputs.feature_bundle["prev_bar_id"].iloc[5]), 1004)
+        self.assertTrue(bool(inputs.feature_arrays.edge_valid[5]))
+        self.assertEqual(int(inputs.feature_arrays.prev_bar_id[5]), 1004)
 
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
 
-        self.assertEqual(len(frame), 1)
-        row = frame.iloc[0]
+        self.assertEqual(frame.num_rows, 1)
+        row = frame.to_pylist()[0]
         self.assertEqual(row["kind"], "pivot_high")
         self.assertEqual(row["state"], "confirmed")
         self.assertEqual(row["start_bar_id"], 1035)
@@ -200,7 +200,10 @@ class PivotStructureTests(unittest.TestCase):
             low=np.zeros(11, dtype=np.float64),
         )
         frame = build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))
-        self.assertEqual(frame["structure_id"].tolist(), build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays))["structure_id"].tolist())
+        self.assertEqual(
+            frame.column("structure_id").to_pylist(),
+            build_pivot_structure_frame(inputs, compute_pivot_scan(inputs.bar_arrays)).column("structure_id").to_pylist(),
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -215,7 +218,7 @@ class PivotStructureTests(unittest.TestCase):
                 data_version=inputs.data_version,
                 feature_refs=inputs.feature_refs,
             )
-            writer.write_chunk(frame.drop(columns="_pivot_index"))
+            writer.write_chunk(frame.drop(["_pivot_index"]))
             manifest = writer.finalize()
 
             self.assertEqual(manifest.row_count, 1)
@@ -248,7 +251,7 @@ class PivotStructureTests(unittest.TestCase):
                 input_ref=inputs.input_ref,
                 kind=PIVOT_KIND_GROUP,
             )
-            self.assertEqual(len(artifact), 1)
+            self.assertEqual(artifact.num_rows, 1)
             objects = load_structure_objects(
                 artifacts_root=root,
                 rulebook_version=PIVOT_RULEBOOK_VERSION,
@@ -272,18 +275,18 @@ def _make_structure_inputs(
 ) -> object:
     open_ = (high + low) / 2.0
     close = open_.copy()
-    bar_frame = pd.DataFrame(
+    bar_frame = pa.table(
         {
-            "bar_id": np.asarray(bar_ids, dtype=np.int64),
-            "session_id": np.asarray(session_ids, dtype=np.int64),
-            "session_date": np.asarray(session_dates, dtype=np.int64),
-            "ts_utc_ns": np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000,
-            "ts_et_ns": np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000,
-            "open": np.asarray(open_, dtype=np.float64),
-            "high": np.asarray(high, dtype=np.float64),
-            "low": np.asarray(low, dtype=np.float64),
-            "close": np.asarray(close, dtype=np.float64),
-            "volume": np.ones(len(bar_ids), dtype=np.float64),
+            "bar_id": pa.array(np.asarray(bar_ids, dtype=np.int64)),
+            "session_id": pa.array(np.asarray(session_ids, dtype=np.int64)),
+            "session_date": pa.array(np.asarray(session_dates, dtype=np.int64)),
+            "ts_utc_ns": pa.array(np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000),
+            "ts_et_ns": pa.array(np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000),
+            "open": pa.array(np.asarray(open_, dtype=np.float64)),
+            "high": pa.array(np.asarray(high, dtype=np.float64)),
+            "low": pa.array(np.asarray(low, dtype=np.float64)),
+            "close": pa.array(np.asarray(close, dtype=np.float64)),
+            "volume": pa.array(np.ones(len(bar_ids), dtype=np.float64)),
         }
     )
     feature_bundle = _make_feature_bundle(
@@ -306,7 +309,7 @@ def _make_feature_bundle(
     bar_ids: np.ndarray,
     session_ids: np.ndarray,
     session_dates: np.ndarray,
-) -> pd.DataFrame:
+) -> pa.Table:
     prev_bar_id = np.empty(len(bar_ids), dtype=np.int64)
     prev_bar_id[0] = -1
     prev_bar_id[1:] = bar_ids[:-1]
@@ -321,7 +324,12 @@ def _make_feature_bundle(
     }
     for feature_key in EDGE_FEATURE_KEYS:
         payload[feature_key] = np.zeros(len(bar_ids), dtype=np.float64)
-    return pd.DataFrame(payload)
+    return pa.table(
+        {
+            key: pa.array(value)
+            for key, value in payload.items()
+        }
+    )
 
 
 if __name__ == "__main__":

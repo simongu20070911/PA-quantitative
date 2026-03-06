@@ -116,6 +116,32 @@ Preferred internal storage:
 - `Parquet` for bars and artifacts
 - `DuckDB` for local querying and joins
 
+### Pandas Policy
+
+`pandas` is not a core substrate for this project.
+
+Allowed uses:
+
+- ad hoc exploration
+- one-off debugging
+- small conversion scripts
+- temporary inspection utilities
+
+Not allowed as the default backbone for:
+
+- hot-path computation
+- canonical feature execution
+- canonical structure execution
+- inspector-facing runtime data flow
+
+Canonical backend path:
+
+- storage and query via `Parquet` and `DuckDB`
+- normalized in-memory computation via `BarArrays`
+- hot-path execution via `NumPy` arrays and `Numba`
+
+If `pandas` is used in utility code, it must remain outside the core computational contract and must not define semantics that the main pipeline depends on.
+
 ## Batch vs Real-Time Compatibility
 
 The project is historical-first in implementation order, but stream-compatible by design.
@@ -367,66 +393,39 @@ The readable Python rule layer remains the owner of:
 - label assignment
 - rulebook thresholds and parameter meaning
 
-## Canonical Overlay Model
+## Overlay Reference
 
-Overlays are first-class objects, but they are projections, not truth.
+Overlay-specific schema, projection mappings, lifecycle rules, z-order, and versioning details are defined in:
 
-Initial overlay classes:
+- `/Users/simongu/Projects/PA quantitative/docs/overlay_spec.md`
 
-- `pivot-marker`
-- `leg-line`
-- `swing-line`
-- `breakout-marker`
-- `structure-level`
-- `trendline`
-- `gap-zone`
+That document is the single source of truth for overlay behavior.
 
-Every overlay object must include:
+This canonical spec retains only the cross-cutting overlay invariants:
 
-- `overlay_id`
-- `kind`
-- `source_structure_id`
-- `anchor_bars`
-- `anchor_prices`
-- `style_key`
-- `rulebook_version`
-- `meta`
+- overlays are derived objects, not semantic truth
+- overlays may depend on `bars`, `features`, and `structures`
+- overlays must map back to source structures and canonical bars
+- overlays must remain auditable and versioned
+- overlay styling must not change semantic meaning
 
-Rules:
+## Inspector Reference
 
-- overlays must be selectable and inspectable
-- overlays must map back to source structures
-- overlays must remain stable under pan and zoom
-- overlay styling is separate from structure semantics
+Inspector-specific product, API, rendering, interaction, and performance details are defined in:
 
-## Inspector Product Contract
+- `/Users/simongu/Projects/PA quantitative/docs/inspector_spec.md`
 
-The inspector is a continuous chart workstation, not a screenshot review toy.
+That document is the single source of truth for inspector behavior.
 
-Required product capabilities:
+This canonical spec retains only the cross-cutting invariants that the inspector must obey:
 
-- continuous candle navigation across long history
-- pan and zoom like a real charting tool
-- jump by `date`, `session`, `bar_id`, and `structure_id`
-- overlay toggles by type
-- click-to-inspect on every structure overlay
-- side panel showing rule evidence and provenance
-- review actions attached to selected structures or chart spans
+- the inspector consumes backend artifacts and does not create market-structure semantics
+- overlays are projections of backend objects
+- visible objects must trace back to `bar_id`, source structures, and versioned artifacts
+- `pa_inspector` stays inside the package boundaries defined by this document
 
-The inspector must support three modes:
-
-- `Explore`: free browsing and visual investigation
-- `Review`: structured human verdict capture
-- `Diff`: compare rulebook versions on the same chart span
-
-Canonical frontend choice:
-
-- use a proven financial chart renderer as the candle substrate
-- keep all structure and overlay semantics in our own object model
-
-Current preferred renderer:
-
-- `TradingView Lightweight Charts`
+If inspector-specific details need to change, update `docs/inspector_spec.md`.
+If a change affects project-wide architecture or cross-layer invariants, update this document as well.
 
 ## Review Model
 
@@ -513,6 +512,44 @@ Not allowed:
 - hiding explanation behind opaque labels
 
 If ML is used, its input features must be drawn from explicit artifacts and remain auditable.
+
+## Testing Philosophy
+
+Testing should be strongest where silent drift is most dangerous and lightest where semantics are intentionally moving quickly.
+
+Testing priorities:
+
+- test core contracts heavily
+- test stable mechanics heavily
+- test evolving rule semantics lightly but deliberately
+- use visual inspection and review as the main early semantic iteration loop
+
+Required heavy-test areas:
+
+- `BarArrays` invariants
+- dtype and contiguity normalization
+- edge alignment semantics
+- session-boundary behavior
+- kernel versus verification-implementation parity
+- timing and confirmation semantics for shared infrastructure
+
+Light-but-required testing for evolving rule slices:
+
+- a small set of hand-checked fixtures per rule slice
+- regression tests for bugs that were actually observed
+- wrapper-level tests for published artifact semantics
+
+Anti-goals:
+
+- do not write a huge brittle test suite around unstable early rulebook semantics
+- do not skip tests for indexing, alignment, or kernel parity because the rulebook is still moving
+
+Testing philosophy by layer:
+
+- `data` and `feature` contracts should be tested rigorously
+- `structure` semantics should start with focused fixtures and expand as rules stabilize
+- `overlay` tests should focus on artifact projection contracts, not visual styling minutiae
+- `review` workflows should be tested for correctness of capture and version linkage
 
 ## Numba Integration
 

@@ -95,12 +95,13 @@ Done:
 
 Goal:
 
-- build the minimum structure chain for inspection
+- build and freeze the first rulebook-backed structure chain for inspection
 
 Initial structures:
 
 - `pivot`
 - `leg`
+- `major_lh`
 - `breakout_start`
 
 Exit criteria:
@@ -111,7 +112,7 @@ Exit criteria:
 
 Status:
 
-- active priority
+- complete
 
 Done:
 
@@ -119,19 +120,22 @@ Done:
 - manifest-backed structure artifact layout and reload helpers under `artifacts/structures/`
 - baseline `pivot` materialization with `rulebook=v0_1` and `structure_version=v1`
 - strict `5`-left / `5`-right pivot scan with tie suppression, cross-session continuity, and candidate/confirmed assembly
-- fixture-based validation and real-dataset materialization for the pivot family
-
-Remaining:
-
-- materialize `leg`
-- materialize `breakout_start`
-- derive the first overlays only after the remaining structure artifacts exist
+- standalone `v0.1` rulebook text plus mirrored rulebook constants in `pa_core`
+- deterministic `leg` materialization with explicit same-type replacement and stable IDs
+- deterministic `major_lh` materialization with tail-candidate handling
+- deterministic bearish `breakout_start` materialization with internal leg-strength gating
+- focused rule-slice fixtures plus heavier shared provenance/input-ref tests
+- real-dataset materialization for `pivot`, `leg`, `major_lh`, and breakout-start artifacts
 
 ## Phase 4: Inspector MVP
 
 Goal:
 
 - provide continuous chart navigation with the first structure overlays
+
+Status:
+
+- active priority
 
 Required capabilities:
 
@@ -142,7 +146,8 @@ Required capabilities:
 
 Exit criteria:
 
-- a human can browse the ES timeline and inspect pivots, legs, and breakout markers in context
+- a human can browse the ES timeline and inspect pivots, legs, `major_lh`, and breakout markers in context
+- overlays are projected from backend artifacts instead of being defined in the UI
 
 ## Phase 5: Review and Diff
 
@@ -165,7 +170,6 @@ Goal:
 
 Candidate additions:
 
-- `major_lh`
 - `major_hl`
 - `swing`
 - `trendline`

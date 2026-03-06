@@ -7,10 +7,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-import pandas as pd
+import numpy as np
+import pyarrow as pa
 
 from pa_core.schemas import Alignment, FeatureSpec
 
+from .arrow import concat_tables, empty_table, read_table, sort_table, write_table
 from .layout import (
     feature_dataset_root,
     feature_manifest_path,
@@ -24,6 +26,16 @@ FEATURE_ARTIFACT_COLUMNS = (
     "session_date",
     "edge_valid",
     "feature_value",
+)
+FEATURE_ARTIFACT_SCHEMA = pa.schema(
+    [
+        ("bar_id", pa.int64()),
+        ("prev_bar_id", pa.int64()),
+        ("session_id", pa.int64()),
+        ("session_date", pa.int64()),
+        ("edge_valid", pa.bool_()),
+        ("feature_value", pa.float64()),
+    ]
 )
 
 
@@ -140,19 +152,28 @@ class FeatureArtifactWriter:
         self._max_session_date: int | None = None
         self._reset_output_root()
 
-    def write_chunk(self, features: pd.DataFrame) -> None:
-        if features.empty:
+    def write_chunk(self, features: pa.Table) -> None:
+        if features.num_rows == 0:
             return
         missing_columns = [
-            column for column in FEATURE_ARTIFACT_COLUMNS if column not in features.columns
+            column for column in FEATURE_ARTIFACT_COLUMNS if column not in features.column_names
         ]
         if missing_columns:
             raise ValueError(f"Feature chunk is missing columns: {missing_columns}")
 
-        ordered = features.loc[:, FEATURE_ARTIFACT_COLUMNS]
-        partition_years = ordered["session_date"] // 10_000
+        ordered = features.select(list(FEATURE_ARTIFACT_COLUMNS)).combine_chunks()
+        bar_ids = np.asarray(
+            ordered.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False),
+            dtype=np.int64,
+        )
+        session_dates = np.asarray(
+            ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
+            dtype=np.int64,
+        )
+        partition_years = session_dates // 10_000
 
-        for year, year_chunk in ordered.groupby(partition_years, sort=True):
+        for year in np.unique(partition_years):
+            indices = np.nonzero(partition_years == year)[0]
             part_index = self._part_index_by_year.get(int(year), 0)
             part_path = feature_part_path(
                 artifacts_root=self.artifacts_root,
@@ -163,19 +184,17 @@ class FeatureArtifactWriter:
                 year=int(year),
                 part_index=part_index,
             )
-            part_path.parent.mkdir(parents=True, exist_ok=True)
-            year_chunk.to_parquet(part_path, index=False, engine=self.parquet_engine)
+            year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
+            write_table(year_chunk, part_path)
             self._part_index_by_year[int(year)] = part_index + 1
             self._part_paths.append(part_path.relative_to(self.dataset_root).as_posix())
             self._years.add(int(year))
 
-        bar_ids = ordered["bar_id"].astype("int64")
-        session_dates = ordered["session_date"].astype("int64")
         chunk_min_bar_id = int(bar_ids.min())
         chunk_max_bar_id = int(bar_ids.max())
         chunk_min_session_date = int(session_dates.min())
         chunk_max_session_date = int(session_dates.max())
-        self._row_count += len(ordered)
+        self._row_count += ordered.num_rows
         self._min_bar_id = (
             chunk_min_bar_id if self._min_bar_id is None else min(self._min_bar_id, chunk_min_bar_id)
         )
@@ -278,7 +297,8 @@ def load_feature_artifact(
     years: Iterable[int] | None = None,
     columns: Sequence[str] | None = None,
     parquet_engine: str = "pyarrow",
-) -> pd.DataFrame:
+) -> pa.Table:
+    del parquet_engine
     manifest = load_feature_manifest(
         artifacts_root=artifacts_root,
         feature_key=feature_key,
@@ -304,17 +324,15 @@ def load_feature_artifact(
         selected_parts.append(dataset_root / part)
 
     if not selected_parts:
-        frame_columns = list(columns) if columns is not None else list(FEATURE_ARTIFACT_COLUMNS)
-        return pd.DataFrame(columns=frame_columns)
+        return empty_table(FEATURE_ARTIFACT_SCHEMA, columns)
 
-    frames = [
-        pd.read_parquet(part, columns=list(columns) if columns is not None else None, engine=parquet_engine)
-        for part in selected_parts
-    ]
-    features = pd.concat(frames, ignore_index=True)
-    if "bar_id" not in features.columns:
-        return features.reset_index(drop=True)
-    return features.sort_values("bar_id", kind="stable").reset_index(drop=True)
+    features = concat_tables(
+        [read_table(part, columns=columns) for part in selected_parts],
+        schema=FEATURE_ARTIFACT_SCHEMA,
+    )
+    if "bar_id" not in features.column_names:
+        return features
+    return sort_table(features, [("bar_id", "ascending")])
 
 
 def load_feature_bundle(
@@ -325,11 +343,11 @@ def load_feature_bundle(
     input_ref: str,
     params_hash: str,
     years: Iterable[int] | None = None,
-) -> pd.DataFrame:
+) -> pa.Table:
     base_columns = ["bar_id", "prev_bar_id", "session_id", "session_date", "edge_valid"]
-    bundle: pd.DataFrame | None = None
+    bundle: pa.Table | None = None
     for feature_key in feature_keys:
-        feature_frame = load_feature_artifact(
+        feature_table = load_feature_artifact(
             artifacts_root=artifacts_root,
             feature_key=feature_key,
             feature_version=feature_version,
@@ -337,12 +355,34 @@ def load_feature_bundle(
             params_hash=params_hash,
             years=years,
             columns=[*base_columns, "feature_value"],
-        ).rename(columns={"feature_value": feature_key})
+        )
+        feature_table = feature_table.rename_columns([*base_columns, feature_key])
         if bundle is None:
-            bundle = feature_frame
+            bundle = feature_table
             continue
-        bundle = bundle.merge(feature_frame, on=base_columns, how="inner", validate="one_to_one")
+        bundle = _append_feature_column(bundle=bundle, feature_table=feature_table, feature_key=feature_key)
 
     if bundle is None:
-        return pd.DataFrame(columns=[*base_columns, *feature_keys])
-    return bundle.sort_values("bar_id", kind="stable").reset_index(drop=True)
+        schema = pa.schema(
+            [FEATURE_ARTIFACT_SCHEMA.field(name) for name in base_columns]
+            + [pa.field(feature_key, pa.float64()) for feature_key in feature_keys]
+        )
+        return empty_table(schema)
+    return sort_table(bundle, [("bar_id", "ascending")])
+
+
+def _append_feature_column(
+    *,
+    bundle: pa.Table,
+    feature_table: pa.Table,
+    feature_key: str,
+) -> pa.Table:
+    base_columns = ["bar_id", "prev_bar_id", "session_id", "session_date", "edge_valid"]
+    for column_name in base_columns:
+        lhs = bundle.column(column_name).combine_chunks()
+        rhs = feature_table.column(column_name).combine_chunks()
+        if not lhs.equals(rhs):
+            raise ValueError(
+                f"Feature bundle alignment mismatch for column={column_name!r} while loading feature={feature_key!r}."
+            )
+    return bundle.append_column(feature_key, feature_table.column(feature_key).combine_chunks())

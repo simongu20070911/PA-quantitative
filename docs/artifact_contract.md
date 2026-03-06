@@ -62,11 +62,15 @@ Current initial structure implementation:
 
 - writes a `manifest.json` under `artifacts/structures/rulebook=v0_1/structure_version=v1/input_ref=<bars+features ref>/kind=pivot/`
 - uses a stable structure input reference that hashes the contributing feature refs on top of the bar `data_version`
+- appends `__structures-<hash>` to `input_ref` when a structure dataset depends on upstream structure artifacts
 - partitions structure parquet by `year = session_date // 10000`
 - stores every `StructureObject` field plus `session_id` and `session_date` for efficient reload and partition pruning
-- structure manifests carry explicit `timing_semantics` and `bar_finalization` metadata
+- structure manifests carry explicit `timing_semantics`, `bar_finalization`, `feature_refs`, and manifest-level `structure_refs`
 - current pivot artifacts emit one row per surviving pivot with `kind = pivot_high` or `pivot_low`
 - current pivot artifacts emit `state = candidate` only for surviving dataset-tail pivots with incomplete right context
+- current leg artifacts live under `.../input_ref=<bars+features ref>__structures-6d3f685c/kind=leg/`
+- current `major_lh` artifacts live under `.../input_ref=<bars+features ref>__structures-1d288a0e/kind=major_lh/`
+- current breakout-start artifacts live under `.../input_ref=<bars+features ref>__structures-9f778392/kind=breakout_start/`
 
 ## ID Rules
 
@@ -124,6 +128,7 @@ The inspector reads artifacts from backend services or artifact stores.
 It may cache for interaction, but it must not create canonical structure state by itself.
 
 Overlays are always derived from source structures.
+Overlay projection behavior and schema are defined in `docs/overlay_spec.md`.
 
 ## First Implementation Targets
 
@@ -138,6 +143,7 @@ The first derived artifacts to build are:
 3. structures:
    - `pivot`
    - `leg`
+   - `major_lh`
    - `breakout_start`
 
 This is the minimum viable artifact chain for the first usable inspector.

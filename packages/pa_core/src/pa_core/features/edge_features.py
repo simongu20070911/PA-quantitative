@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import pyarrow as pa
 
 from pa_core.artifacts.bars import list_bar_data_versions, load_bar_manifest
+from pa_core.artifacts.arrow import read_table
 from pa_core.artifacts.features import (
     EMPTY_FEATURE_PARAMS,
+    FEATURE_ARTIFACT_SCHEMA,
     FeatureArtifactManifest,
     FeatureArtifactWriter,
     build_feature_params_hash,
@@ -85,10 +87,10 @@ def build_initial_edge_feature_specs(
     }
 
 
-def compute_initial_edge_feature_bundle(bar_arrays: BarArrays) -> dict[str, pd.DataFrame]:
+def compute_initial_edge_feature_bundle(bar_arrays: BarArrays) -> dict[str, pa.Table]:
     if len(bar_arrays) == 0:
         return {
-            feature_key: pd.DataFrame(columns=EDGE_OUTPUT_COLUMNS)
+            feature_key: pa.Table.from_pylist([], schema=FEATURE_ARTIFACT_SCHEMA)
             for feature_key in EDGE_FEATURE_KEYS
         }
 
@@ -189,29 +191,24 @@ def materialize_initial_edge_features(
     }
 
     bars_root = bar_dataset_root(config.artifacts_root, data_version)
-    carry_frame: pd.DataFrame | None = None
+    carry_arrays: BarArrays | None = None
     for relative_part in bar_manifest.parts:
-        part_frame = pd.read_parquet(
+        part_table = read_table(
             bars_root / relative_part,
             columns=list(BAR_FEATURE_INPUT_COLUMNS),
-            engine=config.parquet_engine,
         )
-        if carry_frame is not None:
-            compute_frame = pd.concat([carry_frame, part_frame], ignore_index=True)
-        else:
-            compute_frame = part_frame.reset_index(drop=True)
-
-        bar_arrays = bar_arrays_from_frame(compute_frame.loc[:, BAR_ARRAY_COLUMNS])
+        part_arrays = bar_arrays_from_frame(part_table.select(list(BAR_ARRAY_COLUMNS)))
+        bar_arrays = carry_arrays.concat(part_arrays) if carry_arrays is not None else part_arrays
         feature_frames = compute_initial_edge_feature_bundle(bar_arrays)
-        if carry_frame is not None:
+        if carry_arrays is not None:
             feature_frames = {
-                feature_key: frame.iloc[1:].reset_index(drop=True)
+                feature_key: frame.slice(1)
                 for feature_key, frame in feature_frames.items()
             }
 
         for feature_key, frame in feature_frames.items():
             writers[feature_key].write_chunk(frame)
-        carry_frame = part_frame.tail(1).reset_index(drop=True)
+        carry_arrays = part_arrays.tail(1)
 
     return {
         feature_key: writer.finalize()
@@ -269,17 +266,18 @@ def _assemble_edge_feature_frame(
     previous_bar_id: np.ndarray,
     edge_valid: np.ndarray,
     feature_value: np.ndarray,
-) -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "bar_id": bar_arrays.bar_id,
-            "prev_bar_id": previous_bar_id,
-            "session_id": bar_arrays.session_id,
-            "session_date": bar_arrays.session_date,
-            "edge_valid": edge_valid,
-            "feature_value": feature_value,
-        }
-    ).loc[:, EDGE_OUTPUT_COLUMNS]
+) -> pa.Table:
+    return pa.Table.from_arrays(
+        [
+            pa.array(bar_arrays.bar_id, type=pa.int64()),
+            pa.array(previous_bar_id, type=pa.int64()),
+            pa.array(bar_arrays.session_id, type=pa.int64()),
+            pa.array(bar_arrays.session_date, type=pa.int64()),
+            pa.array(edge_valid, type=pa.bool_()),
+            pa.array(feature_value, type=pa.float64()),
+        ],
+        schema=FEATURE_ARTIFACT_SCHEMA,
+    )
 
 
 def _expand_compact_edge_values(compact_values: np.ndarray) -> np.ndarray:

@@ -1,0 +1,505 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
+
+import pyarrow as pa
+
+from pa_core.artifacts.bars import list_bar_data_versions, load_canonical_bars
+from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH, load_feature_manifest
+from pa_core.artifacts.structures import (
+    StructureArtifactManifest,
+    load_structure_artifact,
+    load_structure_manifest,
+)
+from pa_core.features.edge_features import EDGE_FEATURE_KEYS, EDGE_FEATURE_VERSION
+from pa_core.schemas import OverlayObject
+from pa_core.structures.breakout_starts import (
+    BREAKOUT_START_KIND_GROUP,
+    BREAKOUT_START_RULEBOOK_VERSION,
+    BREAKOUT_START_STRUCTURE_VERSION,
+)
+from pa_core.structures.input import (
+    build_feature_ref,
+    build_structure_input_ref,
+    build_structure_ref,
+)
+from pa_core.structures.legs import LEG_KIND_GROUP, LEG_RULEBOOK_VERSION, LEG_STRUCTURE_VERSION
+from pa_core.structures.major_lh import (
+    MAJOR_LH_KIND_GROUP,
+    MAJOR_LH_RULEBOOK_VERSION,
+    MAJOR_LH_STRUCTURE_VERSION,
+)
+from pa_core.structures.pivots import (
+    PIVOT_KIND_GROUP,
+    PIVOT_RULEBOOK_VERSION,
+    PIVOT_STRUCTURE_VERSION,
+)
+
+MVP_OVERLAY_VERSION = "v1"
+MVP_OVERLAY_DATASET_KINDS = (
+    PIVOT_KIND_GROUP,
+    LEG_KIND_GROUP,
+    MAJOR_LH_KIND_GROUP,
+    BREAKOUT_START_KIND_GROUP,
+)
+
+_OVERLAY_Z_ORDER = {
+    "leg-line": 1,
+    "pivot-marker": 2,
+    "major-lh-marker": 3,
+    "breakout-marker": 4,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class OverlayProjectionConfig:
+    artifacts_root: Path
+    data_version: str | None = None
+    feature_version: str = EDGE_FEATURE_VERSION
+    feature_params_hash: str = EMPTY_FEATURE_PARAMS_HASH
+    feature_keys: tuple[str, ...] = EDGE_FEATURE_KEYS
+    overlay_version: str = MVP_OVERLAY_VERSION
+    pivot_rulebook_version: str = PIVOT_RULEBOOK_VERSION
+    pivot_structure_version: str = PIVOT_STRUCTURE_VERSION
+    leg_rulebook_version: str = LEG_RULEBOOK_VERSION
+    leg_structure_version: str = LEG_STRUCTURE_VERSION
+    major_lh_rulebook_version: str = MAJOR_LH_RULEBOOK_VERSION
+    major_lh_structure_version: str = MAJOR_LH_STRUCTURE_VERSION
+    breakout_rulebook_version: str = BREAKOUT_START_RULEBOOK_VERSION
+    breakout_structure_version: str = BREAKOUT_START_STRUCTURE_VERSION
+    parquet_engine: str = "pyarrow"
+
+
+@dataclass(frozen=True, slots=True)
+class OverlaySourceDataset:
+    manifest: StructureArtifactManifest
+    frame: pa.Table
+
+
+def build_overlay_id(
+    *,
+    overlay_kind: str,
+    overlay_version: str,
+    source_structure_id: str,
+) -> str:
+    return f"{overlay_kind}:{overlay_version}:{source_structure_id}"
+
+
+def overlay_z_order(kind: str) -> int:
+    try:
+        return _OVERLAY_Z_ORDER[kind]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported overlay kind for z-order: {kind!r}") from exc
+
+
+def overlay_hit_test_priority(kind: str) -> int:
+    return overlay_z_order(kind)
+
+
+def sort_overlay_objects_for_render(overlays: Sequence[OverlayObject]) -> list[OverlayObject]:
+    return sorted(
+        overlays,
+        key=lambda overlay: (
+            overlay_z_order(overlay.kind),
+            overlay.anchor_bars[0] if overlay.anchor_bars else -1,
+            overlay.overlay_id,
+        ),
+    )
+
+
+def project_overlay_objects(
+    *,
+    bar_frame: pa.Table,
+    structure_frame: pa.Table,
+    data_version: str,
+    structure_version: str,
+    overlay_version: str = MVP_OVERLAY_VERSION,
+) -> list[OverlayObject]:
+    if structure_frame.num_rows == 0:
+        return []
+
+    bar_lookup = _build_bar_lookup(bar_frame)
+    overlays = []
+    for row in structure_frame.to_pylist():
+        overlay = _project_structure_row(
+            row=row,
+            bar_lookup=bar_lookup,
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+        if overlay is not None:
+            overlays.append(overlay)
+    return sorted(
+        overlays,
+        key=lambda overlay: (
+            overlay.anchor_bars[0] if overlay.anchor_bars else -1,
+            overlay.kind,
+            overlay.overlay_id,
+        ),
+    )
+
+
+def load_overlay_objects(config: OverlayProjectionConfig) -> list[OverlayObject]:
+    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    bar_frame = load_canonical_bars(
+        artifacts_root=config.artifacts_root,
+        data_version=data_version,
+        columns=["bar_id", "high", "low"],
+        parquet_engine=config.parquet_engine,
+    )
+    datasets = load_overlay_source_datasets(config)
+
+    overlays: list[OverlayObject] = []
+    for dataset in datasets:
+        overlays.extend(
+            project_overlay_objects(
+                bar_frame=bar_frame,
+                structure_frame=dataset.frame,
+                data_version=dataset.manifest.data_version,
+                structure_version=dataset.manifest.structure_version,
+                overlay_version=config.overlay_version,
+            )
+        )
+    return sorted(
+        overlays,
+        key=lambda overlay: (
+            overlay.anchor_bars[0] if overlay.anchor_bars else -1,
+            overlay.kind,
+            overlay.overlay_id,
+        ),
+    )
+
+
+def load_overlay_source_datasets(config: OverlayProjectionConfig) -> tuple[OverlaySourceDataset, ...]:
+    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    feature_refs = _load_feature_refs(
+        artifacts_root=config.artifacts_root,
+        data_version=data_version,
+        feature_version=config.feature_version,
+        feature_params_hash=config.feature_params_hash,
+        feature_keys=config.feature_keys,
+    )
+    pivot_input_ref = build_structure_input_ref(
+        data_version=data_version,
+        feature_version=config.feature_version,
+        feature_params_hash=config.feature_params_hash,
+        feature_refs=feature_refs,
+    )
+    pivot_ref = build_structure_ref(
+        kind=PIVOT_KIND_GROUP,
+        rulebook_version=config.pivot_rulebook_version,
+        structure_version=config.pivot_structure_version,
+        input_ref=pivot_input_ref,
+    )
+    leg_input_ref = build_structure_input_ref(
+        data_version=data_version,
+        feature_version=config.feature_version,
+        feature_params_hash=config.feature_params_hash,
+        feature_refs=feature_refs,
+        structure_refs=(pivot_ref,),
+    )
+    leg_ref = build_structure_ref(
+        kind=LEG_KIND_GROUP,
+        rulebook_version=config.leg_rulebook_version,
+        structure_version=config.leg_structure_version,
+        input_ref=leg_input_ref,
+    )
+    major_lh_input_ref = build_structure_input_ref(
+        data_version=data_version,
+        feature_version=config.feature_version,
+        feature_params_hash=config.feature_params_hash,
+        feature_refs=feature_refs,
+        structure_refs=(leg_ref,),
+    )
+    major_lh_ref = build_structure_ref(
+        kind=MAJOR_LH_KIND_GROUP,
+        rulebook_version=config.major_lh_rulebook_version,
+        structure_version=config.major_lh_structure_version,
+        input_ref=major_lh_input_ref,
+    )
+    breakout_input_ref = build_structure_input_ref(
+        data_version=data_version,
+        feature_version=config.feature_version,
+        feature_params_hash=config.feature_params_hash,
+        feature_refs=feature_refs,
+        structure_refs=(leg_ref, major_lh_ref),
+    )
+    return (
+        _load_overlay_source_dataset(
+            artifacts_root=config.artifacts_root,
+            kind=PIVOT_KIND_GROUP,
+            rulebook_version=config.pivot_rulebook_version,
+            structure_version=config.pivot_structure_version,
+            input_ref=pivot_input_ref,
+            parquet_engine=config.parquet_engine,
+        ),
+        _load_overlay_source_dataset(
+            artifacts_root=config.artifacts_root,
+            kind=LEG_KIND_GROUP,
+            rulebook_version=config.leg_rulebook_version,
+            structure_version=config.leg_structure_version,
+            input_ref=leg_input_ref,
+            parquet_engine=config.parquet_engine,
+        ),
+        _load_overlay_source_dataset(
+            artifacts_root=config.artifacts_root,
+            kind=MAJOR_LH_KIND_GROUP,
+            rulebook_version=config.major_lh_rulebook_version,
+            structure_version=config.major_lh_structure_version,
+            input_ref=major_lh_input_ref,
+            parquet_engine=config.parquet_engine,
+        ),
+        _load_overlay_source_dataset(
+            artifacts_root=config.artifacts_root,
+            kind=BREAKOUT_START_KIND_GROUP,
+            rulebook_version=config.breakout_rulebook_version,
+            structure_version=config.breakout_structure_version,
+            input_ref=breakout_input_ref,
+            parquet_engine=config.parquet_engine,
+        ),
+    )
+
+
+def _project_structure_row(
+    *,
+    row: dict[str, object],
+    bar_lookup: dict[int, dict[str, object]],
+    data_version: str,
+    structure_version: str,
+    overlay_version: str,
+) -> OverlayObject | None:
+    source_kind = str(row["kind"])
+    source_state = str(row["state"])
+    if source_state == "invalidated":
+        return None
+
+    if source_kind == "pivot_high":
+        anchor_bar_id = int(row["start_bar_id"])
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "high"),),
+            style_key=f"pivot.high.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == "pivot_low":
+        anchor_bar_id = int(row["start_bar_id"])
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "low"),),
+            style_key=f"pivot.low.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == "leg_up":
+        start_bar_id = int(row["start_bar_id"])
+        end_bar_id = _required_end_bar_id(row, source_kind)
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="leg-line",
+            anchor_bars=(start_bar_id, end_bar_id),
+            anchor_prices=(
+                _bar_price(bar_lookup, start_bar_id, "low"),
+                _bar_price(bar_lookup, end_bar_id, "high"),
+            ),
+            style_key=f"leg.up.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == "leg_down":
+        start_bar_id = int(row["start_bar_id"])
+        end_bar_id = _required_end_bar_id(row, source_kind)
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="leg-line",
+            anchor_bars=(start_bar_id, end_bar_id),
+            anchor_prices=(
+                _bar_price(bar_lookup, start_bar_id, "high"),
+                _bar_price(bar_lookup, end_bar_id, "low"),
+            ),
+            style_key=f"leg.down.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == MAJOR_LH_KIND_GROUP:
+        anchor_bar_ids = tuple(int(value) for value in row["anchor_bar_ids"])
+        lower_high_bar_id = anchor_bar_ids[-1]
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="major-lh-marker",
+            anchor_bars=(lower_high_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, lower_high_bar_id, "high"),),
+            style_key=f"major_lh.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == "bearish_breakout_start":
+        if source_state != "confirmed":
+            raise ValueError(
+                "bearish_breakout_start overlays only support confirmed structures in MVP."
+            )
+        anchor_bar_id = int(row["start_bar_id"])
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="breakout-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "high"),),
+            style_key="breakout.bearish.confirmed",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    raise ValueError(f"Unsupported structure kind for overlay projection: {source_kind!r}")
+
+
+def _build_overlay_object(
+    *,
+    row: dict[str, object],
+    overlay_kind: str,
+    anchor_bars: tuple[int, ...],
+    anchor_prices: tuple[float, ...],
+    style_key: str,
+    data_version: str,
+    structure_version: str,
+    overlay_version: str,
+) -> OverlayObject:
+    source_structure_id = str(row["structure_id"])
+    return OverlayObject(
+        overlay_id=build_overlay_id(
+            overlay_kind=overlay_kind,
+            overlay_version=overlay_version,
+            source_structure_id=source_structure_id,
+        ),
+        kind=overlay_kind,
+        source_structure_id=source_structure_id,
+        anchor_bars=anchor_bars,
+        anchor_prices=anchor_prices,
+        style_key=style_key,
+        data_version=data_version,
+        rulebook_version=str(row["rulebook_version"]),
+        structure_version=structure_version,
+        overlay_version=overlay_version,
+        meta=_build_overlay_meta(row),
+    )
+
+
+def _build_overlay_meta(row: dict[str, object]) -> dict[str, object]:
+    meta: dict[str, object] = {
+        "source_kind": str(row["kind"]),
+        "source_state": str(row["state"]),
+        "session_id": int(row["session_id"]),
+        "session_date": int(row["session_date"]),
+        "explanation_codes": tuple(str(value) for value in row["explanation_codes"]),
+    }
+    confirm_bar_id = row["confirm_bar_id"]
+    if confirm_bar_id is not None:
+        meta["confirm_bar_id"] = int(confirm_bar_id)
+    return meta
+
+
+def _load_feature_refs(
+    *,
+    artifacts_root: Path,
+    data_version: str,
+    feature_version: str,
+    feature_params_hash: str,
+    feature_keys: Sequence[str],
+) -> tuple[str, ...]:
+    refs = []
+    for feature_key in feature_keys:
+        manifest = load_feature_manifest(
+            artifacts_root=artifacts_root,
+            feature_key=feature_key,
+            feature_version=feature_version,
+            input_ref=data_version,
+            params_hash=feature_params_hash,
+        )
+        if manifest.data_version != data_version:
+            raise ValueError(
+                f"Feature manifest {feature_key!r} uses data_version={manifest.data_version!r}, "
+                f"expected {data_version!r}."
+            )
+        refs.append(
+            build_feature_ref(
+                feature_key=feature_key,
+                feature_version=feature_version,
+                feature_input_ref=manifest.input_ref,
+                params_hash=feature_params_hash,
+            )
+        )
+    return tuple(refs)
+
+
+def _load_overlay_source_dataset(
+    *,
+    artifacts_root: Path,
+    kind: str,
+    rulebook_version: str,
+    structure_version: str,
+    input_ref: str,
+    parquet_engine: str,
+) -> OverlaySourceDataset:
+    manifest = load_structure_manifest(
+        artifacts_root=artifacts_root,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        kind=kind,
+    )
+    frame = load_structure_artifact(
+        artifacts_root=artifacts_root,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        kind=kind,
+        parquet_engine=parquet_engine,
+    )
+    return OverlaySourceDataset(manifest=manifest, frame=frame)
+
+
+def _required_end_bar_id(row: dict[str, object], source_kind: str) -> int:
+    end_bar_id = row["end_bar_id"]
+    if end_bar_id is None:
+        raise ValueError(f"{source_kind} overlays require a non-null end_bar_id.")
+    return int(end_bar_id)
+
+
+def _bar_price(
+    bar_lookup: dict[int, dict[str, object]],
+    bar_id: int,
+    field: str,
+) -> float:
+    try:
+        row = bar_lookup[bar_id]
+    except KeyError as exc:
+        raise ValueError(f"Overlay projection missing canonical bar_id={bar_id}.") from exc
+    return float(row[field])
+
+
+def _build_bar_lookup(bar_frame: pa.Table) -> dict[int, dict[str, object]]:
+    lookup: dict[int, dict[str, object]] = {}
+    for row in bar_frame.to_pylist():
+        bar_id = int(row["bar_id"])
+        if bar_id in lookup:
+            raise ValueError("Overlay projection requires unique canonical bar_id values.")
+        lookup[bar_id] = row
+    return lookup
+
+
+def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
+    versions = list_bar_data_versions(artifacts_root)
+    if not versions:
+        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
+    return versions[-1]
