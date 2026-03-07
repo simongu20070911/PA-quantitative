@@ -12,8 +12,13 @@ import {
 } from "lightweight-charts";
 
 import { InspectorPrimitive } from "./inspectorPrimitive";
-import type { InspectorPrimitiveState } from "./inspectorScene";
+import type { InspectorPrimitiveState, InspectorRenderData } from "./inspectorScene";
 import type { ChartBar } from "./types";
+
+const TIME_SCALE_MIN_BAR_SPACING = 3;
+const TIME_SCALE_DEFAULT_BAR_SPACING = 8;
+const TIME_SCALE_DEFAULT_RIGHT_OFFSET = 6;
+const MAX_ZOOM_OUT_EPSILON = 0.01;
 
 export interface ChartAdapter {
   chart: IChartApi;
@@ -25,6 +30,7 @@ export interface ChartAdapter {
       preserveLogicalRange?: LogicalRange | null;
       preserveAnchorTime?: number | null;
       preserveAnchorBarId?: number | null;
+      preserveAnchorOffset?: number;
     },
   ) => void;
   timeToCoordinate: (time: number) => number | null;
@@ -32,8 +38,8 @@ export interface ChartAdapter {
   coordinateToPrice: (coordinate: number) => number | null;
   coordinateToLogical: (coordinate: number) => number | null;
   getVisibleLogicalRange: () => LogicalRange | null;
+  getInspectorRenderData: () => InspectorRenderData;
   subscribeViewportChange: (callback: (range: LogicalRange | null) => void) => () => void;
-  subscribePresentationChange: (callback: () => void) => () => void;
   subscribeClick: (
     callback: (param: MouseEventParams<Time>) => void,
   ) => () => void;
@@ -45,10 +51,6 @@ export interface ChartAdapter {
 }
 
 export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
-  const presentationCallbacks = new Set<() => void>();
-  const notifyPresentationChange = () => {
-    presentationCallbacks.forEach((callback) => callback());
-  };
   const chart = createChart(container, {
     autoSize: false,
     width: container.clientWidth,
@@ -73,9 +75,9 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
     timeScale: {
       borderVisible: true,
       borderColor: "rgba(226, 232, 240, 0.95)",
-      rightOffset: 6,
-      barSpacing: 8,
-      minBarSpacing: 3,
+      rightOffset: TIME_SCALE_DEFAULT_RIGHT_OFFSET,
+      barSpacing: TIME_SCALE_DEFAULT_BAR_SPACING,
+      minBarSpacing: TIME_SCALE_MIN_BAR_SPACING,
       rightBarStaysOnScroll: true,
       lockVisibleTimeRangeOnResize: true,
       timeVisible: true,
@@ -98,10 +100,9 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       },
     },
     handleScale: {
-      // Keep chart-surface interactions close to TradingView defaults:
-      // wheel zooms the time scale, pinch zooms on touch devices, and
-      // axis drags rescale along their respective dimensions.
-      mouseWheel: true,
+      // Keep axis-drag and pinch behavior chart-native, but route wheel/trackpad
+      // gestures ourselves so horizontal swipes pan and vertical deltas zoom.
+      mouseWheel: false,
       pinch: true,
       axisPressedMouseMove: { time: true, price: true },
       axisDoubleClickReset: { time: true, price: true },
@@ -128,12 +129,19 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
   });
   const inspectorPrimitive = new InspectorPrimitive();
   series.attachPrimitive(inspectorPrimitive);
+  const refreshInspectorRenderData = () => {
+    inspectorPrimitive.refresh();
+  };
+  const handleVisibleLogicalRangeChange = () => {
+    refreshInspectorRenderData();
+  };
+  chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
 
-  const detachPriceAxisWheelZoom = attachPriceAxisWheelZoom(
+  const detachWheelGestures = attachWheelGestures(
     container,
     chart,
     series,
-    notifyPresentationChange,
+    refreshInspectorRenderData,
   );
 
   return {
@@ -141,6 +149,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
     series,
     resize(width: number, height: number) {
       chart.applyOptions({ width, height });
+      refreshInspectorRenderData();
     },
     setBars(bars: ChartBar[], options) {
       series.setData(
@@ -153,12 +162,14 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
         })),
       );
       if (bars.length === 0) {
+        refreshInspectorRenderData();
         return;
       }
 
       const previousRange = options?.preserveLogicalRange ?? null;
       const preserveAnchorTime = options?.preserveAnchorTime ?? null;
       const preserveAnchorBarId = options?.preserveAnchorBarId ?? null;
+      const preserveAnchorOffset = options?.preserveAnchorOffset ?? 0;
       if (previousRange && (preserveAnchorBarId !== null || preserveAnchorTime !== null)) {
         const anchorIndex =
           preserveAnchorBarId !== null
@@ -167,14 +178,16 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
         if (anchorIndex >= 0) {
           const span = Math.max(previousRange.to - previousRange.from, 1);
           const halfSpan = span / 2;
+          const anchoredCenter = anchorIndex + preserveAnchorOffset;
           const targetRange = {
-            from: anchorIndex - halfSpan,
-            to: anchorIndex + halfSpan,
+            from: anchoredCenter - halfSpan,
+            to: anchoredCenter + halfSpan,
           };
           chart.timeScale().setVisibleLogicalRange(targetRange);
           window.requestAnimationFrame(() => {
             chart.timeScale().setVisibleLogicalRange(targetRange);
           });
+          refreshInspectorRenderData();
           return;
         }
       }
@@ -185,6 +198,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
           to: Math.max(bars.length - 0.5, 1),
         });
       }
+      refreshInspectorRenderData();
     },
     timeToCoordinate(time: number) {
       return chart.timeScale().timeToCoordinate(time as Time);
@@ -202,6 +216,9 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
     getVisibleLogicalRange() {
       return chart.timeScale().getVisibleLogicalRange();
     },
+    getInspectorRenderData() {
+      return inspectorPrimitive.getRenderData();
+    },
     subscribeViewportChange(callback) {
       const onRange = (range: LogicalRange | null) => {
         callback(range);
@@ -209,12 +226,6 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
       return () => {
         chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
-      };
-    },
-    subscribePresentationChange(callback) {
-      presentationCallbacks.add(callback);
-      return () => {
-        presentationCallbacks.delete(callback);
       };
     },
     subscribeClick(callback) {
@@ -233,28 +244,34 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       inspectorPrimitive.setState(state);
     },
     destroy() {
-      detachPriceAxisWheelZoom();
+      detachWheelGestures();
       series.detachPrimitive(inspectorPrimitive);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
       chart.remove();
     },
   };
 }
 
-function attachPriceAxisWheelZoom(
+function attachWheelGestures(
   container: HTMLDivElement,
   chart: IChartApi,
   series: ISeriesApi<"Candlestick", Time>,
   notifyPresentationChange: () => void,
 ) {
-  let mouseWheelEnabled = true;
+  const axisDominanceRatio = 1.35;
   let priceAxisDragActive = false;
-  let rafId: number | null = null;
+  let dragRafId: number | null = null;
+  let wheelRafId: number | null = null;
+  let pendingPanDelta = 0;
+  let pendingZoomDelta = 0;
+  let pendingZoomAnchorX = 0;
+  let pendingZoomSamples = 0;
 
   const stopPriceAxisDragLoop = () => {
     priceAxisDragActive = false;
-    if (rafId !== null) {
-      window.cancelAnimationFrame(rafId);
-      rafId = null;
+    if (dragRafId !== null) {
+      window.cancelAnimationFrame(dragRafId);
+      dragRafId = null;
     }
   };
 
@@ -265,27 +282,112 @@ function attachPriceAxisWheelZoom(
     priceAxisDragActive = true;
     const tick = () => {
       if (!priceAxisDragActive) {
-        rafId = null;
+        dragRafId = null;
         return;
       }
       notifyPresentationChange();
-      rafId = window.requestAnimationFrame(tick);
+      dragRafId = window.requestAnimationFrame(tick);
     };
-    rafId = window.requestAnimationFrame(tick);
+    dragRafId = window.requestAnimationFrame(tick);
   };
 
-  const updateMouseWheelMode = (event: PointerEvent | MouseEvent) => {
-    const overPriceAxis = isOverRightPriceAxis(container, chart, event.clientX, event.clientY);
-    const nextEnabled = !overPriceAxis;
-    if (mouseWheelEnabled === nextEnabled) {
+  const flushPendingWheelGesture = () => {
+    wheelRafId = null;
+    if (pendingPanDelta === 0 && pendingZoomDelta === 0) {
       return;
     }
-    mouseWheelEnabled = nextEnabled;
-    chart.applyOptions({
-      handleScale: {
-        mouseWheel: nextEnabled,
-      },
-    });
+
+    const visibleRange = chart.timeScale().getVisibleLogicalRange();
+    if (visibleRange === null) {
+      pendingPanDelta = 0;
+      pendingZoomDelta = 0;
+      pendingZoomAnchorX = 0;
+      pendingZoomSamples = 0;
+      return;
+    }
+
+    const plotWidth = getMainPlotWidth(container, chart);
+    if (plotWidth <= 0) {
+      pendingPanDelta = 0;
+      pendingZoomDelta = 0;
+      pendingZoomAnchorX = 0;
+      pendingZoomSamples = 0;
+      return;
+    }
+
+    let nextRange = {
+      from: Number(visibleRange.from),
+      to: Number(visibleRange.to),
+    };
+    let anchorLogical =
+      resolveLogicalAtX(chart, pendingZoomAnchorX / Math.max(pendingZoomSamples, 1)) ??
+      (nextRange.from + nextRange.to) / 2;
+    if (pendingPanDelta !== 0) {
+      const span = Math.max(nextRange.to - nextRange.from, 1);
+      const logicalShift = (pendingPanDelta * span * 0.65) / plotWidth;
+      nextRange = {
+        from: nextRange.from + logicalShift,
+        to: nextRange.to + logicalShift,
+      };
+      anchorLogical += logicalShift;
+    }
+    if (pendingZoomDelta !== 0) {
+      nextRange = zoomLogicalRange(
+        nextRange,
+        anchorLogical,
+        pendingZoomDelta,
+        plotWidth / TIME_SCALE_MIN_BAR_SPACING,
+      );
+    }
+
+    pendingPanDelta = 0;
+    pendingZoomDelta = 0;
+    pendingZoomAnchorX = 0;
+    pendingZoomSamples = 0;
+
+    const nextSpan = nextRange.to - nextRange.from;
+    if (!Number.isFinite(nextRange.from) || !Number.isFinite(nextRange.to) || nextSpan <= 0) {
+      return;
+    }
+
+    chart.timeScale().setVisibleLogicalRange(nextRange);
+    notifyPresentationChange();
+  };
+
+  const scheduleWheelGesture = () => {
+    if (wheelRafId !== null) {
+      return;
+    }
+    wheelRafId = window.requestAnimationFrame(flushPendingWheelGesture);
+  };
+
+  const handlePlotWheel = (event: WheelEvent) => {
+    const rect = container.getBoundingClientRect();
+    const localX = clamp(event.clientX - rect.left, 0, getMainPlotWidth(container, chart));
+    const rawDeltaX = event.ctrlKey ? 0 : normalizeWheelDelta(event.deltaX, event.deltaMode);
+    const rawDeltaY = normalizeWheelDelta(event.deltaY, event.deltaMode);
+    const absDeltaX = Math.abs(rawDeltaX);
+    const absDeltaY = Math.abs(rawDeltaY);
+    let normalizedDeltaX = 0;
+    let normalizedDeltaY = 0;
+
+    if (event.ctrlKey) {
+      normalizedDeltaY = rawDeltaY !== 0 ? rawDeltaY : rawDeltaX;
+    } else if (absDeltaX > absDeltaY * axisDominanceRatio) {
+      normalizedDeltaX = rawDeltaX;
+    } else {
+      normalizedDeltaY = rawDeltaY;
+    }
+
+    if (normalizedDeltaX === 0 && normalizedDeltaY === 0) {
+      return;
+    }
+
+    pendingPanDelta += normalizedDeltaX;
+    pendingZoomDelta += normalizedDeltaY;
+    pendingZoomAnchorX += localX;
+    pendingZoomSamples += 1;
+    scheduleWheelGesture();
   };
 
   const handleWheel = (event: WheelEvent) => {
@@ -293,39 +395,50 @@ function attachPriceAxisWheelZoom(
       return;
     }
 
-    if (!isOverRightPriceAxis(container, chart, event.clientX, event.clientY)) {
+    if (isChartUiTarget(event.target)) {
+      consumeWheelEvent(event);
       return;
     }
 
-    const rect = container.getBoundingClientRect();
-    const localY = event.clientY - rect.top;
-    const priceScale = chart.priceScale("right");
-    const anchorPrice = series.coordinateToPrice(localY);
-    const visibleRange = priceScale.getVisibleRange();
-    if (anchorPrice === null || visibleRange === null) {
+    consumeWheelEvent(event);
+
+    if (isOverRightPriceAxis(container, chart, event.clientX, event.clientY)) {
+      const rect = container.getBoundingClientRect();
+      const localY = clamp(
+        event.clientY - rect.top,
+        0,
+        Math.max(rect.height - chart.timeScale().height(), 0),
+      );
+      const priceScale = chart.priceScale("right");
+      const anchorPrice = series.coordinateToPrice(localY);
+      const visibleRange = priceScale.getVisibleRange();
+      if (anchorPrice === null || visibleRange === null) {
+        return;
+      }
+
+      const normalizedDelta = normalizeWheelDelta(
+        event.deltaY !== 0 ? event.deltaY : event.deltaX,
+        event.deltaMode,
+      );
+      if (normalizedDelta === 0) {
+        return;
+      }
+
+      const zoomFactor = Math.exp(normalizedDelta * 0.0007);
+      const nextFrom = anchorPrice - (anchorPrice - visibleRange.from) * zoomFactor;
+      const nextTo = anchorPrice + (visibleRange.to - anchorPrice) * zoomFactor;
+      const nextSpan = nextTo - nextFrom;
+      if (!Number.isFinite(nextFrom) || !Number.isFinite(nextTo) || nextSpan <= 1e-6) {
+        return;
+      }
+
+      priceScale.setAutoScale(false);
+      priceScale.setVisibleRange({ from: nextFrom, to: nextTo });
+      notifyPresentationChange();
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
-    const normalizedDelta = normalizeWheelDelta(event);
-    if (normalizedDelta === 0) {
-      return;
-    }
-
-    const zoomFactor = Math.exp(normalizedDelta * 0.0025);
-    const nextFrom = anchorPrice - (anchorPrice - visibleRange.from) * zoomFactor;
-    const nextTo = anchorPrice + (visibleRange.to - anchorPrice) * zoomFactor;
-    const nextSpan = nextTo - nextFrom;
-    if (!Number.isFinite(nextFrom) || !Number.isFinite(nextTo) || nextSpan <= 1e-6) {
-      return;
-    }
-
-    priceScale.setAutoScale(false);
-    priceScale.setVisibleRange({ from: nextFrom, to: nextTo });
-    notifyPresentationChange();
+    handlePlotWheel(event);
   };
 
   const handlePointerDown = (event: PointerEvent) => {
@@ -344,18 +457,16 @@ function attachPriceAxisWheelZoom(
 
   const handlePointerLeave = () => {
     stopPriceAxisDragLoop();
-    if (!mouseWheelEnabled) {
-      mouseWheelEnabled = true;
-      chart.applyOptions({
-        handleScale: {
-          mouseWheel: true,
-        },
-      });
+    if (wheelRafId !== null) {
+      window.cancelAnimationFrame(wheelRafId);
+      wheelRafId = null;
     }
+    pendingPanDelta = 0;
+    pendingZoomDelta = 0;
+    pendingZoomAnchorX = 0;
+    pendingZoomSamples = 0;
   };
 
-  container.addEventListener("pointermove", updateMouseWheelMode);
-  container.addEventListener("mousemove", updateMouseWheelMode);
   container.addEventListener("pointerdown", handlePointerDown);
   window.addEventListener("pointerup", handlePointerUp);
   window.addEventListener("pointercancel", handlePointerUp);
@@ -364,8 +475,9 @@ function attachPriceAxisWheelZoom(
   container.addEventListener("wheel", handleWheel, { passive: false, capture: true });
   return () => {
     stopPriceAxisDragLoop();
-    container.removeEventListener("pointermove", updateMouseWheelMode);
-    container.removeEventListener("mousemove", updateMouseWheelMode);
+    if (wheelRafId !== null) {
+      window.cancelAnimationFrame(wheelRafId);
+    }
     container.removeEventListener("pointerdown", handlePointerDown);
     window.removeEventListener("pointerup", handlePointerUp);
     window.removeEventListener("pointercancel", handlePointerUp);
@@ -397,13 +509,61 @@ function isOverRightPriceAxis(
   );
 }
 
-function normalizeWheelDelta(event: WheelEvent): number {
+function consumeWheelEvent(event: WheelEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
+function isChartUiTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(".annotation-rail") !== null;
+}
+
+function getMainPlotWidth(container: HTMLDivElement, chart: IChartApi): number {
+  const plotWidth = container.clientWidth - chart.priceScale("right").width();
+  return Math.max(plotWidth, 0);
+}
+
+function resolveLogicalAtX(chart: IChartApi, x: number): number | null {
+  const logical = chart.timeScale().coordinateToLogical(x);
+  return logical === null ? null : Number(logical);
+}
+
+function zoomLogicalRange(
+  range: { from: number; to: number },
+  anchorLogical: number,
+  delta: number,
+  maxSpan: number,
+) {
+  const currentSpan = range.to - range.from;
+  if (delta > 0 && currentSpan >= maxSpan - MAX_ZOOM_OUT_EPSILON) {
+    return range;
+  }
+
+  const zoomFactor = Math.exp(delta * 0.0025);
+  const nextFrom = anchorLogical - (anchorLogical - range.from) * zoomFactor;
+  const nextTo = anchorLogical + (range.to - anchorLogical) * zoomFactor;
+  const nextSpan = nextTo - nextFrom;
+  if (!Number.isFinite(nextFrom) || !Number.isFinite(nextTo) || nextSpan <= 1e-6) {
+    return range;
+  }
+  if (delta > 0 && nextSpan >= maxSpan) {
+    return range;
+  }
+  return { from: nextFrom, to: nextTo };
+}
+
+function normalizeWheelDelta(delta: number, deltaMode: number): number {
   const pageScale = window.innerHeight || 800;
-  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
-    return event.deltaY * 16;
+  if (deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return delta * 16;
   }
-  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-    return event.deltaY * pageScale;
+  if (deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return delta * pageScale;
   }
-  return event.deltaY;
+  return delta;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }

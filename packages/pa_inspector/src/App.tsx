@@ -788,26 +788,6 @@ export default function App() {
             onClose={clearOverlaySelection}
           />
         </div>
-        <section className="status-strip">
-          <div>
-            <p className="eyebrow">Window Status</p>
-            <strong>
-              {windowData
-                ? `${windowData.bars.length} bars · ${visibleOverlays.length} visible overlays`
-                : "No window"}
-            </strong>
-          </div>
-          <div className="status-meta">
-            {windowData ? (
-              <>
-                <span>{windowCacheRef.current.size} cached</span>
-                <span>{windowData.meta.data_version}</span>
-                <span>{windowData.meta.rulebook_version}</span>
-                <span>{windowData.meta.overlay_version}</span>
-              </>
-            ) : null}
-          </div>
-        </section>
       </div>
     </div>
   );

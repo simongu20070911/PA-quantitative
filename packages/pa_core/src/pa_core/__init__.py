@@ -44,7 +44,6 @@ __all__ = [
     "FeatureArtifactManifest",
     "MVP_OVERLAY_DATASET_KINDS",
     "MVP_OVERLAY_VERSION",
-    "OverlayProjectionConfig",
     "STRUCTURE_ARTIFACT_COLUMNS",
     "StructureArtifactManifest",
     "EdgeFeatureMaterializationConfig",
@@ -245,9 +244,7 @@ def __getattr__(name: str):
     if name in {
         "MVP_OVERLAY_DATASET_KINDS",
         "MVP_OVERLAY_VERSION",
-        "OverlayProjectionConfig",
         "build_overlay_id",
-        "load_overlay_objects",
         "overlay_hit_test_priority",
         "overlay_z_order",
         "project_overlay_objects",
@@ -256,9 +253,7 @@ def __getattr__(name: str):
         from .overlays import (
             MVP_OVERLAY_DATASET_KINDS,
             MVP_OVERLAY_VERSION,
-            OverlayProjectionConfig,
             build_overlay_id,
-            load_overlay_objects,
             overlay_hit_test_priority,
             overlay_z_order,
             project_overlay_objects,
@@ -268,9 +263,7 @@ def __getattr__(name: str):
         exports = {
             "MVP_OVERLAY_DATASET_KINDS": MVP_OVERLAY_DATASET_KINDS,
             "MVP_OVERLAY_VERSION": MVP_OVERLAY_VERSION,
-            "OverlayProjectionConfig": OverlayProjectionConfig,
             "build_overlay_id": build_overlay_id,
-            "load_overlay_objects": load_overlay_objects,
             "overlay_hit_test_priority": overlay_hit_test_priority,
             "overlay_z_order": overlay_z_order,
             "project_overlay_objects": project_overlay_objects,

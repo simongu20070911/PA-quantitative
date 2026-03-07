@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 
 import type { ChartAdapter } from "../lib/chartAdapter";
 import { defaultAnnotationStyle } from "../lib/annotationStyle";
@@ -6,12 +6,8 @@ import {
   findOverlayAtPoint,
   hitTestAnnotation,
   projectDraggedAnnotation,
-  resolveAnnotationDrawables,
   resolveAnnotationPointerPositionFromPoint,
-  resolveOverlayDrawables,
   type AnnotationDragState,
-  type AnnotationDrawable,
-  type Drawable,
 } from "../lib/inspectorScene";
 import type {
   AnnotationAnchor,
@@ -45,7 +41,6 @@ export interface OverlayCanvasProps {
   selectedOverlayId: string | null;
   selectedAnnotationId: string | null;
   confirmationGuide: ConfirmationGuide | null;
-  viewportRevision: number;
   onAnnotationCreate: (annotation: {
     kind: AnnotationKind;
     start: AnnotationAnchor;
@@ -57,6 +52,7 @@ export interface OverlayCanvasProps {
     start: AnnotationAnchor,
     end: AnnotationAnchor,
   ) => void;
+  onAnnotationDuplicate: (annotationId: string) => string | null;
   onOverlaySelect: (
     overlay: Overlay | null,
     anchorPoint: { x: number; y: number } | null,
@@ -77,29 +73,34 @@ export function OverlayCanvas({
   selectedOverlayId,
   selectedAnnotationId,
   confirmationGuide,
-  viewportRevision,
   onAnnotationCreate,
   onAnnotationSelect,
   onAnnotationUpdate,
+  onAnnotationDuplicate,
   onOverlaySelect,
   onOverlayCommandSelect,
 }: OverlayCanvasProps) {
-  const overlayDrawablesRef = useRef<Drawable[]>([]);
-  const annotationDrawablesRef = useRef<AnnotationDrawable[]>([]);
   const activeDrawRef = useRef(false);
   const activeDragRef = useRef<AnnotationDragState | null>(null);
-  const draftStartRef = useRef<AnnotationAnchor | null>(null);
-  const draftCurrentRef = useRef<AnnotationAnchor | null>(null);
+  const draftStateRef = useRef<{
+    start: AnnotationAnchor;
+    current: AnnotationAnchor;
+  } | null>(null);
+  const lineSnapActiveRef = useRef(false);
   const barsRef = useRef(bars);
+  const annotationsRef = useRef(annotations);
+  const visibleOverlaysRef = useRef<Overlay[]>([]);
+  const sessionProfileRef = useRef(sessionProfile);
+  const selectedOverlayIdRef = useRef(selectedOverlayId);
+  const selectedAnnotationIdRef = useRef(selectedAnnotationId);
+  const confirmationGuideRef = useRef(confirmationGuide);
   const annotationToolRef = useRef(annotationTool);
   const onAnnotationCreateRef = useRef(onAnnotationCreate);
   const onAnnotationSelectRef = useRef(onAnnotationSelect);
   const onAnnotationUpdateRef = useRef(onAnnotationUpdate);
+  const onAnnotationDuplicateRef = useRef(onAnnotationDuplicate);
   const onOverlaySelectRef = useRef(onOverlaySelect);
   const onOverlayCommandSelectRef = useRef(onOverlayCommandSelect);
-  const [draftStart, setDraftStart] = useState<AnnotationAnchor | null>(null);
-  const [draftCurrent, setDraftCurrent] = useState<AnnotationAnchor | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
 
   const visibleOverlays = useMemo(() => {
     const allowedKinds = new Set<string>();
@@ -114,83 +115,81 @@ export function OverlayCanvas({
     return overlays.filter((overlay) => allowedKinds.has(overlay.kind));
   }, [enabledLayers, overlays]);
 
-  const draftAnnotation =
-    annotationTool !== "none" && draftStart && draftCurrent
-      ? {
-          id: "draft",
-          familyKey: "draft",
-          kind: annotationTool,
-          start: draftStart,
-          end: draftCurrent,
-          style: defaultAnnotationStyle(annotationTool),
-        }
-      : null;
+  const syncInspectorPrimitiveState = (nextAdapter: ChartAdapter | null = adapter) => {
+    if (!nextAdapter) {
+      return;
+    }
+    nextAdapter.setInspectorPrimitiveState(
+      buildInspectorPrimitiveState({
+        bars: barsRef.current,
+        overlays: visibleOverlaysRef.current,
+        annotations: annotationsRef.current,
+        selectedOverlayId: selectedOverlayIdRef.current,
+        selectedAnnotationId: selectedAnnotationIdRef.current,
+        confirmationGuide: confirmationGuideRef.current,
+        sessionProfile: sessionProfileRef.current,
+        annotationTool: annotationToolRef.current,
+        draftState: draftStateRef.current,
+      }),
+    );
+  };
 
   useEffect(() => {
+    annotationToolRef.current = annotationTool;
     if (annotationTool === "none") {
       activeDrawRef.current = false;
-      setDraftStart(null);
-      setDraftCurrent(null);
-      setIsDrawing(false);
+      activeDragRef.current = null;
+      lineSnapActiveRef.current = false;
+      draftStateRef.current = null;
+      syncInspectorPrimitiveState();
     }
-  }, [annotationTool]);
+  }, [adapter, annotationTool]);
 
   useEffect(() => {
     barsRef.current = bars;
-    annotationToolRef.current = annotationTool;
+    annotationsRef.current = annotations;
+    visibleOverlaysRef.current = visibleOverlays;
+    sessionProfileRef.current = sessionProfile;
+    selectedOverlayIdRef.current = selectedOverlayId;
+    selectedAnnotationIdRef.current = selectedAnnotationId;
+    confirmationGuideRef.current = confirmationGuide;
     onAnnotationCreateRef.current = onAnnotationCreate;
     onAnnotationSelectRef.current = onAnnotationSelect;
     onAnnotationUpdateRef.current = onAnnotationUpdate;
+    onAnnotationDuplicateRef.current = onAnnotationDuplicate;
     onOverlaySelectRef.current = onOverlaySelect;
     onOverlayCommandSelectRef.current = onOverlayCommandSelect;
-  }, [
-    bars,
-    annotationTool,
-    onAnnotationCreate,
-    onAnnotationSelect,
-    onAnnotationUpdate,
-    onOverlaySelect,
-    onOverlayCommandSelect,
-  ]);
-
-  useEffect(() => {
     if (!adapter) {
       return;
     }
-    const barTimeById = new Map(bars.map((bar) => [bar.bar_id, bar.time]));
-    overlayDrawablesRef.current = resolveOverlayDrawables(bars, visibleOverlays, adapter);
-    annotationDrawablesRef.current = resolveAnnotationDrawables(
-      annotations,
-      barTimeById,
-      adapter,
-    );
-  }, [adapter, annotations, bars, visibleOverlays, viewportRevision]);
-
-  useEffect(() => {
-    if (!adapter) {
-      return;
-    }
-    adapter.setInspectorPrimitiveState({
-      bars,
-      overlays: visibleOverlays,
-      annotations,
-      selectedOverlayId,
-      selectedAnnotationId,
-      confirmationGuide,
-      sessionProfile,
-      draftAnnotation,
-    });
+    syncInspectorPrimitiveState(adapter);
   }, [
     adapter,
     annotations,
     bars,
     confirmationGuide,
-    draftAnnotation,
     selectedAnnotationId,
     selectedOverlayId,
     sessionProfile,
     visibleOverlays,
   ]);
+
+  useEffect(() => {
+    const onKeyChange = (event: KeyboardEvent) => {
+      lineSnapActiveRef.current = event.metaKey || event.ctrlKey;
+    };
+    const onBlur = () => {
+      lineSnapActiveRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyChange);
+    window.addEventListener("keyup", onKeyChange);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyChange);
+      window.removeEventListener("keyup", onKeyChange);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
 
   useEffect(() => {
     if (!adapter) {
@@ -203,35 +202,31 @@ export function OverlayCanvas({
         return;
       }
 
-      if (annotationTool !== "none") {
+      if (annotationToolRef.current !== "none") {
         surface.style.cursor = "default";
-        if (draftStart && param.point) {
-          const pointer = resolveAnnotationPointerPositionFromPoint(
-            param.point,
-            bars,
-            adapter.coordinateToLogical,
-            adapter.coordinateToPrice,
-          );
-          setDraftCurrent(pointer ? { bar_id: pointer.barId, price: pointer.price } : null);
-        }
         return;
       }
 
       const point = param.point;
+      const renderData = adapter.getInspectorRenderData();
       const annotationHit =
         point === undefined
           ? null
-          : hitTestAnnotation(annotationDrawablesRef.current, point.x, point.y);
+          : hitTestAnnotation(renderData.annotationDrawables, point.x, point.y);
       if (annotationHit) {
         surface.style.cursor =
-          annotationHit.mode === "move" ? "grab" : "nwse-resize";
+          annotationHit.mode === "move"
+            ? "grab"
+            : annotationHit.mode === "scale"
+              ? "ns-resize"
+              : "nwse-resize";
         return;
       }
 
       const overlayDrawable =
         point === undefined
           ? null
-          : findOverlayAtPoint(overlayDrawablesRef.current, point.x, point.y);
+          : findOverlayAtPoint(renderData.overlayDrawables, point.x, point.y);
       surface.style.cursor = overlayDrawable ? "pointer" : "default";
     });
 
@@ -244,13 +239,6 @@ export function OverlayCanvas({
     };
   }, [
     adapter,
-    annotationTool,
-    bars,
-    draftStart,
-    isDrawing,
-    onAnnotationSelect,
-    onOverlayCommandSelect,
-    onOverlaySelect,
     shellRef,
     surfaceRef,
   ]);
@@ -298,17 +286,18 @@ export function OverlayCanvas({
         onAnnotationSelectRef.current(null);
         onOverlaySelectRef.current(null, null);
         activeDrawRef.current = true;
-        setIsDrawing(true);
-        draftStartRef.current = { bar_id: pointer.barId, price: pointer.price };
-        draftCurrentRef.current = { bar_id: pointer.barId, price: pointer.price };
-        setDraftStart(draftStartRef.current);
-        setDraftCurrent(draftCurrentRef.current);
+        draftStateRef.current = {
+          start: { bar_id: pointer.barId, price: pointer.price },
+          current: { bar_id: pointer.barId, price: pointer.price },
+        };
+        syncInspectorPrimitiveState(adapter);
         surface.setPointerCapture(event.pointerId);
         return;
       }
 
+      const renderData = adapter.getInspectorRenderData();
       const annotationHit = hitTestAnnotation(
-        annotationDrawablesRef.current,
+        renderData.annotationDrawables,
         point.x,
         point.y,
       );
@@ -316,13 +305,27 @@ export function OverlayCanvas({
         event.preventDefault();
         event.stopPropagation();
         onOverlaySelectRef.current(null, null);
-        onAnnotationSelectRef.current(annotationHit.drawable.annotation.id);
         const style = annotationHit.drawable.annotation.style;
+        let dragAnnotationId = annotationHit.drawable.annotation.id;
+        if (event.altKey) {
+          const duplicateId = onAnnotationDuplicateRef.current(
+            annotationHit.drawable.annotation.id,
+          );
+          if (duplicateId) {
+            dragAnnotationId = duplicateId;
+            onAnnotationSelectRef.current(duplicateId);
+          } else {
+            onAnnotationSelectRef.current(annotationHit.drawable.annotation.id);
+          }
+        } else {
+          onAnnotationSelectRef.current(annotationHit.drawable.annotation.id);
+        }
         if (!pointer || style.locked) {
           return;
         }
         activeDragRef.current = {
-          annotationId: annotationHit.drawable.annotation.id,
+          annotationId: dragAnnotationId,
+          annotationKind: annotationHit.drawable.annotation.kind,
           mode: annotationHit.mode,
           originPointer: pointer,
           originalStart: annotationHit.drawable.annotation.start,
@@ -332,7 +335,7 @@ export function OverlayCanvas({
         return;
       }
 
-      const overlayDrawable = findOverlayAtPoint(overlayDrawablesRef.current, point.x, point.y);
+      const overlayDrawable = findOverlayAtPoint(renderData.overlayDrawables, point.x, point.y);
       if (overlayDrawable) {
         event.preventDefault();
         event.stopPropagation();
@@ -364,14 +367,35 @@ export function OverlayCanvas({
         return;
       }
       if (activeDrawRef.current) {
-        const anchor = resolvePoint(event);
+        const rawAnchor = resolvePoint(event);
+        const surfaceRect = surface.getBoundingClientRect();
+        const anchor =
+          rawAnchor && draftStateRef.current?.start
+            ? resolveDraftAnchor(
+                adapter,
+                barsRef.current,
+                annotationToolRef.current,
+                draftStateRef.current.start,
+                {
+                  x: event.clientX - surfaceRect.left,
+                  y: event.clientY - surfaceRect.top,
+                },
+                event.metaKey || event.ctrlKey,
+              )
+            : null;
         if (!anchor) {
           return;
         }
         event.preventDefault();
         event.stopPropagation();
-        draftCurrentRef.current = { bar_id: anchor.barId, price: anchor.price };
-        setDraftCurrent(draftCurrentRef.current);
+        if (!draftStateRef.current) {
+          return;
+        }
+        draftStateRef.current = {
+          start: draftStateRef.current.start,
+          current: { bar_id: anchor.bar_id, price: anchor.price },
+        };
+        syncInspectorPrimitiveState(adapter);
         return;
       }
       if (!activeDragRef.current) {
@@ -381,9 +405,27 @@ export function OverlayCanvas({
       if (!pointer) {
         return;
       }
+      const projectedPointer =
+        (event.metaKey || event.ctrlKey) &&
+        activeDragRef.current.annotationKind === "line" &&
+        (activeDragRef.current.mode === "start" || activeDragRef.current.mode === "end")
+          ? resolveSnappedDragPointer(
+              adapter,
+              barsRef.current,
+              activeDragRef.current,
+              {
+                x: event.clientX - surface.getBoundingClientRect().left,
+                y: event.clientY - surface.getBoundingClientRect().top,
+              },
+            ) ?? pointer
+          : pointer;
       event.preventDefault();
       event.stopPropagation();
-      const updated = projectDraggedAnnotation(activeDragRef.current, pointer, barsRef.current);
+      const updated = projectDraggedAnnotation(
+        activeDragRef.current,
+        projectedPointer,
+        barsRef.current,
+      );
       if (!updated) {
         return;
       }
@@ -401,10 +443,21 @@ export function OverlayCanvas({
           return;
         }
         const pointer = resolvePoint(event);
-        const start = draftStartRef.current;
-        const current = draftCurrentRef.current;
-        const anchor = pointer
-          ? { bar_id: pointer.barId, price: pointer.price }
+        const start = draftStateRef.current?.start ?? null;
+        const current = draftStateRef.current?.current ?? null;
+        const surfaceRect = surface.getBoundingClientRect();
+        const anchor = pointer && start
+          ? resolveDraftAnchor(
+              adapter,
+              barsRef.current,
+              annotationToolRef.current,
+              start,
+              {
+                x: event.clientX - surfaceRect.left,
+                y: event.clientY - surfaceRect.top,
+              },
+              event.metaKey || event.ctrlKey,
+            )
           : current ?? start;
         event.preventDefault();
         event.stopPropagation();
@@ -412,12 +465,9 @@ export function OverlayCanvas({
           surface.releasePointerCapture(event.pointerId);
         }
         activeDrawRef.current = false;
-        setIsDrawing(false);
         if (!start || !anchor) {
-          draftStartRef.current = null;
-          draftCurrentRef.current = null;
-          setDraftStart(null);
-          setDraftCurrent(null);
+          draftStateRef.current = null;
+          syncInspectorPrimitiveState(adapter);
           return;
         }
         onAnnotationCreateRef.current({
@@ -425,10 +475,8 @@ export function OverlayCanvas({
           start,
           end: anchor,
         });
-        draftStartRef.current = null;
-        draftCurrentRef.current = null;
-        setDraftStart(null);
-        setDraftCurrent(null);
+        draftStateRef.current = null;
+        syncInspectorPrimitiveState(adapter);
         return;
       }
       if (activeDragRef.current) {
@@ -450,11 +498,9 @@ export function OverlayCanvas({
       }
       activeDrawRef.current = false;
       activeDragRef.current = null;
-      draftStartRef.current = null;
-      draftCurrentRef.current = null;
-      setIsDrawing(false);
-      setDraftStart(null);
-      setDraftCurrent(null);
+      lineSnapActiveRef.current = false;
+      draftStateRef.current = null;
+      syncInspectorPrimitiveState(adapter);
     };
 
     surface.addEventListener("pointerdown", onPointerDown, true);
@@ -477,8 +523,146 @@ export function OverlayCanvas({
   return null;
 }
 
-function isCommandClick(
-  param: { sourceEvent?: { metaKey?: boolean; ctrlKey?: boolean } },
+function buildInspectorPrimitiveState(args: {
+  bars: ChartBar[];
+  overlays: Overlay[];
+  annotations: ChartAnnotation[];
+  selectedOverlayId: string | null;
+  selectedAnnotationId: string | null;
+  confirmationGuide: ConfirmationGuide | null;
+  sessionProfile: SessionProfile;
+  annotationTool: AnnotationTool;
+  draftState: { start: AnnotationAnchor; current: AnnotationAnchor } | null;
+}) {
+  return {
+    bars: args.bars,
+    overlays: args.overlays,
+    annotations: args.annotations,
+    selectedOverlayId: args.selectedOverlayId,
+    selectedAnnotationId: args.selectedAnnotationId,
+    confirmationGuide: args.confirmationGuide,
+    sessionProfile: args.sessionProfile,
+    draftAnnotation: buildDraftAnnotation(args.annotationTool, args.draftState),
+  };
+}
+
+function buildDraftAnnotation(
+  tool: AnnotationTool,
+  draftState: { start: AnnotationAnchor; current: AnnotationAnchor } | null,
 ) {
-  return Boolean(param.sourceEvent?.metaKey || param.sourceEvent?.ctrlKey);
+  if (tool === "none" || !draftState) {
+    return null;
+  }
+  return {
+    id: "draft",
+    familyKey: "draft",
+    kind: tool,
+    start: draftState.start,
+    end: draftState.current,
+    style: defaultAnnotationStyle(tool),
+  };
+}
+
+function resolveDraftAnchor(
+  adapter: ChartAdapter,
+  bars: ChartBar[],
+  tool: AnnotationTool,
+  start: AnnotationAnchor,
+  point: { x: number; y: number },
+  snapLine: boolean,
+): AnnotationAnchor | null {
+  if (tool === "line" && snapLine) {
+    return resolveSnappedLineAnchor(adapter, bars, start, point);
+  }
+  return resolveAnchorFromPoint(adapter, bars, point);
+}
+
+function resolveSnappedDragPointer(
+  adapter: ChartAdapter,
+  bars: ChartBar[],
+  dragState: AnnotationDragState,
+  point: { x: number; y: number },
+) {
+  const fixedAnchor =
+    dragState.mode === "start" ? dragState.originalEnd : dragState.originalStart;
+  const anchor = resolveSnappedLineAnchor(adapter, bars, fixedAnchor, point);
+  if (!anchor) {
+    return null;
+  }
+  const barIndex = bars.findIndex((bar) => bar.bar_id === anchor.bar_id);
+  if (barIndex < 0) {
+    return null;
+  }
+  return {
+    barId: anchor.bar_id,
+    barIndex,
+    price: anchor.price,
+  };
+}
+
+function resolveSnappedLineAnchor(
+  adapter: ChartAdapter,
+  bars: ChartBar[],
+  fixedAnchor: AnnotationAnchor,
+  point: { x: number; y: number },
+): AnnotationAnchor | null {
+  const barTimeById = new Map(bars.map((bar) => [bar.bar_id, bar.time]));
+  const fixedTime = barTimeById.get(fixedAnchor.bar_id);
+  if (fixedTime === undefined) {
+    return null;
+  }
+  const originX = adapter.timeToCoordinate(fixedTime);
+  const originY = adapter.priceToCoordinate(fixedAnchor.price);
+  if (originX === null || originY === null) {
+    return null;
+  }
+  const dx = point.x - originX;
+  const dy = point.y - originY;
+  const snappedPoint = snapVectorToPreferredAngles(originX, originY, dx, dy);
+  return resolveAnchorFromPoint(adapter, bars, snappedPoint);
+}
+
+function snapVectorToPreferredAngles(
+  originX: number,
+  originY: number,
+  dx: number,
+  dy: number,
+) {
+  const diagonal = Math.SQRT1_2;
+  const candidates = [
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: diagonal, y: diagonal },
+    { x: diagonal, y: -diagonal },
+  ];
+  let best = { x: originX + dx, y: originY + dy };
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    const projection = dx * candidate.x + dy * candidate.y;
+    const snappedX = originX + projection * candidate.x;
+    const snappedY = originY + projection * candidate.y;
+    const distance = Math.hypot(originX + dx - snappedX, originY + dy - snappedY);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { x: snappedX, y: snappedY };
+    }
+  }
+  return best;
+}
+
+function resolveAnchorFromPoint(
+  adapter: ChartAdapter,
+  bars: ChartBar[],
+  point: { x: number; y: number },
+): AnnotationAnchor | null {
+  const logical = adapter.coordinateToLogical(point.x);
+  const price = adapter.coordinateToPrice(point.y);
+  if (logical === null || price === null || bars.length === 0) {
+    return null;
+  }
+  const barIndex = Math.max(0, Math.min(bars.length - 1, Math.round(logical)));
+  return {
+    bar_id: bars[barIndex].bar_id,
+    price,
+  };
 }

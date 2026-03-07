@@ -9,6 +9,7 @@ import type {
 import {
   buildInspectorRenderData,
   drawInspectorScene,
+  type InspectorRenderData,
   type InspectorPrimitiveState,
 } from "./inspectorScene";
 
@@ -55,8 +56,16 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
 
   setState(nextState: InspectorPrimitiveState) {
     this.state = nextState;
+    this.refresh();
+  }
+
+  refresh() {
     this.rebuildRenderData();
     this.attachedParam?.requestUpdate();
+  }
+
+  getRenderData(): InspectorRenderData {
+    return this.renderData;
   }
 
   renderer(): IPrimitivePaneRenderer | null {
@@ -94,4 +103,3 @@ class InspectorPrimitiveRenderer implements IPrimitivePaneRenderer {
     drawInspectorScene(target, this.data);
   }
 }
-

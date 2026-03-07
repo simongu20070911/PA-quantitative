@@ -425,6 +425,12 @@ Copy this shape for new entries:
 - Next: If any hover affordance still feels necessary later, add a subtler inspector-owned highlight rather than turning the full chart crosshair back on.
 
 ### 2026-03-06
+- Summary: Pruned the stale whole-artifact overlay loader API from `pa_core.overlays` and `pa_core` exports, keeping only the live projection helpers that `pa_api` still uses for window-scoped canonical and runtime-family overlay projection.
+- Files: `packages/pa_core/src/pa_core/overlays/projectors.py`, `packages/pa_core/src/pa_core/overlays/__init__.py`, `packages/pa_core/src/pa_core/__init__.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_core/tests/test_overlays.py`, `docs/work_log.md`
+- Verification: `rg -n "OverlayProjectionConfig|load_overlay_objects\\(|load_overlay_source_datasets\\(" packages`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_overlays -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest discover -s tests -v`
+- Next: If we later materialize overlay artifacts under `artifacts/overlays/`, add a fresh artifact-backed overlay loader that matches the current family-aware spec instead of reviving the removed legacy API.
+
+### 2026-03-06
 - Summary: Added browser-local workspace persistence for the inspector so reload restores chart selector inputs, session/timeframe family, overlay layer toggles, and non-canonical local annotations without changing backend semantics or review persistence.
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`; Playwright check on `http://127.0.0.1:4173/` confirmed the app writes `pa_inspector.workspace.v1` to local storage and restores saved `timeframe` plus layer-toggle state after reload
@@ -443,7 +449,109 @@ Copy this shape for new entries:
 - Next: If the chart still feels heavier than desired, the next cleanup is separating viewport persistence into its own tiny storage key so full-workspace JSON serialization never rides with unrelated UI state.
 
 ### 2026-03-06
+- Summary: Added `Command`/`Ctrl` line-angle snapping in the live chart interaction controller so line drawing and line-endpoint editing snap in screen space to the nearest horizontal, 45-degree, or vertical orientation.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the snap feel needs refinement, add a small visual hint or modifier badge while snapping is active so users can see the constrained angle mode explicitly.
+
+### 2026-03-06
+- Summary: Fixed the `fib50` middle-handle scaling jump by making the scale gesture relative to the original measured-move half-range instead of snapping to the pointer's absolute distance from the midpoint.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the scaling direction still feels unintuitive in live use, add a small modifier or visual hint for expand-vs-contract semantics around the 50% line.
+
+### 2026-03-06
+- Summary: Changed the selected `fib50` middle handle from a move grip into a scale control in the live interaction path; dragging that center handle now scales the measured move vertically around its 50% midpoint while keeping the time span fixed.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want more control, add a separate width-scale handle so measured moves can resize horizontally without changing the midpoint range logic.
+
+### 2026-03-06
+- Summary: Added a selected-state center handle for `fib50` measured-move annotations in the live primitive scene so the user can grab the 50% middle line directly to move and adjust the object more easily.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want the measured move to feel even more tool-like, add a dedicated width-only handle on the right edge so horizontal extent can be adjusted separately from the two anchor endpoints.
+
+### 2026-03-06
+- Summary: Fixed annotation `Option`-drag so the duplicate does not stop at creation; the same gesture now duplicates the selected annotation and immediately drags the copied object using the existing move/edit interaction path.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want the modifier behavior to feel even closer to TradingView, add a small temporary copy cursor or HUD while the duplicate drag is active.
+
+### 2026-03-06
+- Summary: Restored `Option`-click annotation duplication in the inspector by wiring the duplicate callback into the new interaction controller and making plain `Option`-click on an annotation create and select a duplicate in place.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If desired, extend the same interaction path so `Option`-drag duplicates first and then immediately drags the copied annotation instead of only duplicating on click.
+
+### 2026-03-06
 - Summary: Removed the remaining end-of-pan/end-of-zoom nudge by treating restored viewport state as one-time startup input per chart family instead of a live `ChartPane` dependency, which prevents debounced persistence commits from re-running `setBars(...)` against an already-settled chart.
 - Files: `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: If any tiny motion hitch still remains after refresh, isolate viewport persistence into its own storage write path so no unrelated workspace snapshot work happens at gesture-settle time.
+
+### 2026-03-06
+- Summary: Tightened auto-fetch window swaps by preserving the exact fractional viewport center offset when rebasing the chart onto a newly fetched bar window, which reduces the small visible nudge that came from restoring around a rounded whole center bar.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If a tiny nudge still survives in live use, preserve exact left-edge logical anchoring rather than center anchoring for auto-fetch swaps near the viewport boundary.
+
+### 2026-03-07
+- Summary: Replaced the inspector's generic chart-library mouse-wheel path with an explicit wheel router so trackpad and wheel gestures over the chart now pan horizontally on `deltaX`, zoom the time scale on `deltaY`, keep custom right-price-axis zoom intact, and suppress page scroll while the pointer is over the chart surface.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: Smoke-test the behavior on a real Mac trackpad in the browser and tune the pan/zoom sensitivity constants if the gesture feels too fast or too stiff in live use.
+
+### 2026-03-07
+- Summary: Reduced the right price-axis wheel zoom sensitivity so y-axis scaling responds more slowly and feels less jumpy during trackpad or mouse-wheel zoom.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the price-axis zoom still feels too fast in live use, lower the exponential sensitivity constant again or split mouse-wheel and trackpad sensitivity into separate tuning paths.
+
+### 2026-03-07
+- Summary: Softened the right price-axis wheel zoom a second time by lowering the zoom sensitivity constant again so Mac trackpad scaling over the y-axis feels gentler.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If this is still too reactive, add separate gain curves for small versus large wheel deltas instead of only lowering the global constant.
+
+### 2026-03-07
+- Summary: Reduced horizontal trackpad pan sensitivity on the main plot so left/right scrolling moves the time range more gently.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If horizontal pan still feels a little strong, separate the trackpad pan gain from mouse-wheel horizontal gain and tune them independently.
+
+### 2026-03-07
+- Summary: Removed the chart footnote banner and bottom window-status strip so the inspector gives more vertical room to the chart surface.
+- Files: `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/App.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want even more chart space, compress the top command area or make rarely used controls collapsible.
+
+### 2026-03-07
+- Summary: Fixed the inspector shell sizing so the chart stage and chart surface now flex to fill the remaining viewport height instead of leaving unused space below the chart.
+- Files: `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the top controls still feel too tall in practice, convert some toolbar sections into collapsible panels so the chart gets even more room on smaller screens.
+
+### 2026-03-07
+- Summary: Reduced horizontal zoom-out drift by making the plot wheel router choose the dominant axis per gesture, so vertical zoom gestures no longer pick up incidental horizontal pan from trackpad noise.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If zoom still feels slightly off in live use, tune the axis-dominance threshold or add a small deadzone for tiny mixed-axis deltas.
+
+### 2026-03-07
+- Summary: Added a custom max zoom-out cap for the time scale so once the chart reaches its horizontal zoom limit, continued zoom-out gestures become a stable no-op instead of shifting the visible range sideways.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the cap still feels abrupt, soften the final approach by tapering zoom speed as the visible span nears the max rather than snapping directly to the cap.
+
+### 2026-03-07
+- Summary: Tightened the horizontal zoom-out cap so overshooting the max span now preserves the current visible range exactly instead of applying one last tiny recentered range adjustment.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If a faint drift still survives on some trackpads, add a tiny mixed-axis deadzone near the zoom-out cap so residual delta noise is ignored entirely.
+
+### 2026-03-07
+- Summary: Removed the React-driven `viewportRevision` invalidation path, consolidated inspector rendering and hit-testing onto the primitive's shared render-data cache, made draft-annotation updates imperative, and deleted the unused legacy `AnnotationLayer` component.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want to chase even more smoothness, profile whether `buildInspectorRenderData(...)` is still rebuilding more often than needed during chart-library-driven updates and add a lighter-weight geometry-dirty gate if necessary.

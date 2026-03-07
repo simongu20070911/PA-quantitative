@@ -35,7 +35,7 @@ export interface AnnotationDrawable {
 
 export interface AnnotationHit {
   drawable: AnnotationDrawable;
-  mode: "move" | "start" | "end";
+  mode: "move" | "start" | "end" | "scale";
 }
 
 export interface AnnotationPointerPosition {
@@ -46,7 +46,8 @@ export interface AnnotationPointerPosition {
 
 export interface AnnotationDragState {
   annotationId: string;
-  mode: "move" | "start" | "end";
+  annotationKind: ChartAnnotation["kind"];
+  mode: "move" | "start" | "end" | "scale";
   originPointer: AnnotationPointerPosition;
   originalStart: AnnotationAnchor;
   originalEnd: AnnotationAnchor;
@@ -183,6 +184,12 @@ export function hitTestAnnotation(
   for (let index = drawables.length - 1; index >= 0; index -= 1) {
     const drawable = drawables[index];
     const style = getAnnotationStyle(drawable.annotation);
+    if (drawable.annotation.kind === "fib50") {
+      const center = fib50CenterPoint(drawable);
+      if (!style.locked && Math.hypot(x - center.x, y - center.y) <= 11) {
+        return { drawable, mode: "scale" };
+      }
+    }
     if (!style.locked && Math.hypot(x - drawable.start.x, y - drawable.start.y) <= 11) {
       return { drawable, mode: "start" };
     }
@@ -242,6 +249,24 @@ export function projectDraggedAnnotation(
       end: {
         bar_id: bars[nextEndIndex].bar_id,
         price: dragState.originalEnd.price + priceDelta,
+      },
+    };
+  }
+
+  if (dragState.mode === "scale") {
+    const midpoint = (dragState.originalStart.price + dragState.originalEnd.price) / 2;
+    const originalHalfRange =
+      Math.abs(dragState.originalEnd.price - dragState.originalStart.price) / 2;
+    const halfRange = Math.max(originalHalfRange + priceDelta, 0.0001);
+    const ascending = dragState.originalEnd.price >= dragState.originalStart.price;
+    return {
+      start: {
+        bar_id: dragState.originalStart.bar_id,
+        price: ascending ? midpoint - halfRange : midpoint + halfRange,
+      },
+      end: {
+        bar_id: dragState.originalEnd.bar_id,
+        price: ascending ? midpoint + halfRange : midpoint - halfRange,
       },
     };
   }
@@ -435,6 +460,10 @@ function drawAnnotation(
   if (selected && !style.locked) {
     drawAnnotationHandle(context, start.x, start.y, style.strokeColor);
     drawAnnotationHandle(context, end.x, end.y, style.strokeColor);
+    if (annotation.kind === "fib50") {
+      const center = fib50CenterPoint(drawable);
+      drawAnnotationHandle(context, center.x, center.y, style.strokeColor);
+    }
   }
   context.restore();
 }
@@ -453,6 +482,13 @@ function drawAnnotationHandle(
   context.strokeStyle = stroke;
   context.lineWidth = 1.8;
   context.stroke();
+}
+
+function fib50CenterPoint(drawable: AnnotationDrawable) {
+  return {
+    x: (drawable.start.x + drawable.end.x) / 2,
+    y: (drawable.start.y + drawable.end.y) / 2,
+  };
 }
 
 function collectSessionBoundaryXCoordinates(
@@ -815,4 +851,3 @@ function crisp(value: number) {
 function crispPoint(x: number, y: number) {
   return { x: crisp(x), y: crisp(y) };
 }
-

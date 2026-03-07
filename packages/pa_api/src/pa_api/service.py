@@ -21,7 +21,6 @@ from pa_core.data.bar_families import (
 )
 from pa_core.overlays import (
     MVP_OVERLAY_VERSION,
-    OverlayProjectionConfig,
     OverlaySourceDataset,
     project_overlay_objects,
     sort_overlay_objects_for_render,

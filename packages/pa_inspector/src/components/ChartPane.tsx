@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { LogicalRange } from "lightweight-charts";
 
 import { createChartAdapter, type ChartAdapter } from "../lib/chartAdapter";
@@ -112,8 +112,6 @@ export function ChartPane({
   const onViewportBoundaryApproachRef = useRef(onViewportBoundaryApproach);
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const restoreViewportRef = useRef(initialViewport);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  const [viewportRevision, setViewportRevision] = useState(0);
 
   useEffect(() => {
     onViewportBoundaryApproachRef.current = onViewportBoundaryApproach;
@@ -134,11 +132,9 @@ export function ChartPane({
     }
     const adapter = createChartAdapter(container);
     adapterRef.current = adapter;
-    setSize({ width: container.clientWidth, height: container.clientHeight });
 
     const onViewportChange = (range: { from: number; to: number } | null) => {
       const nextBars = barsRef.current;
-      setViewportRevision((value) => value + 1);
       if (!range || nextBars.length === 0) {
         return;
       }
@@ -175,22 +171,16 @@ export function ChartPane({
       onViewportBoundaryApproachRef.current(centerBarId);
     };
     const unsubscribeViewport = adapter.subscribeViewportChange(onViewportChange);
-    const unsubscribePresentation = adapter.subscribePresentationChange(() => {
-      setViewportRevision((value) => value + 1);
-    });
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       const width = Math.floor(entry.contentRect.width);
       const height = Math.floor(entry.contentRect.height);
       adapter.resize(width, height);
-      setSize({ width, height });
-      setViewportRevision((value) => value + 1);
     });
     resizeObserver.observe(container);
 
     return () => {
       unsubscribeViewport();
-      unsubscribePresentation();
       resizeObserver.disconnect();
       adapter.destroy();
       adapterRef.current = null;
@@ -201,8 +191,16 @@ export function ChartPane({
     const adapter = adapterRef.current;
     const previousBars = barsRef.current;
     const previousRange = adapter?.getVisibleLogicalRange() ?? null;
+    const previousCenterLogical =
+      previousRange !== null ? (previousRange.from + previousRange.to) / 2 : null;
     const previousCenterTime = resolveVisibleCenterTime(previousBars, previousRange);
     const previousCenterBarId = resolveVisibleCenterBarId(previousBars, previousRange);
+    const previousCenterIndex =
+      previousCenterLogical !== null ? Math.round(previousCenterLogical) : null;
+    const previousCenterOffset =
+      previousCenterLogical !== null && previousCenterIndex !== null
+        ? previousCenterLogical - previousCenterIndex
+        : 0;
     const firstBarLoad = previousBars.length === 0;
     const restoreViewport = restoreViewportRef.current;
     const restoredRange =
@@ -226,6 +224,7 @@ export function ChartPane({
       preserveLogicalRange: restoredRange,
       preserveAnchorTime: restoredCenterTime,
       preserveAnchorBarId: restoredCenterBarId,
+      preserveAnchorOffset: firstBarLoad ? 0 : previousCenterOffset,
     });
     const settledRange = adapter?.getVisibleLogicalRange() ?? null;
     const settledCenterBarId = resolveVisibleCenterBarId(bars, settledRange);
@@ -238,7 +237,6 @@ export function ChartPane({
     }
     barsRef.current = bars;
     lastViewportCenterRef.current = null;
-    setViewportRevision((value) => value + 1);
   }, [bars, viewportFamilyKey]);
 
   const empty = useMemo(() => bars.length === 0, [bars.length]);
@@ -287,16 +285,13 @@ export function ChartPane({
         selectedOverlayId={selectedOverlayId}
         selectedAnnotationId={selectedAnnotationId}
         confirmationGuide={confirmationGuide}
-        viewportRevision={viewportRevision}
         onAnnotationCreate={onAnnotationCreate}
         onAnnotationSelect={onAnnotationSelect}
         onAnnotationUpdate={onAnnotationUpdate}
+        onAnnotationDuplicate={onAnnotationDuplicate}
         onOverlaySelect={onOverlaySelect}
         onOverlayCommandSelect={onOverlayCommandSelect}
       />
-      <div className="chart-footnote">
-        Pan and zoom freely. Turn on auto fetch when you want edge-triggered window extension.
-      </div>
     </section>
   );
 }

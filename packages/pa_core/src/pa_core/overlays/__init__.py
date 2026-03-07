@@ -1,11 +1,8 @@
 from .projectors import (
     MVP_OVERLAY_DATASET_KINDS,
     MVP_OVERLAY_VERSION,
-    OverlayProjectionConfig,
     OverlaySourceDataset,
     build_overlay_id,
-    load_overlay_objects,
-    load_overlay_source_datasets,
     overlay_hit_test_priority,
     overlay_z_order,
     project_overlay_objects,
@@ -15,11 +12,8 @@ from .projectors import (
 __all__ = [
     "MVP_OVERLAY_DATASET_KINDS",
     "MVP_OVERLAY_VERSION",
-    "OverlayProjectionConfig",
     "OverlaySourceDataset",
     "build_overlay_id",
-    "load_overlay_objects",
-    "load_overlay_source_datasets",
     "overlay_hit_test_priority",
     "overlay_z_order",
     "project_overlay_objects",
