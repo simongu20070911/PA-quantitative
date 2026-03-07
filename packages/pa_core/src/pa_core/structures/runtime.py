@@ -71,6 +71,7 @@ def load_runtime_structure_chain(
     session_profile: str,
     feature_version: str = EDGE_FEATURE_VERSION,
     feature_params_hash: str,
+    warmup_family_rows: int = 0,
 ) -> RuntimeStructureChain:
     bar_frame, family_spec = load_bar_family_candidate_table(
         artifacts_root=artifacts_root,
@@ -85,6 +86,7 @@ def load_runtime_structure_chain(
         left_bars=0,
         right_bars=0,
         buffer_bars=0,
+        warmup_family_rows=warmup_family_rows,
         columns=[
             "bar_id",
             "symbol",

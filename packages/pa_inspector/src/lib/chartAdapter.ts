@@ -2,6 +2,7 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  LineSeries,
   LineStyle,
   createChart,
   type IChartApi,
@@ -11,9 +12,10 @@ import {
   type Time,
 } from "lightweight-charts";
 
+import { colorWithOpacity } from "./annotationStyle";
 import { InspectorPrimitive } from "./inspectorPrimitive";
 import type { InspectorPrimitiveState, InspectorRenderData } from "./inspectorScene";
-import type { ChartBar } from "./types";
+import type { ChartBar, EmaLineStyle, RenderedEmaLine } from "./types";
 
 const TIME_SCALE_MIN_BAR_SPACING = 3;
 const TIME_SCALE_DEFAULT_BAR_SPACING = 8;
@@ -24,8 +26,9 @@ export interface ChartAdapter {
   chart: IChartApi;
   series: ISeriesApi<"Candlestick", Time>;
   resize: (width: number, height: number) => void;
-  setBars: (
-    bars: ChartBar[],
+    setBars: (
+      bars: ChartBar[],
+      emaLines: RenderedEmaLine[],
     options?: {
       preserveLogicalRange?: LogicalRange | null;
       preserveAnchorTime?: number | null;
@@ -103,7 +106,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       // Keep axis-drag and pinch behavior chart-native, but route wheel/trackpad
       // gestures ourselves so horizontal swipes pan and vertical deltas zoom.
       mouseWheel: false,
-      pinch: true,
+      pinch: false,
       axisPressedMouseMove: { time: true, price: true },
       axisDoubleClickReset: { time: true, price: true },
     },
@@ -128,6 +131,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
     lastValueVisible: true,
   });
   const inspectorPrimitive = new InspectorPrimitive();
+  const emaSeriesByLength = new Map<number, ISeriesApi<"Line", Time>>();
   series.attachPrimitive(inspectorPrimitive);
   const refreshInspectorRenderData = () => {
     inspectorPrimitive.refresh();
@@ -151,7 +155,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       chart.applyOptions({ width, height });
       refreshInspectorRenderData();
     },
-    setBars(bars: ChartBar[], options) {
+    setBars(bars: ChartBar[], emaLines: RenderedEmaLine[], options) {
       series.setData(
         bars.map((bar) => ({
           time: bar.time as Time,
@@ -161,6 +165,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
           close: bar.close,
         })),
       );
+      syncEmaSeries(chart, emaSeriesByLength, emaLines);
       if (bars.length === 0) {
         refreshInspectorRenderData();
         return;
@@ -245,11 +250,69 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
     },
     destroy() {
       detachWheelGestures();
+      for (const emaSeries of emaSeriesByLength.values()) {
+        chart.removeSeries(emaSeries);
+      }
+      emaSeriesByLength.clear();
       series.detachPrimitive(inspectorPrimitive);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
       chart.remove();
     },
   };
+}
+
+function syncEmaSeries(
+  chart: IChartApi,
+  emaSeriesByLength: Map<number, ISeriesApi<"Line", Time>>,
+  emaLines: RenderedEmaLine[],
+) {
+  const visibleLines = emaLines.filter((line) => line.style.visible);
+  const activeLengths = new Set(visibleLines.map((line) => line.length));
+  for (const [length, series] of emaSeriesByLength.entries()) {
+    if (activeLengths.has(length)) {
+      continue;
+    }
+    chart.removeSeries(series);
+    emaSeriesByLength.delete(length);
+  }
+
+  for (const line of visibleLines) {
+    let emaSeries = emaSeriesByLength.get(line.length);
+    if (!emaSeries) {
+      emaSeries = chart.addSeries(LineSeries, resolveEmaSeriesOptions(line));
+      emaSeriesByLength.set(line.length, emaSeries);
+    }
+    emaSeries.applyOptions(resolveEmaSeriesOptions(line));
+    emaSeries.setData(
+      line.points.map((point) => ({
+        time: point.time as Time,
+        value: point.value,
+      })),
+    );
+  }
+}
+
+function resolveEmaSeriesOptions(line: RenderedEmaLine) {
+  return {
+    color: colorWithOpacity(line.style.strokeColor, line.style.opacity),
+    lineWidth: Math.min(Math.max((line.selected ? line.style.lineWidth + 1 : line.style.lineWidth), 1), 4) as 1 | 2 | 3 | 4,
+    lineStyle: resolveLineStyle(line.style.lineStyle),
+    lineVisible: line.style.visible,
+    lastValueVisible: line.selected,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+    lastPriceAnimation: 0 as const,
+  };
+}
+
+function resolveLineStyle(style: EmaLineStyle) {
+  if (style === "dashed") {
+    return LineStyle.Dashed;
+  }
+  if (style === "dotted") {
+    return LineStyle.Dotted;
+  }
+  return LineStyle.Solid;
 }
 
 function attachWheelGestures(
@@ -401,6 +464,10 @@ function attachWheelGestures(
     }
 
     consumeWheelEvent(event);
+
+    if (event.ctrlKey) {
+      return;
+    }
 
     if (isOverRightPriceAxis(container, chart, event.clientX, event.clientY)) {
       const rect = container.getBoundingClientRect();

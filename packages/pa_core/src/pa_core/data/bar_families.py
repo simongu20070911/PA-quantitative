@@ -141,6 +141,7 @@ def load_bar_family_candidate_table(
     left_bars: int,
     right_bars: int,
     buffer_bars: int,
+    warmup_family_rows: int = 0,
     columns: Sequence[str] | None = None,
 ) -> tuple[pa.Table, BarFamilySpec]:
     manifest = load_bar_manifest(artifacts_root, data_version)
@@ -171,6 +172,7 @@ def load_bar_family_candidate_table(
             left_bars=left_bars,
             right_bars=right_bars,
             buffer_bars=buffer_bars,
+            warmup_family_rows=warmup_family_rows,
         ),
     )
     base = _load_base_candidate_table(candidate_parts, columns=None)
@@ -201,8 +203,9 @@ def _estimate_base_rows(
     left_bars: int,
     right_bars: int,
     buffer_bars: int,
+    warmup_family_rows: int,
 ) -> int:
-    requested_family_rows = left_bars + right_bars + (2 * buffer_bars) + 32
+    requested_family_rows = left_bars + right_bars + (2 * buffer_bars) + warmup_family_rows + 32
     if session_date is not None:
         session_rows = 23 * 60 if session_profile == SESSION_PROFILE_ETH_FULL else 405
         requested_family_rows += max(session_rows // timeframe_minutes, 1)

@@ -447,6 +447,7 @@ This canonical spec retains only the cross-cutting overlay invariants:
 - overlays must map back to source structures and canonical bars
 - overlays must remain auditable and versioned
 - overlay styling must not change semantic meaning
+- renderer choice must not change overlay semantics or provenance
 
 ## Inspector Reference
 
@@ -460,6 +461,7 @@ This canonical spec retains only the cross-cutting invariants that the inspector
 
 - the inspector consumes backend artifacts and does not create market-structure semantics
 - overlays are projections of backend objects
+- backend-derived indicator series may be rendered natively by the chart substrate, but their definitions still belong to backend contracts
 - visible objects must trace back to `bar_id`, source structures, and versioned artifacts
 - `pa_inspector` stays inside the package boundaries defined by this document
 

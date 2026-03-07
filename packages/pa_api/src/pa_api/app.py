@@ -43,6 +43,7 @@ def create_app(service: ChartApiService | None = None) -> FastAPI:
         feature_version: str | None = Query(default=None),
         feature_params_hash: str | None = Query(default=None),
         overlay_version: str | None = Query(default=None),
+        ema_length: list[int] | None = Query(default=None),
     ) -> ChartWindowResponse:
         try:
             return chart_service.get_chart_window(
@@ -61,6 +62,7 @@ def create_app(service: ChartApiService | None = None) -> FastAPI:
                 feature_version=feature_version,
                 feature_params_hash=feature_params_hash,
                 overlay_version=overlay_version,
+                ema_lengths=ema_length,
             )
         except ChartWindowSelectionError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

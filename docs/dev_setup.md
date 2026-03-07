@@ -122,7 +122,7 @@ Notes:
 
 - `pa_inspector` now has a local `package.json`, `package-lock.json`, TypeScript config, Vite config, and `src/` app scaffold
 - the current dev setup expects the FastAPI service to be running separately; Vite proxies `/api` to `http://127.0.0.1:8000`
-- the current inspector shell supports toolbar-driven window fetches, viewport-aware edge refetch, neighboring-window prefetch, canvas overlay rendering, and side-panel detail loading
+- the current inspector shell supports toolbar-driven window fetches, viewport-aware edge refetch, neighboring-window prefetch, chart-native overlay and EMA rendering through the chart adapter, and side-panel detail loading
 
 ## Git
 

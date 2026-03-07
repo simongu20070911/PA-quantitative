@@ -49,11 +49,14 @@ from pa_core.structures.pivots import (
     PIVOT_STRUCTURE_VERSION,
 )
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
+from pa_core.features.ema import compute_ema_values, ema_warmup_bars, normalize_ema_lengths
 
 from .models import (
     ChartBarModel,
     ChartWindowMetaModel,
     ChartWindowResponse,
+    EmaLineModel,
+    EmaPointModel,
     OverlayLayer,
     SessionProfile,
     OverlayModel,
@@ -118,6 +121,7 @@ class ChartContext:
     feature_version: str
     feature_params_hash: str
     overlay_version: str
+    ema_lengths: tuple[int, ...]
     bar_frame: pa.Table
     bar_rows_by_id: dict[int, dict[str, object]]
     bar_ids: np.ndarray
@@ -151,6 +155,7 @@ class ChartApiService:
         feature_version: str | None = None,
         feature_params_hash: str | None = None,
         overlay_version: str | None = None,
+        ema_lengths: Sequence[int] | None = None,
     ) -> ChartWindowResponse:
         _validate_window_request(
             center_bar_id=center_bar_id,
@@ -176,6 +181,7 @@ class ChartApiService:
             feature_version=feature_version,
             feature_params_hash=feature_params_hash,
             overlay_version=overlay_version,
+            ema_lengths=ema_lengths,
         )
         _validate_symbol_and_timeframe(context=context, symbol=symbol, timeframe=timeframe)
         start_index, stop_index = _select_window_indices(
@@ -206,6 +212,12 @@ class ChartApiService:
         )
         window_rows = context.bar_frame.slice(start_index, max(stop_index - start_index, 0)).to_pylist()
         bars = [_bar_row_to_model(row) for row in window_rows]
+        ema_lines = _build_ema_lines(
+            bar_frame=context.bar_frame,
+            start_index=start_index,
+            stop_index=stop_index,
+            ema_lengths=context.ema_lengths,
+        )
         overlays = _filter_overlays_for_window(
             overlays=context.overlays,
             min_bar_id=bars[0].bar_id if bars else None,
@@ -214,6 +226,7 @@ class ChartApiService:
         )
         return ChartWindowResponse(
             bars=bars,
+            ema_lines=ema_lines,
             overlays=[_overlay_to_model(overlay) for overlay in overlays],
             meta=_context_meta(context),
         )
@@ -229,6 +242,7 @@ class ChartApiService:
         feature_version: str | None = None,
         feature_params_hash: str | None = None,
         overlay_version: str | None = None,
+        ema_lengths: Sequence[int] | None = None,
     ) -> StructureDetailResponse:
         context = self._load_context(
             symbol=symbol,
@@ -245,6 +259,7 @@ class ChartApiService:
             feature_version=feature_version,
             feature_params_hash=feature_params_hash,
             overlay_version=overlay_version,
+            ema_lengths=ema_lengths,
         )
         _validate_symbol_and_timeframe(context=context, symbol=symbol, timeframe=timeframe)
         try:
@@ -299,11 +314,16 @@ class ChartApiService:
         feature_version: str | None,
         feature_params_hash: str | None,
         overlay_version: str | None,
+        ema_lengths: Sequence[int] | None,
     ) -> ChartContext:
         resolved_feature_version = feature_version or self.config.feature_version
         resolved_feature_params_hash = feature_params_hash or self.config.feature_params_hash
         resolved_overlay_version = overlay_version or self.config.overlay_version
         resolved_data_version = data_version or self.config.data_version
+        try:
+            normalized_ema_lengths = normalize_ema_lengths(ema_lengths)
+        except ValueError as exc:
+            raise ChartWindowSelectionError(str(exc)) from exc
         return _load_chart_context(
             artifacts_root=str(self.config.artifacts_root.resolve()),
             symbol=symbol,
@@ -320,6 +340,7 @@ class ChartApiService:
             feature_version=resolved_feature_version,
             feature_params_hash=resolved_feature_params_hash,
             overlay_version=resolved_overlay_version,
+            ema_lengths=normalized_ema_lengths,
             parquet_engine=self.config.parquet_engine,
         )
 
@@ -342,6 +363,7 @@ def _load_chart_context(
     feature_version: str,
     feature_params_hash: str,
     overlay_version: str,
+    ema_lengths: tuple[int, ...],
     parquet_engine: str,
 ) -> ChartContext:
     if not is_canonical_base_family(session_profile=session_profile, timeframe=timeframe):
@@ -354,6 +376,7 @@ def _load_chart_context(
             feature_version=feature_version,
             feature_params_hash=feature_params_hash,
             overlay_version=overlay_version,
+            ema_lengths=ema_lengths,
         )
 
     artifacts_path = Path(artifacts_root)
@@ -372,6 +395,7 @@ def _load_chart_context(
         left_bars=left_bars,
         right_bars=right_bars,
         buffer_bars=buffer_bars,
+        warmup_family_rows=ema_warmup_bars(ema_lengths),
         columns=CHART_BAR_COLUMNS,
     )
     overlays: list[OverlayObject] = []
@@ -432,6 +456,7 @@ def _load_chart_context(
         feature_version=feature_version,
         feature_params_hash=feature_params_hash,
         overlay_version=overlay_version,
+        ema_lengths=ema_lengths,
         bar_frame=family_bars,
         bar_rows_by_id=bar_rows_by_id,
         bar_ids=bar_ids,
@@ -455,6 +480,7 @@ def _load_runtime_family_context(
     feature_version: str,
     feature_params_hash: str,
     overlay_version: str,
+    ema_lengths: tuple[int, ...],
 ) -> ChartContext:
     artifacts_path = Path(artifacts_root)
     resolved_data_version = data_version or _resolve_latest_bar_data_version(artifacts_path)
@@ -466,6 +492,7 @@ def _load_runtime_family_context(
         session_profile=session_profile,
         feature_version=feature_version,
         feature_params_hash=feature_params_hash,
+        warmup_family_rows=ema_warmup_bars(ema_lengths),
     )
 
     overlays: list[OverlayObject] = []
@@ -502,6 +529,7 @@ def _load_runtime_family_context(
         feature_version=feature_version,
         feature_params_hash=feature_params_hash,
         overlay_version=overlay_version,
+        ema_lengths=ema_lengths,
         bar_frame=runtime_chain.bar_frame,
         bar_rows_by_id=bar_rows_by_id,
         bar_ids=bar_ids,
@@ -663,6 +691,55 @@ def _overlay_to_model(overlay: OverlayObject) -> OverlayModel:
     )
 
 
+def _build_ema_lines(
+    *,
+    bar_frame: pa.Table,
+    start_index: int,
+    stop_index: int,
+    ema_lengths: Sequence[int],
+) -> list[EmaLineModel]:
+    if stop_index <= start_index or not ema_lengths or bar_frame.num_rows == 0:
+        return []
+
+    bar_id = np.asarray(
+        bar_frame.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False),
+        dtype=np.int64,
+    )
+    ts_utc_ns = np.asarray(
+        bar_frame.column("ts_utc_ns").combine_chunks().to_numpy(zero_copy_only=False),
+        dtype=np.int64,
+    )
+    close = np.asarray(
+        bar_frame.column("close").combine_chunks().to_numpy(zero_copy_only=False),
+        dtype=np.float64,
+    )
+    models: list[EmaLineModel] = []
+    for length in ema_lengths:
+        values = compute_ema_values(close, length=length)
+        window_bar_id = bar_id[start_index:stop_index]
+        window_ts_utc_ns = ts_utc_ns[start_index:stop_index]
+        window_values = values[start_index:stop_index]
+        models.append(
+            EmaLineModel(
+                length=int(length),
+                points=[
+                    EmaPointModel(
+                        bar_id=int(current_bar_id),
+                        time=int(current_ts_utc_ns) // 1_000_000_000,
+                        value=float(value),
+                    )
+                    for current_bar_id, current_ts_utc_ns, value in zip(
+                        window_bar_id,
+                        window_ts_utc_ns,
+                        window_values,
+                        strict=True,
+                    )
+                ],
+            )
+        )
+    return models
+
+
 def _context_meta(context: ChartContext) -> ChartWindowMetaModel:
     return ChartWindowMetaModel(
         data_version=context.data_version,
@@ -675,6 +752,7 @@ def _context_meta(context: ChartContext) -> ChartWindowMetaModel:
         rulebook_version=context.rulebook_version,
         structure_version=context.structure_version,
         overlay_version=context.overlay_version if context.rulebook_version is not None else None,
+        ema_lengths=list(context.ema_lengths),
     )
 
 

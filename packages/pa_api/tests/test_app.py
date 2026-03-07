@@ -57,6 +57,40 @@ class ApiAppTests(unittest.TestCase):
             )
             self.assertTrue(all(overlay["overlay_version"] == "v1" for overlay in payload["overlays"]))
             self.assertEqual(payload["meta"]["overlay_version"], "v1")
+            self.assertEqual(payload["ema_lines"], [])
+            self.assertEqual(payload["meta"]["ema_lengths"], [])
+
+    def test_chart_window_returns_requested_ema_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = _build_client(Path(tmpdir))
+
+            response = client.get(
+                "/chart-window",
+                params=[
+                    ("symbol", "ES"),
+                    ("timeframe", "1m"),
+                    ("session_profile", "eth_full"),
+                    ("data_version", "es_test_v1"),
+                    ("center_bar_id", "120"),
+                    ("left_bars", "1"),
+                    ("right_bars", "1"),
+                    ("buffer_bars", "0"),
+                    ("ema_length", "3"),
+                    ("ema_length", "3"),
+                    ("ema_length", "5"),
+                ],
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["meta"]["ema_lengths"], [3, 5])
+            self.assertEqual([line["length"] for line in payload["ema_lines"]], [3, 5])
+
+            ema3 = payload["ema_lines"][0]["points"]
+            self.assertEqual([point["bar_id"] for point in ema3], [90, 100, 110, 120, 130])
+            self.assertAlmostEqual(ema3[0]["value"], 8.2)
+            self.assertAlmostEqual(ema3[1]["value"], 9.1)
+            self.assertAlmostEqual(ema3[-1]["value"], 11.0125)
 
     def test_structure_detail_returns_anchor_and_confirm_bars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

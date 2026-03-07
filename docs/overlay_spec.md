@@ -40,6 +40,12 @@ This spec currently covers the initial shipped structure chain:
 
 Future overlay families such as `trendline`, `structure_level`, `gap_zone`, and diff-only comparison overlays are deferred.
 
+Out of scope for this document:
+
+- backend-derived indicator series such as `EMA`
+
+Those chart-series objects are inspector/API concerns, not structure-overlay families, even when they are rendered through the same chart-native drawing stack.
+
 ## Projection Pipeline
 
 Canonical overlay projection pipeline:
@@ -52,6 +58,7 @@ Projection rules:
 - overlays may use source features only when needed for explanation metadata
 - overlays must not invent new market-structure semantics
 - overlays may enrich geometry and display metadata, but they must preserve source provenance
+- renderers may draw overlay objects through chart-native primitives, chart-native series, or another presentation layer, but the backend overlay contract must remain unchanged
 
 ## Overlay Object Contract
 

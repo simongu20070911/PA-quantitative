@@ -16,6 +16,30 @@ Copy this shape for new entries:
 
 ## Entries
 
+### 2026-03-07
+- Summary: Upgraded EMA from a simple on/off indicator into a selectable chart object in the inspector, with persisted per-length style controls for color, width, line style, opacity, and visibility exposed through a floating toolbar modeled after the annotation workflow.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/EmaToolbar.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/annotationStyle.ts`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/types.ts`, `packages/pa_inspector/src/index.css`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want chart-surface EMA selection too, add direct hit testing for EMA line series so clicking the line itself can select the same toolbar target without going through the Display panel chips.
+
+### 2026-03-07
+- Summary: Added an explicit EMA on/off control in the inspector so configured EMA lengths can be kept in place while the chart-native EMA series are toggled off without clearing the input field.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If desired, add a small legend or color chips beside each active EMA length so multiple enabled EMA lines are easier to distinguish at a glance.
+
+### 2026-03-07
+- Summary: Clarified the spec around native rendering by separating backend-owned semantics from chart-native drawing, stating that overlays and indicator lines such as EMA should render through native chart primitives or series when practical while keeping the contract portable across chart substrates such as a future `SimpleChart` migration.
+- Files: `docs/inspector_spec.md`, `docs/overlay_spec.md`, `docs/canonical_spec.md`, `docs/status.md`, `docs/dev_setup.md`, `docs/work_log.md`
+- Verification: Reviewed the inspector, overlay, canonical, status, and setup docs together to ensure they now agree on native rendering preference, backend-owned semantics, and the non-overlay status of EMA lines.
+- Next: If the chart substrate actually changes from `Lightweight Charts`, update the implementation notes while keeping the rendering contract and backend semantic boundaries unchanged.
+
+### 2026-03-07
+- Summary: Added backend-native EMA support with configurable lengths by implementing bar-aligned EMA computation in `pa_core`, exposing repeated `ema_length` query params plus `ema_lines` in `pa_api`, and rendering the returned EMA series as chart-native lines in `pa_inspector`.
+- Files: `packages/pa_core/src/pa_core/features/ema.py`, `packages/pa_core/src/pa_core/features/__init__.py`, `packages/pa_core/src/pa_core/__init__.py`, `packages/pa_core/src/pa_core/data/bar_families.py`, `packages/pa_core/src/pa_core/structures/runtime.py`, `packages/pa_core/tests/test_ema.py`, `packages/pa_api/src/pa_api/app.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/tests/test_app.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/api.ts`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/types.ts`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest discover -s tests -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`; `cd packages/pa_inspector && npm run build`
+- Next: Decide whether EMA should stay an on-demand chart indicator path or graduate into a first-class materialized feature family with explicit artifact policy for commonly used lengths.
+
 ### 2026-03-06
 - Summary: Created the initial project architecture spec, artifact contract, package skeleton, schema module, and onboarding docs.
 - Files: `docs/canonical_spec.md`, `docs/artifact_contract.md`, `packages/pa_core/src/pa_core/schemas.py`, `AGENTS.md`, `docs/status.md`, `docs/roadmap.md`, `docs/dev_setup.md`, `README.md`
@@ -555,3 +579,27 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/AnnotationLayer.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: If we want to chase even more smoothness, profile whether `buildInspectorRenderData(...)` is still rebuilding more often than needed during chart-library-driven updates and add a lighter-weight geometry-dirty gate if necessary.
+
+### 2026-03-07
+- Summary: Split the inspector primitive's rebuild path into geometry vs presentation work, cached the bar-to-time index, and coalesced repeated primitive refreshes into a single animation-frame flush so selection/draft changes and clustered viewport updates avoid unnecessary full scene rebuilds.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we still want more headroom, split overlay, annotation, and session-boundary reprojection helpers into even smaller dedicated projector functions so the primitive avoids any shared helper overhead on hot viewport frames.
+
+### 2026-03-07
+- Summary: Disabled chart-library pinch scaling so trackpad pinch gestures no longer trigger the separate native pinch-zoom path on the inspector chart surface.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If needed, decide whether pinch should become a custom gesture in our own interaction router or remain fully disabled in favor of scroll-based pan/zoom only.
+
+### 2026-03-07
+- Summary: Blocked `ctrlKey` wheel events in the custom chart wheel router as well, so browser-reported trackpad pinch gestures no longer leak through the custom zoom path after the library pinch option was disabled.
+- Files: `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If any browser still reports pinch differently, inspect the raw wheel/pointer event shape in that browser and extend the gesture filter accordingly.
+
+### 2026-03-07
+- Summary: Restored reliable overlay click and command-click behavior by routing overlay selection through the chart library's native click stream while keeping annotation drawing and dragging on raw `pointerdown`, which brings back the blue confirmation guide shortcut without breaking annotation interactions.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; live Playwright check on `http://127.0.0.1:4173` confirmed plain overlay click selects and command-click shows the confirmation guide
+- Next: If overlay interactions still misbehave on any browser, compare the chart click `sourceEvent` coordinates against primitive hit-test coordinates and add a tiny browser-specific normalization layer only if needed.

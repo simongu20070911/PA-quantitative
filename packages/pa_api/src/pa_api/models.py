@@ -19,6 +19,17 @@ class ChartBarModel(BaseModel):
     session_date: int
 
 
+class EmaPointModel(BaseModel):
+    bar_id: int
+    time: int
+    value: float
+
+
+class EmaLineModel(BaseModel):
+    length: int
+    points: list[EmaPointModel]
+
+
 class OverlayModel(BaseModel):
     overlay_id: str
     kind: str
@@ -44,10 +55,12 @@ class ChartWindowMetaModel(BaseModel):
     rulebook_version: str | None
     structure_version: str | None
     overlay_version: str | None
+    ema_lengths: list[int] = Field(default_factory=list)
 
 
 class ChartWindowResponse(BaseModel):
     bars: list[ChartBarModel]
+    ema_lines: list[EmaLineModel] = Field(default_factory=list)
     overlays: list[OverlayModel]
     meta: ChartWindowMetaModel
 

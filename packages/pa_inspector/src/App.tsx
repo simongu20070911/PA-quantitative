@@ -4,7 +4,7 @@ import { ChartPane } from "./components/ChartPane";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { Toolbar } from "./components/Toolbar";
 import { fetchChartWindow, fetchStructureDetail } from "./lib/api";
-import { defaultAnnotationStyle } from "./lib/annotationStyle";
+import { defaultAnnotationStyle, getEmaStyle } from "./lib/annotationStyle";
 import {
   loadPersistedInspectorState,
   savePersistedInspectorState,
@@ -18,10 +18,12 @@ import type {
   ChartAnnotation,
   ConfirmationGuide,
   ChartWindowResponse,
+  EmaStyle,
   FloatingPosition,
   InspectorToolbarPanel,
   Overlay,
   OverlayLayer,
+  RenderedEmaLine,
   ScreenPoint,
   SelectorMode,
   SessionProfile,
@@ -69,6 +71,12 @@ export default function App() {
       leftBars: "240",
       rightBars: "240",
       bufferBars: "120",
+      emaLengths: "",
+      emaEnabled: false,
+      emaStyles: {},
+      selectedEmaLength: null,
+      emaToolbarPosition: null,
+      emaToolbarOpenPopover: null,
       autoViewportFetch: false,
       overlayLayers: INITIAL_LAYERS,
       annotations: [],
@@ -103,6 +111,18 @@ export default function App() {
   const [leftBars, setLeftBars] = useState(initialState.leftBars);
   const [rightBars, setRightBars] = useState(initialState.rightBars);
   const [bufferBars, setBufferBars] = useState(initialState.bufferBars);
+  const [emaLengths, setEmaLengths] = useState(initialState.emaLengths);
+  const [emaEnabled, setEmaEnabled] = useState(initialState.emaEnabled);
+  const [emaStyles, setEmaStyles] = useState<Record<string, EmaStyle>>(
+    initialState.emaStyles,
+  );
+  const [selectedEmaLength, setSelectedEmaLength] = useState<number | null>(
+    initialState.selectedEmaLength,
+  );
+  const [emaToolbarPosition, setEmaToolbarPosition] =
+    useState<FloatingPosition | null>(initialState.emaToolbarPosition);
+  const [emaToolbarOpenPopover, setEmaToolbarOpenPopover] =
+    useState<AnnotationToolbarPopover>(initialState.emaToolbarOpenPopover);
   const [autoViewportFetch, setAutoViewportFetch] =
     useState(initialState.autoViewportFetch);
   const [overlayLayers, setOverlayLayers] =
@@ -150,6 +170,33 @@ export default function App() {
   const activeFamilyKey = useMemo(
     () => buildAnnotationFamilyKey({ dataVersion, sessionProfile, timeframe }),
     [dataVersion, sessionProfile, timeframe],
+  );
+
+  const configuredEmaLengths = useMemo(() => {
+    try {
+      return parseEmaLengthsInput(emaLengths);
+    } catch {
+      return [];
+    }
+  }, [emaLengths]);
+
+  const renderedEmaLines = useMemo<RenderedEmaLine[]>(() => {
+    if (!windowData) {
+      return [];
+    }
+    return windowData.ema_lines.map((line) => {
+      const style = getEmaStyle(line.length, emaStyles[String(line.length)]);
+      return {
+        ...line,
+        style,
+        selected: selectedEmaLength === line.length,
+      };
+    });
+  }, [emaStyles, selectedEmaLength, windowData]);
+
+  const selectedEmaLine = useMemo(
+    () => renderedEmaLines.find((line) => line.length === selectedEmaLength) ?? null,
+    [renderedEmaLines, selectedEmaLength],
   );
 
   const visibleOverlays = useMemo(() => {
@@ -229,6 +276,20 @@ export default function App() {
   }, [selectedAnnotationId, visibleAnnotations]);
 
   useEffect(() => {
+    if (!emaEnabled) {
+      setSelectedEmaLength(null);
+      return;
+    }
+    if (
+      selectedEmaLength !== null &&
+      !configuredEmaLengths.includes(selectedEmaLength) &&
+      !renderedEmaLines.some((line) => line.length === selectedEmaLength)
+    ) {
+      setSelectedEmaLength(null);
+    }
+  }, [configuredEmaLengths, emaEnabled, renderedEmaLines, selectedEmaLength]);
+
+  useEffect(() => {
     if (!selectedAnnotationId) {
       return;
     }
@@ -279,6 +340,12 @@ export default function App() {
       leftBars,
       rightBars,
       bufferBars,
+      emaLengths,
+      emaEnabled,
+      emaStyles,
+      selectedEmaLength,
+      emaToolbarPosition,
+      emaToolbarOpenPopover,
       autoViewportFetch,
       overlayLayers,
       annotations,
@@ -304,6 +371,11 @@ export default function App() {
     apiBaseUrl,
     autoViewportFetch,
     bufferBars,
+    emaLengths,
+    emaEnabled,
+    emaStyles,
+    emaToolbarOpenPopover,
+    emaToolbarPosition,
     centerBarId,
     confirmationGuide,
     dataVersion,
@@ -314,6 +386,7 @@ export default function App() {
     leftBars,
     overlayLayers,
     rightBars,
+    selectedEmaLength,
     selectorMode,
     selectedAnnotationId,
     selectedOverlayId,
@@ -389,7 +462,15 @@ export default function App() {
     startTime?: string;
     endTime?: string;
   }) {
-    const request = buildWindowRequest(args);
+    let request: ReturnType<typeof buildWindowRequest>;
+    try {
+      request = buildWindowRequest(args);
+    } catch (error) {
+      setWindowError(
+        error instanceof Error ? error.message : "Failed to build chart window request.",
+      );
+      return;
+    }
     const cacheKey = buildWindowCacheKey(request);
     setWindowLoading(true);
     setWindowError(null);
@@ -446,6 +527,7 @@ export default function App() {
       timeframe,
       sessionProfile,
       dataVersion,
+      emaLengths: emaEnabled ? configuredEmaLengths : [],
       selectorMode: args?.selectorMode ?? selectorMode,
       sessionDate: args?.sessionDate ?? sessionDate,
       centerBarId: args?.centerBarId ?? centerBarId,
@@ -541,8 +623,13 @@ export default function App() {
     setInspectorPanelManualPosition(false);
   }
 
+  function clearEmaSelection() {
+    setSelectedEmaLength(null);
+  }
+
   function clearChartSelection() {
     clearOverlaySelection();
+    clearEmaSelection();
     setSelectedAnnotationId(null);
   }
 
@@ -594,12 +681,26 @@ export default function App() {
     );
   }
 
+  function patchEmaStyle(length: number, patch: Partial<EmaStyle>) {
+    setEmaStyles((current) => {
+      const key = String(length);
+      return {
+        ...current,
+        [key]: {
+          ...getEmaStyle(length, current[key]),
+          ...patch,
+        },
+      };
+    });
+  }
+
   async function handleOverlayCommandSelect(overlay: Overlay) {
     if (confirmationGuide?.sourceStructureId === overlay.source_structure_id) {
       setConfirmationGuide(null);
       return;
     }
     clearOverlaySelection();
+    clearEmaSelection();
     setSelectedAnnotationId(null);
     try {
       const detail = await fetchStructureDetail({
@@ -651,9 +752,32 @@ export default function App() {
         leftBars={leftBars}
         rightBars={rightBars}
         bufferBars={bufferBars}
+        emaLengths={emaLengths}
+        emaEnabled={emaEnabled}
+        emaEntries={
+          emaEnabled
+            ? configuredEmaLengths.map((length) => ({
+                length,
+                style: getEmaStyle(length, emaStyles[String(length)]),
+                selected: selectedEmaLength === length,
+              }))
+            : []
+        }
         onLeftBarsChange={setLeftBars}
         onRightBarsChange={setRightBars}
         onBufferBarsChange={setBufferBars}
+        onEmaLengthsChange={setEmaLengths}
+        onEmaEnabledChange={(enabled) => {
+          setEmaEnabled(enabled);
+          if (!enabled) {
+            clearEmaSelection();
+          }
+        }}
+        onEmaSelect={(length) => {
+          clearOverlaySelection();
+          setSelectedAnnotationId(null);
+          setSelectedEmaLength(length);
+        }}
         autoViewportFetch={autoViewportFetch}
         onAutoViewportFetchChange={setAutoViewportFetch}
         overlayLayerCounts={overlayLayerCounts}
@@ -687,6 +811,7 @@ export default function App() {
         <div className="chart-stage">
           <ChartPane
             bars={windowData?.bars ?? []}
+            emaLines={renderedEmaLines}
             overlays={visibleOverlays}
             annotations={visibleAnnotations}
             annotationTool={annotationTool}
@@ -703,6 +828,12 @@ export default function App() {
             onAnnotationToolbarPositionChange={setAnnotationToolbarPosition}
             annotationToolbarOpenPopover={annotationToolbarOpenPopover}
             onAnnotationToolbarOpenPopoverChange={setAnnotationToolbarOpenPopover}
+            selectedEmaLine={selectedEmaLine}
+            emaToolbarPosition={emaToolbarPosition}
+            onEmaToolbarPositionChange={setEmaToolbarPosition}
+            emaToolbarOpenPopover={emaToolbarOpenPopover}
+            onEmaToolbarOpenPopoverChange={setEmaToolbarOpenPopover}
+            onEmaStyleChange={patchEmaStyle}
             viewportFamilyKey={activeFamilyKey}
             initialViewport={viewportStateRef.current}
             onViewportStateChange={(nextViewport) => {
@@ -737,6 +868,7 @@ export default function App() {
             }}
             onAnnotationSelect={(annotationId) => {
               setSelectedAnnotationId(annotationId);
+              clearEmaSelection();
               clearOverlaySelection();
             }}
             onAnnotationUpdate={(annotationId, nextStart, nextEnd) => {
@@ -765,6 +897,7 @@ export default function App() {
             }}
             onOverlaySelect={(overlay, anchorPoint) => {
               setConfirmationGuide(null);
+              clearEmaSelection();
               setSelectedAnnotationId(null);
               setSelectedOverlayId(overlay?.overlay_id ?? null);
               setDetailAnchor(anchorPoint);
@@ -808,8 +941,39 @@ function buildWindowCacheKey(request: Parameters<typeof fetchChartWindow>[0]) {
     leftBars: request.leftBars,
     rightBars: request.rightBars,
     bufferBars: request.bufferBars,
+    emaLengths: request.emaLengths,
     overlayLayers: request.overlayLayers,
   });
+}
+
+function parseEmaLengthsInput(value: string): number[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const parts = trimmed
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return [];
+  }
+
+  const lengths: number[] = [];
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) {
+      throw new Error("EMA lengths must be a comma-separated list of positive integers.");
+    }
+    const length = Number(part);
+    if (!Number.isInteger(length) || length <= 0) {
+      throw new Error("EMA lengths must be a comma-separated list of positive integers.");
+    }
+    if (!lengths.includes(length)) {
+      lengths.push(length);
+    }
+  }
+  return lengths;
 }
 
 function buildAnnotationFamilyKey(args: {

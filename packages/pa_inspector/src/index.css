@@ -325,6 +325,18 @@ code {
   background: #eef2f7;
 }
 
+.ema-pill-button {
+  cursor: pointer;
+}
+
+.ema-pill-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+  flex: 0 0 auto;
+}
+
 .workspace-grid {
   display: flex;
   flex: 1 1 auto;

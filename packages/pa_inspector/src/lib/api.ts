@@ -46,6 +46,9 @@ export async function fetchChartWindow(
   if (request.overlayVersion) {
     params.set("overlay_version", request.overlayVersion);
   }
+  for (const length of request.emaLengths ?? []) {
+    params.append("ema_length", String(length));
+  }
 
   if (request.selectorMode === "center_bar_id" && request.centerBarId) {
     params.set("center_bar_id", request.centerBarId);

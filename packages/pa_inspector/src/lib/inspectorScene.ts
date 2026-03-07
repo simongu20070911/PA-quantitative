@@ -74,7 +74,21 @@ export interface InspectorRenderData {
   selectedAnnotationId: string | null;
 }
 
-interface ConfirmationGuideRender {
+export interface InspectorGeometryCache {
+  barTimeById: Map<number, number>;
+  sessionBoundaries: number[];
+  overlayDrawables: Drawable[];
+  annotationDrawables: AnnotationDrawable[];
+}
+
+export interface InspectorPresentationState {
+  confirmationGuide: ConfirmationGuideRender | null;
+  draftDrawable: AnnotationDrawable | null;
+  selectedOverlayId: string | null;
+  selectedAnnotationId: string | null;
+}
+
+export interface ConfirmationGuideRender {
   x: number;
 }
 
@@ -90,34 +104,76 @@ export function buildInspectorRenderData(
   state: InspectorPrimitiveState,
   projector: CoordinateProjector,
 ): InspectorRenderData {
-  const barTimeById = new Map(state.bars.map((bar) => [bar.bar_id, bar.time]));
-  const overlayDrawables = resolveOverlayDrawables(state.bars, state.overlays, projector);
-  const annotationDrawables = resolveAnnotationDrawables(
-    state.annotations,
-    barTimeById,
+  const geometry = buildInspectorGeometryCache(state, projector);
+  const presentation = buildInspectorPresentationState(
+    state,
+    geometry.barTimeById,
     projector,
   );
-  const sessionBoundaries =
-    state.sessionProfile === "rth"
-      ? collectSessionBoundaryXCoordinates(state.bars, projector)
-      : [];
-  const confirmationGuide = resolveConfirmationGuide(
-    state.confirmationGuide,
-    barTimeById,
-    projector,
-  );
-  const draftDrawable = state.draftAnnotation
-    ? resolveAnnotationDrawable(state.draftAnnotation, barTimeById, projector)
-    : null;
+  return composeInspectorRenderData(geometry, presentation);
+}
 
+export function buildBarTimeIndex(bars: ChartBar[]): Map<number, number> {
+  return new Map(bars.map((bar) => [bar.bar_id, bar.time]));
+}
+
+export function buildInspectorGeometryCache(
+  state: Pick<
+    InspectorPrimitiveState,
+    "bars" | "overlays" | "annotations" | "sessionProfile"
+  >,
+  projector: CoordinateProjector,
+  barTimeById: Map<number, number> = buildBarTimeIndex(state.bars),
+): InspectorGeometryCache {
   return {
-    sessionBoundaries,
-    confirmationGuide,
-    overlayDrawables,
-    annotationDrawables,
-    draftDrawable,
+    barTimeById,
+    sessionBoundaries:
+      state.sessionProfile === "rth"
+        ? collectSessionBoundaryXCoordinates(state.bars, projector)
+        : [],
+    overlayDrawables: resolveOverlayDrawables(state.bars, state.overlays, projector),
+    annotationDrawables: resolveAnnotationDrawables(
+      state.annotations,
+      barTimeById,
+      projector,
+    ),
+  };
+}
+
+export function buildInspectorPresentationState(
+  state: Pick<
+    InspectorPrimitiveState,
+    "confirmationGuide" | "draftAnnotation" | "selectedOverlayId" | "selectedAnnotationId"
+  >,
+  barTimeById: Map<number, number>,
+  projector: CoordinateProjector,
+): InspectorPresentationState {
+  return {
+    confirmationGuide: resolveConfirmationGuide(
+      state.confirmationGuide,
+      barTimeById,
+      projector,
+    ),
+    draftDrawable: state.draftAnnotation
+      ? resolveAnnotationDrawable(state.draftAnnotation, barTimeById, projector)
+      : null,
     selectedOverlayId: state.selectedOverlayId,
     selectedAnnotationId: state.selectedAnnotationId,
+  };
+}
+
+export function composeInspectorRenderData(
+  geometry: InspectorGeometryCache,
+  presentation: InspectorPresentationState,
+): InspectorRenderData {
+  return {
+    sessionBoundaries: geometry.sessionBoundaries,
+    confirmationGuide: presentation.confirmationGuide,
+    overlayDrawables: geometry.overlayDrawables,
+    annotationDrawables: geometry.annotationDrawables,
+    draftDrawable: presentation.draftDrawable,
+    selectedOverlayId: presentation.selectedOverlayId,
+    selectedAnnotationId: presentation.selectedAnnotationId,
   };
 }
 

@@ -3,6 +3,7 @@ import type {
   AnnotationLineStyle,
   AnnotationStyle,
   ChartAnnotation,
+  EmaStyle,
 } from "./types";
 
 export const ANNOTATION_COLOR_PALETTE = [
@@ -93,3 +94,16 @@ export function colorWithOpacity(color: string, opacity: number) {
   return `rgba(${r}, ${g}, ${b}, ${normalizedOpacity})`;
 }
 
+export function defaultEmaStyle(length: number): EmaStyle {
+  return {
+    strokeColor: ANNOTATION_COLOR_PALETTE[Math.abs(length) % ANNOTATION_COLOR_PALETTE.length],
+    lineWidth: 2,
+    lineStyle: "solid",
+    opacity: 0.95,
+    visible: true,
+  };
+}
+
+export function getEmaStyle(length: number, style: EmaStyle | null | undefined): EmaStyle {
+  return style ?? defaultEmaStyle(length);
+}

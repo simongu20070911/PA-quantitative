@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type {
+  EmaStyle,
   InspectorToolbarPanel,
   OverlayLayer,
   SelectorMode,
@@ -38,9 +39,15 @@ export interface ToolbarProps {
   leftBars: string;
   rightBars: string;
   bufferBars: string;
+  emaLengths: string;
+  emaEnabled: boolean;
+  emaEntries: Array<{ length: number; style: EmaStyle; selected: boolean }>;
   onLeftBarsChange: (value: string) => void;
   onRightBarsChange: (value: string) => void;
   onBufferBarsChange: (value: string) => void;
+  onEmaLengthsChange: (value: string) => void;
+  onEmaEnabledChange: (value: boolean) => void;
+  onEmaSelect: (length: number | null) => void;
   autoViewportFetch: boolean;
   onAutoViewportFetchChange: (value: boolean) => void;
   overlayLayerCounts: Record<OverlayLayer, number>;
@@ -104,6 +111,12 @@ export function Toolbar(props: ToolbarProps) {
             <span className="toolbar-chip">{props.sessionProfile}</span>
             <span className="toolbar-chip">{selectorSummary}</span>
             <span className="toolbar-chip">Window {windowSummary}</span>
+            <span className="toolbar-chip">
+              EMA{" "}
+              {props.emaEnabled
+                ? props.emaLengths.trim() || "On"
+                : "Off"}
+            </span>
             <span className="toolbar-chip">
               Auto Fetch {props.autoViewportFetch ? "On" : "Off"}
             </span>
@@ -248,7 +261,58 @@ export function Toolbar(props: ToolbarProps) {
                 onChange={(event) => props.onBufferBarsChange(event.target.value)}
               />
             </label>
+            <label className="field">
+              <span>EMA Lengths</span>
+              <input
+                disabled={!props.emaEnabled}
+                value={props.emaLengths}
+                onChange={(event) => props.onEmaLengthsChange(event.target.value)}
+                placeholder="9, 20, 50"
+              />
+            </label>
           </div>
+
+          <div className="compact-row">
+            <span className="mode-label">Indicators</span>
+            <label className={props.emaEnabled ? "layer-pill active" : "layer-pill"}>
+              <input
+                checked={props.emaEnabled}
+                onChange={(event) =>
+                  props.onEmaEnabledChange(event.target.checked)
+                }
+                type="checkbox"
+              />
+              <span>EMA On</span>
+            </label>
+          </div>
+
+          {props.emaEntries.length ? (
+            <div className="compact-row">
+              <span className="mode-label">Active EMAs</span>
+              <div className="layer-pills">
+                {props.emaEntries.map((entry) => (
+                  <button
+                    className={entry.selected ? "layer-pill active ema-pill-button" : "layer-pill ema-pill-button"}
+                    key={entry.length}
+                    onClick={() =>
+                      props.onEmaSelect(entry.selected ? null : entry.length)
+                    }
+                    type="button"
+                  >
+                    <span
+                      className="ema-pill-swatch"
+                      style={{
+                        backgroundColor: entry.style.strokeColor,
+                        opacity: entry.style.visible ? entry.style.opacity : 0.28,
+                      }}
+                    />
+                    <span>EMA {entry.length}</span>
+                    <code>{entry.style.visible ? "On" : "Off"}</code>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="compact-row">
             <span className="mode-label">Viewport</span>

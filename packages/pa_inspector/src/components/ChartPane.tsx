@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { LogicalRange } from "lightweight-charts";
 
 import { createChartAdapter, type ChartAdapter } from "../lib/chartAdapter";
+import { EmaToolbar } from "./EmaToolbar";
 import type {
   AnnotationToolbarPopover,
   AnnotationKind,
@@ -10,9 +11,11 @@ import type {
   ChartAnnotation,
   ChartBar,
   ConfirmationGuide,
+  EmaStyle,
   FloatingPosition,
   Overlay,
   OverlayLayer,
+  RenderedEmaLine,
   SessionProfile,
 } from "../lib/types";
 import { AnnotationRail } from "./AnnotationRail";
@@ -21,6 +24,7 @@ import { OverlayCanvas } from "./OverlayCanvas";
 
 export interface ChartPaneProps {
   bars: ChartBar[];
+  emaLines: RenderedEmaLine[];
   overlays: Overlay[];
   annotations: ChartAnnotation[];
   annotationTool: AnnotationTool;
@@ -39,6 +43,12 @@ export interface ChartPaneProps {
   onAnnotationToolbarOpenPopoverChange: (
     popover: AnnotationToolbarPopover,
   ) => void;
+  selectedEmaLine: RenderedEmaLine | null;
+  emaToolbarPosition: FloatingPosition | null;
+  onEmaToolbarPositionChange: (position: FloatingPosition | null) => void;
+  emaToolbarOpenPopover: AnnotationToolbarPopover;
+  onEmaToolbarOpenPopoverChange: (popover: AnnotationToolbarPopover) => void;
+  onEmaStyleChange: (length: number, patch: Partial<EmaStyle>) => void;
   viewportFamilyKey: string;
   initialViewport: { familyKey: string; centerBarId: number; span: number } | null;
   onViewportStateChange: (
@@ -73,6 +83,7 @@ export interface ChartPaneProps {
 
 export function ChartPane({
   bars,
+  emaLines,
   overlays,
   annotations,
   annotationTool,
@@ -89,6 +100,12 @@ export function ChartPane({
   onAnnotationToolbarPositionChange,
   annotationToolbarOpenPopover,
   onAnnotationToolbarOpenPopoverChange,
+  selectedEmaLine,
+  emaToolbarPosition,
+  onEmaToolbarPositionChange,
+  emaToolbarOpenPopover,
+  onEmaToolbarOpenPopoverChange,
+  onEmaStyleChange,
   viewportFamilyKey,
   initialViewport,
   onViewportStateChange,
@@ -220,7 +237,7 @@ export function ChartPane({
       firstBarLoad && restoreViewport?.familyKey === viewportFamilyKey
         ? restoreViewport.centerBarId
         : previousCenterBarId;
-    adapter?.setBars(bars, {
+    adapter?.setBars(bars, emaLines, {
       preserveLogicalRange: restoredRange,
       preserveAnchorTime: restoredCenterTime,
       preserveAnchorBarId: restoredCenterBarId,
@@ -237,7 +254,7 @@ export function ChartPane({
     }
     barsRef.current = bars;
     lastViewportCenterRef.current = null;
-  }, [bars, viewportFamilyKey]);
+  }, [bars, emaLines, viewportFamilyKey]);
 
   const empty = useMemo(() => bars.length === 0, [bars.length]);
 
@@ -271,6 +288,16 @@ export function ChartPane({
         onAnnotationStyleChange={onAnnotationStyleChange}
         onAnnotationDuplicate={onAnnotationDuplicate}
         onDeleteSelectedAnnotation={onDeleteSelectedAnnotation}
+      />
+      <EmaToolbar
+        hostRef={shellRef}
+        surfaceRef={containerRef}
+        emaLine={selectedEmaLine}
+        initialPosition={emaToolbarPosition}
+        onPositionChange={onEmaToolbarPositionChange}
+        initialOpenPopover={emaToolbarOpenPopover}
+        onOpenPopoverChange={onEmaToolbarOpenPopoverChange}
+        onEmaStyleChange={onEmaStyleChange}
       />
       <OverlayCanvas
         shellRef={shellRef}

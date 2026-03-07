@@ -82,6 +82,7 @@ export function OverlayCanvas({
 }: OverlayCanvasProps) {
   const activeDrawRef = useRef(false);
   const activeDragRef = useRef<AnnotationDragState | null>(null);
+  const suppressNextChartClickRef = useRef(false);
   const draftStateRef = useRef<{
     start: AnnotationAnchor;
     current: AnnotationAnchor;
@@ -196,6 +197,61 @@ export function OverlayCanvas({
       return;
     }
 
+    const unsubscribeClick = adapter.subscribeClick((param) => {
+      if (suppressNextChartClickRef.current) {
+        suppressNextChartClickRef.current = false;
+        return;
+      }
+      if (annotationToolRef.current !== "none") {
+        return;
+      }
+
+      const point =
+        param.point ??
+        (param.sourceEvent
+          ? {
+              x: Number(param.sourceEvent.localX),
+              y: Number(param.sourceEvent.localY),
+            }
+          : undefined);
+      if (!point) {
+        onAnnotationSelectRef.current(null);
+        onOverlaySelectRef.current(null, null);
+        return;
+      }
+
+      const renderData = adapter.getInspectorRenderData();
+      const overlayDrawable = findOverlayAtPoint(
+        renderData.overlayDrawables,
+        point.x,
+        point.y,
+      );
+      if (!overlayDrawable) {
+        onAnnotationSelectRef.current(null);
+        onOverlaySelectRef.current(null, null);
+        return;
+      }
+
+      onAnnotationSelectRef.current(null);
+      if (param.sourceEvent?.metaKey || param.sourceEvent?.ctrlKey) {
+        onOverlayCommandSelectRef.current(overlayDrawable.overlay);
+        return;
+      }
+
+      const shell = shellRef.current;
+      const surface = surfaceRef.current;
+      if (!shell || !surface) {
+        onOverlaySelectRef.current(overlayDrawable.overlay, point);
+        return;
+      }
+      const shellRect = shell.getBoundingClientRect();
+      const surfaceRect = surface.getBoundingClientRect();
+      onOverlaySelectRef.current(overlayDrawable.overlay, {
+        x: point.x + (surfaceRect.left - shellRect.left),
+        y: point.y + (surfaceRect.top - shellRect.top),
+      });
+    });
+
     const unsubscribeMove = adapter.subscribeCrosshairMove((param) => {
       const surface = surfaceRef.current;
       if (!surface) {
@@ -231,6 +287,7 @@ export function OverlayCanvas({
     });
 
     return () => {
+      unsubscribeClick();
       unsubscribeMove();
       const surface = surfaceRef.current;
       if (surface) {
@@ -283,6 +340,7 @@ export function OverlayCanvas({
         }
         event.preventDefault();
         event.stopPropagation();
+        suppressNextChartClickRef.current = true;
         onAnnotationSelectRef.current(null);
         onOverlaySelectRef.current(null, null);
         activeDrawRef.current = true;
@@ -304,6 +362,7 @@ export function OverlayCanvas({
       if (annotationHit) {
         event.preventDefault();
         event.stopPropagation();
+        suppressNextChartClickRef.current = true;
         onOverlaySelectRef.current(null, null);
         const style = annotationHit.drawable.annotation.style;
         let dragAnnotationId = annotationHit.drawable.annotation.id;
@@ -334,32 +393,6 @@ export function OverlayCanvas({
         surface.setPointerCapture(event.pointerId);
         return;
       }
-
-      const overlayDrawable = findOverlayAtPoint(renderData.overlayDrawables, point.x, point.y);
-      if (overlayDrawable) {
-        event.preventDefault();
-        event.stopPropagation();
-        onAnnotationSelectRef.current(null);
-        if (event.metaKey || event.ctrlKey) {
-          onOverlayCommandSelectRef.current(overlayDrawable.overlay);
-          return;
-        }
-        const shell = shellRef.current;
-        if (!shell) {
-          onOverlaySelectRef.current(overlayDrawable.overlay, point);
-          return;
-        }
-        const shellRect = shell.getBoundingClientRect();
-        const surfaceRect = surface.getBoundingClientRect();
-        onOverlaySelectRef.current(overlayDrawable.overlay, {
-          x: point.x + (surfaceRect.left - shellRect.left),
-          y: point.y + (surfaceRect.top - shellRect.top),
-        });
-        return;
-      }
-
-      onAnnotationSelectRef.current(null);
-      onOverlaySelectRef.current(null, null);
     };
 
     const onPointerMove = (event: PointerEvent) => {

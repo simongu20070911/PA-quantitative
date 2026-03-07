@@ -4,6 +4,7 @@ export type SessionProfile = "eth_full" | "rth";
 export type AnnotationTool = "none" | "line" | "box" | "fib50";
 export type AnnotationKind = Exclude<AnnotationTool, "none">;
 export type AnnotationLineStyle = "solid" | "dashed" | "dotted";
+export type EmaLineStyle = AnnotationLineStyle;
 export type InspectorToolbarPanel = "jump" | "display" | "layers" | "data" | null;
 export type AnnotationToolbarPopover =
   | "stroke"
@@ -32,6 +33,30 @@ export interface ChartBar {
   close: number;
   session_id: number;
   session_date: number;
+}
+
+export interface EmaPoint {
+  bar_id: number;
+  time: number;
+  value: number;
+}
+
+export interface EmaStyle {
+  strokeColor: string;
+  lineWidth: number;
+  lineStyle: EmaLineStyle;
+  opacity: number;
+  visible: boolean;
+}
+
+export interface EmaLine {
+  length: number;
+  points: EmaPoint[];
+}
+
+export interface RenderedEmaLine extends EmaLine {
+  style: EmaStyle;
+  selected: boolean;
 }
 
 export interface Overlay {
@@ -88,10 +113,12 @@ export interface ChartWindowMeta {
   rulebook_version: string | null;
   structure_version: string | null;
   overlay_version: string | null;
+  ema_lengths: number[];
 }
 
 export interface ChartWindowResponse {
   bars: ChartBar[];
+  ema_lines: EmaLine[];
   overlays: Overlay[];
   meta: ChartWindowMeta;
 }
@@ -125,6 +152,7 @@ export interface ChartWindowRequest {
   featureVersion?: string;
   featureParamsHash?: string;
   overlayVersion?: string;
+  emaLengths?: number[];
   selectorMode: SelectorMode;
   centerBarId?: string;
   sessionDate?: string;

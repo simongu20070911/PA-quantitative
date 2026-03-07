@@ -3,6 +3,7 @@ import type {
   AnnotationToolbarPopover,
   ChartAnnotation,
   ConfirmationGuide,
+  EmaStyle,
   FloatingPosition,
   InspectorToolbarPanel,
   OverlayLayer,
@@ -28,6 +29,12 @@ export interface PersistedInspectorState {
   leftBars: string;
   rightBars: string;
   bufferBars: string;
+  emaLengths: string;
+  emaEnabled: boolean;
+  emaStyles: Record<string, EmaStyle>;
+  selectedEmaLength: number | null;
+  emaToolbarPosition: FloatingPosition | null;
+  emaToolbarOpenPopover: AnnotationToolbarPopover;
   autoViewportFetch: boolean;
   overlayLayers: Record<OverlayLayer, boolean>;
   annotations: ChartAnnotation[];
@@ -84,6 +91,12 @@ export function loadPersistedInspectorState(
       leftBars: parsed.leftBars,
       rightBars: parsed.rightBars,
       bufferBars: parsed.bufferBars,
+      emaLengths: parsed.emaLengths,
+      emaEnabled: parsed.emaEnabled,
+      emaStyles: parsed.emaStyles,
+      selectedEmaLength: parsed.selectedEmaLength,
+      emaToolbarPosition: parsed.emaToolbarPosition,
+      emaToolbarOpenPopover: parsed.emaToolbarOpenPopover,
       autoViewportFetch: parsed.autoViewportFetch,
       overlayLayers: parsed.overlayLayers,
       annotations: parsed.annotations,
@@ -140,6 +153,13 @@ function isPersistedEnvelope(value: unknown): value is PersistedInspectorEnvelop
     typeof value.leftBars === "string" &&
     typeof value.rightBars === "string" &&
     typeof value.bufferBars === "string" &&
+    typeof value.emaLengths === "string" &&
+    typeof value.emaEnabled === "boolean" &&
+    isRecord(value.emaStyles) &&
+    Object.values(value.emaStyles).every(isEmaStyle) &&
+    isNullableFiniteNumber(value.selectedEmaLength) &&
+    isNullableFloatingPosition(value.emaToolbarPosition) &&
+    isAnnotationToolbarPopover(value.emaToolbarOpenPopover) &&
     typeof value.autoViewportFetch === "boolean" &&
     isOverlayLayerState(value.overlayLayers) &&
     Array.isArray(value.annotations) &&
@@ -213,6 +233,21 @@ function isAnnotationStyle(value: unknown): value is ChartAnnotation["style"] {
   );
 }
 
+function isEmaStyle(value: unknown): value is EmaStyle {
+  return (
+    isRecord(value) &&
+    typeof value.strokeColor === "string" &&
+    typeof value.lineWidth === "number" &&
+    Number.isFinite(value.lineWidth) &&
+    (value.lineStyle === "solid" ||
+      value.lineStyle === "dashed" ||
+      value.lineStyle === "dotted") &&
+    typeof value.opacity === "number" &&
+    Number.isFinite(value.opacity) &&
+    typeof value.visible === "boolean"
+  );
+}
+
 function isAnnotationKind(value: unknown): value is ChartAnnotation["kind"] {
   return value === "line" || value === "box" || value === "fib50";
 }
@@ -246,6 +281,10 @@ function isAnnotationToolbarPopover(value: unknown): value is AnnotationToolbarP
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
 function isFloatingPosition(value: unknown): value is FloatingPosition {

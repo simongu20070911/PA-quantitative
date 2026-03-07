@@ -109,6 +109,7 @@ Critical rule:
 Current frontend-library decision:
 
 - use `TradingView Lightweight Charts` for `pa_inspector` v1
+- keep the rendering contract portable so a future migration to another chart substrate such as `SimpleChart` does not require semantic changes in `pa_core` or `pa_api`
 
 Decision rationale:
 
@@ -122,18 +123,20 @@ Decision boundary:
 - `Lightweight Charts` is a rendering substrate only
 - it must not become a semantic dependency of `pa_core` or `pa_api`
 - integration should sit behind a small chart-adapter boundary inside `pa_inspector`
+- if the chart substrate changes later, the rendering contract should stay the same: backend-defined objects in, chart-native drawing out
 
 Preferred frontend architecture:
 
 - React + TypeScript for application shell and UI state
-- `TradingView Lightweight Charts` as the candle, time-scale, and price-scale substrate
-- series-attached `Lightweight Charts` primitives for persistent overlay and annotation rendering
+- the current chart substrate implementation behind the adapter boundary
+- chart-native primitives or series for persistent overlays, persistent annotations, and backend-derived indicator lines such as `EMA`
 
 Why this stack:
 
 - `Lightweight Charts` provides mature pan, zoom, time scale, and price scale behavior
 - chart-native primitives keep persistent visuals in the same rendering loop as candles, which improves alignment and motion feel during pan or zoom
 - our own primitive layer still preserves our object model and avoids forcing PA semantics into foreign backend layers
+- native chart series are also the preferred rendering path for backend-derived indicators such as `EMA`
 
 Frontend rendering rule:
 
@@ -250,7 +253,7 @@ The rendering pipeline is:
 
 1. fetch a visible chart window from `pa_api`
 2. render candles through `Lightweight Charts`
-3. render visible overlays and persistent annotations through series-attached chart primitives
+3. render visible overlays, persistent annotations, and backend-derived indicator series through chart-native primitives or series when practical
 4. perform hit testing against the visible overlay set
 5. show object metadata in a side panel on selection
 
@@ -279,6 +282,12 @@ Inspector-specific overlay requirements:
 - overlays must be selectable
 - overlays must render smoothly inside the chart viewport
 - overlays must preserve provenance needed by the side panel
+
+Indicator-series note:
+
+- backend-derived indicator lines such as `EMA` are not structure overlays
+- they should still be rendered natively by the chart substrate when practical
+- their definitions and parameter semantics still belong to `pa_core`, not the browser
 
 ## Data Access Model
 

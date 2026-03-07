@@ -1,6 +1,6 @@
 # Project Status
 
-Status date: 2026-03-06
+Status date: 2026-03-07
 Project root: `/Users/simongu/Projects/PA quantitative`
 
 ## Summary
@@ -31,6 +31,7 @@ The project currently has:
 - an on-demand overlay projection layer for `pivot`, `leg`, `major_lh`, and bearish breakout-start structures in `packages/pa_core/src/pa_core/overlays/`
 - a thin `pa_api` FastAPI layer for `GET /chart-window` and `GET /structure/{structure_id}`
 - an initial `pa_inspector` React + TypeScript + Vite shell with a `Lightweight Charts` adapter, native primitive overlay rendering, layer toggles, and side-panel detail loading
+- backend-native configurable EMA support exposed through `GET /chart-window` and rendered as chart-native line series in the inspector
 
 The project does not yet have:
 
@@ -51,6 +52,7 @@ Implemented:
 - manifest-backed bar artifact discovery and reload
 - CLI materialization path via `python3 -m pa_core.data.canonical_bars`
 - Numba-backed kernels and readable wrappers for the first four edge features
+- a backend-native configurable EMA computation path for bar-family chart reads
 - versioned feature parquet emission under `artifacts/features/feature=.../version=.../input_ref=.../params_hash=.../`
 - explicit feature timing semantics and closed-bar policy in feature specs and manifests
 - manifest-backed feature artifact discovery, reload, and bundle loading
@@ -141,6 +143,7 @@ Current API policy:
 - `pa_api` is now the thin read layer over the current `pa_core` artifact chain
 - `GET /chart-window` supports `center_bar_id`, `session_date`, or explicit `start_time` / `end_time` selectors plus overlay-layer filtering
 - `GET /chart-window` now also supports `session_profile` plus derived minute `timeframe` families backed by deterministic backend filtering/aggregation from canonical `eth_full 1m`
+- `GET /chart-window` now also supports repeated `ema_length` query params and returns backend-computed `ema_lines` plus requested lengths in window metadata
 - for non-canonical families such as `eth_full 5m`, `GET /chart-window` now builds native family features and structures in `pa_core` before projecting overlays, instead of returning structure-less derived bars
 - `GET /structure/{structure_id}` returns structure summary, anchor bars, confirm bar, feature refs, structure refs, and version metadata
 - API responses now carry explicit `session_profile`, `timeframe`, `source_data_version`, `aggregation_version`, `overlay_version`, and `feature_params_hash` in the window metadata
@@ -148,8 +151,9 @@ Current API policy:
 Current inspector policy:
 
 - `pa_inspector` now consumes the shipped `pa_api` read endpoints rather than mocking structure semantics locally
-- candles render through `Lightweight Charts`, while overlays render on a synchronized canvas layer
+- candles render through `Lightweight Charts`, and persistent overlays plus backend-derived EMA lines now prefer chart-native primitives or series rather than UI-local semantic rendering
 - overlay family toggles are currently local view-state over the loaded overlay payload
+- the display panel now supports an explicit EMA on/off toggle plus comma-separated configurable EMA lengths, and active EMA lines can be selected for local style tuning with persisted color/width/style/opacity/visibility settings while still rendering as chart-native `Lightweight Charts` line series
 - local layer toggles, chart selector inputs, current viewport location/zoom span, non-canonical annotations, current selections, confirmation guides, and floating-panel placement now persist across browser reloads through browser-local storage only
 - inspector session-profile and timeframe controls are now wired to real backend/API reads rather than frontend-local filtering or aggregation
 - the inspector no longer hardcodes overlay availability to canonical `eth_full 1m`; it now renders and filters whatever overlay payload the backend returns for the selected family, including backend-native non-canonical families such as `eth_full 5m`
