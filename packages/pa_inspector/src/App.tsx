@@ -6,6 +6,15 @@ import { Toolbar } from "./components/Toolbar";
 import { fetchChartWindow, fetchStructureDetail } from "./lib/api";
 import { defaultAnnotationStyle, getEmaStyle } from "./lib/annotationStyle";
 import {
+  countOverlaysByLayer,
+  EMPTY_OVERLAY_LAYER_COUNTS,
+  filterOverlaysByEnabledLayers,
+  INITIAL_OVERLAY_LAYERS,
+  overlayKindToLayer,
+  OVERLAY_LAYER_ORDER,
+} from "./lib/overlayLayers";
+import {
+  buildDefaultInspectorState,
   loadPersistedInspectorState,
   savePersistedInspectorState,
   type PersistedInspectorState,
@@ -36,19 +45,6 @@ const DEFAULT_DATA_VERSION =
   import.meta.env.VITE_DEFAULT_DATA_VERSION?.trim() ||
   "es_1m_v1_4f3eda8a678d3c41";
 
-const INITIAL_LAYERS: Record<OverlayLayer, boolean> = {
-  pivot: true,
-  leg: true,
-  major_lh: true,
-  breakout_start: true,
-};
-const ALL_LAYERS = Object.keys(INITIAL_LAYERS) as OverlayLayer[];
-const EMPTY_LAYER_COUNTS: Record<OverlayLayer, number> = {
-  pivot: 0,
-  leg: 0,
-  major_lh: 0,
-  breakout_start: 0,
-};
 const DEFAULT_RAIL_POSITION: FloatingPosition = { left: 12, top: 12 };
 const DEFAULT_PANEL_POSITION: FloatingPosition = { left: 24, top: 24 };
 
@@ -56,116 +52,61 @@ export default function App() {
   const windowCacheRef = useRef<Map<string, ChartWindowResponse>>(new Map());
   const inFlightRef = useRef<Map<string, Promise<ChartWindowResponse>>>(new Map());
   const lastAutoCenterRef = useRef<number | null>(null);
-  const [initialState] = useState<PersistedInspectorState>(() =>
-    loadPersistedInspectorState({
-      apiBaseUrl: DEFAULT_API_BASE,
-      dataVersion: DEFAULT_DATA_VERSION,
-      symbol: "ES",
-      timeframe: "1m",
-      sessionProfile: "eth_full",
-      selectorMode: "session_date",
-      sessionDate: "20251117",
-      centerBarId: "29390399",
-      startTime: "",
-      endTime: "",
-      leftBars: "240",
-      rightBars: "240",
-      bufferBars: "120",
-      emaLengths: "",
-      emaEnabled: false,
-      emaStyles: {},
-      selectedEmaLength: null,
-      emaToolbarPosition: null,
-      emaToolbarOpenPopover: null,
-      autoViewportFetch: false,
-      overlayLayers: INITIAL_LAYERS,
-      annotations: [],
-      annotationTool: "none",
-      selectedAnnotationId: null,
-      selectedOverlayId: null,
-      detailAnchor: null,
-      confirmationGuide: null,
-      toolbarOpenPanel: null,
-      annotationRailPosition: DEFAULT_RAIL_POSITION,
-      annotationToolbarPosition: null,
-      annotationToolbarOpenPopover: null,
-      inspectorPanelPosition: DEFAULT_PANEL_POSITION,
-      inspectorPanelManualPosition: false,
-      viewport: null,
-    }),
+  const [workspace, setWorkspace] = useState<PersistedInspectorState>(() =>
+    loadPersistedInspectorState(
+      buildDefaultInspectorState({
+        apiBaseUrl: DEFAULT_API_BASE,
+        dataVersion: DEFAULT_DATA_VERSION,
+        overlayLayers: INITIAL_OVERLAY_LAYERS,
+        annotationRailPosition: DEFAULT_RAIL_POSITION,
+        inspectorPanelPosition: DEFAULT_PANEL_POSITION,
+      }),
+    ),
   );
-  const viewportStateRef = useRef(initialState.viewport);
+  const viewportStateRef = useRef(workspace.viewport);
   const viewportPersistTimerRef = useRef<number | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState(initialState.apiBaseUrl);
-  const [dataVersion, setDataVersion] = useState(initialState.dataVersion);
-  const [symbol, setSymbol] = useState(initialState.symbol);
-  const [timeframe, setTimeframe] = useState(initialState.timeframe);
-  const [sessionProfile, setSessionProfile] =
-    useState<SessionProfile>(initialState.sessionProfile);
-  const [selectorMode, setSelectorMode] =
-    useState<SelectorMode>(initialState.selectorMode);
-  const [sessionDate, setSessionDate] = useState(initialState.sessionDate);
-  const [centerBarId, setCenterBarId] = useState(initialState.centerBarId);
-  const [startTime, setStartTime] = useState(initialState.startTime);
-  const [endTime, setEndTime] = useState(initialState.endTime);
-  const [leftBars, setLeftBars] = useState(initialState.leftBars);
-  const [rightBars, setRightBars] = useState(initialState.rightBars);
-  const [bufferBars, setBufferBars] = useState(initialState.bufferBars);
-  const [emaLengths, setEmaLengths] = useState(initialState.emaLengths);
-  const [emaEnabled, setEmaEnabled] = useState(initialState.emaEnabled);
-  const [emaStyles, setEmaStyles] = useState<Record<string, EmaStyle>>(
-    initialState.emaStyles,
-  );
-  const [selectedEmaLength, setSelectedEmaLength] = useState<number | null>(
-    initialState.selectedEmaLength,
-  );
-  const [emaToolbarPosition, setEmaToolbarPosition] =
-    useState<FloatingPosition | null>(initialState.emaToolbarPosition);
-  const [emaToolbarOpenPopover, setEmaToolbarOpenPopover] =
-    useState<AnnotationToolbarPopover>(initialState.emaToolbarOpenPopover);
-  const [autoViewportFetch, setAutoViewportFetch] =
-    useState(initialState.autoViewportFetch);
-  const [overlayLayers, setOverlayLayers] =
-    useState<Record<OverlayLayer, boolean>>(initialState.overlayLayers);
   const [windowData, setWindowData] = useState<ChartWindowResponse | null>(null);
   const [windowLoading, setWindowLoading] = useState(false);
   const [windowError, setWindowError] = useState<string | null>(null);
-  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
-    initialState.selectedOverlayId,
-  );
-  const [detailAnchor, setDetailAnchor] = useState<ScreenPoint | null>(
-    initialState.detailAnchor,
-  );
   const [detailData, setDetailData] = useState<StructureDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [annotationTool, setAnnotationTool] = useState<AnnotationTool>(
-    initialState.annotationTool,
-  );
-  const [annotations, setAnnotations] = useState<ChartAnnotation[]>(
-    initialState.annotations,
-  );
-  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(
-    initialState.selectedAnnotationId,
-  );
-  const [confirmationGuide, setConfirmationGuide] = useState<ConfirmationGuide | null>(
-    initialState.confirmationGuide,
-  );
-  const [toolbarOpenPanel, setToolbarOpenPanel] = useState<InspectorToolbarPanel>(
-    initialState.toolbarOpenPanel,
-  );
-  const [annotationRailPosition, setAnnotationRailPosition] = useState<FloatingPosition>(
-    initialState.annotationRailPosition,
-  );
-  const [annotationToolbarPosition, setAnnotationToolbarPosition] =
-    useState<FloatingPosition | null>(initialState.annotationToolbarPosition);
-  const [annotationToolbarOpenPopover, setAnnotationToolbarOpenPopover] =
-    useState<AnnotationToolbarPopover>(initialState.annotationToolbarOpenPopover);
-  const [inspectorPanelPosition, setInspectorPanelPosition] =
-    useState<FloatingPosition>(initialState.inspectorPanelPosition);
-  const [inspectorPanelManualPosition, setInspectorPanelManualPosition] =
-    useState(initialState.inspectorPanelManualPosition);
   const [viewportPersistRevision, setViewportPersistRevision] = useState(0);
+  const {
+    apiBaseUrl,
+    dataVersion,
+    symbol,
+    timeframe,
+    sessionProfile,
+    selectorMode,
+    sessionDate,
+    centerBarId,
+    startTime,
+    endTime,
+    leftBars,
+    rightBars,
+    bufferBars,
+    emaLengths,
+    emaEnabled,
+    emaStyles,
+    selectedEmaLength,
+    emaToolbarPosition,
+    emaToolbarOpenPopover,
+    autoViewportFetch,
+    overlayLayers,
+    annotations,
+    annotationTool,
+    selectedAnnotationId,
+    selectedOverlayId,
+    detailAnchor,
+    confirmationGuide,
+    toolbarOpenPanel,
+    annotationRailPosition,
+    annotationToolbarPosition,
+    annotationToolbarOpenPopover,
+    inspectorPanelPosition,
+    inspectorPanelManualPosition,
+  } = workspace;
 
   const activeFamilyKey = useMemo(
     () => buildAnnotationFamilyKey({ dataVersion, sessionProfile, timeframe }),
@@ -203,37 +144,14 @@ export default function App() {
     if (!windowData) {
       return [];
     }
-    return windowData.overlays.filter((overlay) => {
-      if (overlay.kind === "pivot-marker") {
-        return overlayLayers.pivot;
-      }
-      if (overlay.kind === "leg-line") {
-        return overlayLayers.leg;
-      }
-      if (overlay.kind === "major-lh-marker") {
-        return overlayLayers.major_lh;
-      }
-      return overlayLayers.breakout_start;
-    });
+    return filterOverlaysByEnabledLayers(windowData.overlays, overlayLayers);
   }, [overlayLayers, windowData]);
 
   const overlayLayerCounts = useMemo(() => {
     if (!windowData) {
-      return EMPTY_LAYER_COUNTS;
+      return EMPTY_OVERLAY_LAYER_COUNTS;
     }
-    const counts = { ...EMPTY_LAYER_COUNTS };
-    for (const overlay of windowData.overlays) {
-      if (overlay.kind === "pivot-marker") {
-        counts.pivot += 1;
-      } else if (overlay.kind === "leg-line") {
-        counts.leg += 1;
-      } else if (overlay.kind === "major-lh-marker") {
-        counts.major_lh += 1;
-      } else if (overlay.kind === "breakout-marker") {
-        counts.breakout_start += 1;
-      }
-    }
-    return counts;
+    return countOverlaysByLayer(windowData.overlays);
   }, [windowData]);
 
   const visibleAnnotations = useMemo(
@@ -251,6 +169,17 @@ export default function App() {
     [selectedOverlayId, windowData],
   );
 
+  function patchWorkspace(patch: Partial<PersistedInspectorState>) {
+    setWorkspace((current) => ({ ...current, ...patch }));
+  }
+
+  function setWorkspaceField<Key extends keyof PersistedInspectorState>(
+    key: Key,
+    value: PersistedInspectorState[Key],
+  ) {
+    setWorkspace((current) => ({ ...current, [key]: value }));
+  }
+
   useEffect(() => {
     void loadWindow("restore");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -262,7 +191,7 @@ export default function App() {
 
   useEffect(() => {
     clearChartSelection();
-    setConfirmationGuide(null);
+    setWorkspaceField("confirmationGuide", null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionProfile, timeframe]);
 
@@ -271,13 +200,13 @@ export default function App() {
       return;
     }
     if (!visibleAnnotations.some((annotation) => annotation.id === selectedAnnotationId)) {
-      setSelectedAnnotationId(null);
+      setWorkspaceField("selectedAnnotationId", null);
     }
   }, [selectedAnnotationId, visibleAnnotations]);
 
   useEffect(() => {
     if (!emaEnabled) {
-      setSelectedEmaLength(null);
+      setWorkspaceField("selectedEmaLength", null);
       return;
     }
     if (
@@ -285,7 +214,7 @@ export default function App() {
       !configuredEmaLengths.includes(selectedEmaLength) &&
       !renderedEmaLines.some((line) => line.length === selectedEmaLength)
     ) {
-      setSelectedEmaLength(null);
+      setWorkspaceField("selectedEmaLength", null);
     }
   }, [configuredEmaLengths, emaEnabled, renderedEmaLines, selectedEmaLength]);
 
@@ -327,75 +256,11 @@ export default function App() {
 
   useEffect(() => {
     savePersistedInspectorState({
-      apiBaseUrl,
-      dataVersion,
-      symbol,
-      timeframe,
-      sessionProfile,
-      selectorMode,
-      sessionDate,
-      centerBarId,
-      startTime,
-      endTime,
-      leftBars,
-      rightBars,
-      bufferBars,
-      emaLengths,
-      emaEnabled,
-      emaStyles,
-      selectedEmaLength,
-      emaToolbarPosition,
-      emaToolbarOpenPopover,
-      autoViewportFetch,
-      overlayLayers,
-      annotations,
-      annotationTool,
-      selectedAnnotationId,
-      selectedOverlayId,
-      detailAnchor,
-      confirmationGuide,
-      toolbarOpenPanel,
-      annotationRailPosition,
-      annotationToolbarPosition,
-      annotationToolbarOpenPopover,
-      inspectorPanelPosition,
-      inspectorPanelManualPosition,
+      ...workspace,
       viewport: viewportStateRef.current,
     });
   }, [
-    annotations,
-    annotationRailPosition,
-    annotationTool,
-    annotationToolbarOpenPopover,
-    annotationToolbarPosition,
-    apiBaseUrl,
-    autoViewportFetch,
-    bufferBars,
-    emaLengths,
-    emaEnabled,
-    emaStyles,
-    emaToolbarOpenPopover,
-    emaToolbarPosition,
-    centerBarId,
-    confirmationGuide,
-    dataVersion,
-    detailAnchor,
-    endTime,
-    inspectorPanelManualPosition,
-    inspectorPanelPosition,
-    leftBars,
-    overlayLayers,
-    rightBars,
-    selectedEmaLength,
-    selectorMode,
-    selectedAnnotationId,
-    selectedOverlayId,
-    sessionDate,
-    sessionProfile,
-    startTime,
-    symbol,
-    timeframe,
-    toolbarOpenPanel,
+    workspace,
     viewportPersistRevision,
   ]);
 
@@ -480,29 +345,37 @@ export default function App() {
         setWindowData(response);
         setWindowLoading(false);
         if (args?.source !== "restore") {
-          setSelectedOverlayId(null);
-          setDetailAnchor(null);
+          patchWorkspace({
+            selectedOverlayId: null,
+            detailAnchor: null,
+            selectedAnnotationId: null,
+            confirmationGuide: null,
+          });
           setDetailData(null);
           setDetailError(null);
           setDetailLoading(false);
-          setSelectedAnnotationId(null);
-          setConfirmationGuide(null);
         }
         if (args?.source !== "restore" && args?.selectorMode === "center_bar_id" && args.centerBarId) {
-          setSelectorMode("center_bar_id");
-          setCenterBarId(args.centerBarId);
+          patchWorkspace({
+            selectorMode: "center_bar_id",
+            centerBarId: args.centerBarId,
+          });
         } else if (args?.source !== "restore" && args?.selectorMode === "session_date" && args.sessionDate) {
-          setSelectorMode("session_date");
-          setSessionDate(args.sessionDate);
+          patchWorkspace({
+            selectorMode: "session_date",
+            sessionDate: args.sessionDate,
+          });
         } else if (
           args?.source !== "restore" &&
           args?.selectorMode === "time_range" &&
           args.startTime &&
           args.endTime
         ) {
-          setSelectorMode("time_range");
-          setStartTime(args.startTime);
-          setEndTime(args.endTime);
+          patchWorkspace({
+            selectorMode: "time_range",
+            startTime: args.startTime,
+            endTime: args.endTime,
+          });
         }
       });
       void prefetchAdjacentWindows(response);
@@ -536,7 +409,7 @@ export default function App() {
       leftBars: Number(leftBars || 0),
       rightBars: Number(rightBars || 0),
       bufferBars: Number(bufferBars || 0),
-      overlayLayers: ALL_LAYERS,
+      overlayLayers: OVERLAY_LAYER_ORDER,
     };
   }
 
@@ -615,32 +488,37 @@ export default function App() {
   }
 
   function clearOverlaySelection() {
-    setSelectedOverlayId(null);
-    setDetailAnchor(null);
+    patchWorkspace({
+      selectedOverlayId: null,
+      detailAnchor: null,
+      inspectorPanelManualPosition: false,
+    });
     setDetailData(null);
     setDetailError(null);
     setDetailLoading(false);
-    setInspectorPanelManualPosition(false);
   }
 
   function clearEmaSelection() {
-    setSelectedEmaLength(null);
+    setWorkspaceField("selectedEmaLength", null);
   }
 
   function clearChartSelection() {
     clearOverlaySelection();
     clearEmaSelection();
-    setSelectedAnnotationId(null);
+    setWorkspaceField("selectedAnnotationId", null);
   }
 
   function deleteSelectedAnnotation() {
     if (!selectedAnnotationId) {
       return;
     }
-    setAnnotations((current) =>
-      current.filter((annotation) => annotation.id !== selectedAnnotationId),
-    );
-    setSelectedAnnotationId(null);
+    setWorkspace((current) => ({
+      ...current,
+      annotations: current.annotations.filter(
+        (annotation) => annotation.id !== selectedAnnotationId,
+      ),
+      selectedAnnotationId: null,
+    }));
   }
 
   function duplicateAnnotation(annotationId: string) {
@@ -657,8 +535,11 @@ export default function App() {
       ...source,
       id: duplicateId,
     };
-    setAnnotations((current) => [...current, duplicate]);
-    setSelectedAnnotationId(duplicateId);
+    setWorkspace((current) => ({
+      ...current,
+      annotations: [...current.annotations, duplicate],
+      selectedAnnotationId: duplicateId,
+    }));
     return duplicateId;
   }
 
@@ -666,8 +547,9 @@ export default function App() {
     annotationId: string,
     patch: Partial<AnnotationStyle>,
   ) {
-    setAnnotations((current) =>
-      current.map((annotation) =>
+    setWorkspace((current) => ({
+      ...current,
+      annotations: current.annotations.map((annotation) =>
         annotation.id === annotationId
           ? {
               ...annotation,
@@ -678,17 +560,20 @@ export default function App() {
             }
           : annotation,
       ),
-    );
+    }));
   }
 
   function patchEmaStyle(length: number, patch: Partial<EmaStyle>) {
-    setEmaStyles((current) => {
+    setWorkspace((current) => {
       const key = String(length);
       return {
         ...current,
-        [key]: {
-          ...getEmaStyle(length, current[key]),
-          ...patch,
+        emaStyles: {
+          ...current.emaStyles,
+          [key]: {
+            ...getEmaStyle(length, current.emaStyles[key]),
+            ...patch,
+          },
         },
       };
     });
@@ -696,12 +581,12 @@ export default function App() {
 
   async function handleOverlayCommandSelect(overlay: Overlay) {
     if (confirmationGuide?.sourceStructureId === overlay.source_structure_id) {
-      setConfirmationGuide(null);
+      setWorkspaceField("confirmationGuide", null);
       return;
     }
     clearOverlaySelection();
     clearEmaSelection();
-    setSelectedAnnotationId(null);
+    setWorkspaceField("selectedAnnotationId", null);
     try {
       const detail = await fetchStructureDetail({
         apiBaseUrl,
@@ -712,17 +597,17 @@ export default function App() {
         dataVersion,
       });
       if (!detail.confirm_bar) {
-        setConfirmationGuide(null);
+        setWorkspaceField("confirmationGuide", null);
         return;
       }
-      setConfirmationGuide({
+      setWorkspaceField("confirmationGuide", {
         sourceStructureId: overlay.source_structure_id,
         confirmBarId: detail.confirm_bar.bar_id,
         confirmPrice: detail.confirm_bar.close,
       });
     } catch (error) {
       console.warn("Failed to load confirmation guide", error);
-      setConfirmationGuide(null);
+      setWorkspaceField("confirmationGuide", null);
     }
   }
 
@@ -730,25 +615,25 @@ export default function App() {
     <div className="app-shell">
       <Toolbar
         apiBaseUrl={apiBaseUrl}
-        onApiBaseUrlChange={setApiBaseUrl}
+        onApiBaseUrlChange={(value) => setWorkspaceField("apiBaseUrl", value)}
         dataVersion={dataVersion}
-        onDataVersionChange={setDataVersion}
+        onDataVersionChange={(value) => setWorkspaceField("dataVersion", value)}
         symbol={symbol}
         timeframe={timeframe}
         sessionProfile={sessionProfile}
-        onSymbolChange={setSymbol}
-        onTimeframeChange={setTimeframe}
-        onSessionProfileChange={setSessionProfile}
+        onSymbolChange={(value) => setWorkspaceField("symbol", value)}
+        onTimeframeChange={(value) => setWorkspaceField("timeframe", value)}
+        onSessionProfileChange={(value) => setWorkspaceField("sessionProfile", value)}
         selectorMode={selectorMode}
-        onSelectorModeChange={setSelectorMode}
+        onSelectorModeChange={(value) => setWorkspaceField("selectorMode", value)}
         sessionDate={sessionDate}
         centerBarId={centerBarId}
         startTime={startTime}
         endTime={endTime}
-        onSessionDateChange={setSessionDate}
-        onCenterBarIdChange={setCenterBarId}
-        onStartTimeChange={setStartTime}
-        onEndTimeChange={setEndTime}
+        onSessionDateChange={(value) => setWorkspaceField("sessionDate", value)}
+        onCenterBarIdChange={(value) => setWorkspaceField("centerBarId", value)}
+        onStartTimeChange={(value) => setWorkspaceField("startTime", value)}
+        onEndTimeChange={(value) => setWorkspaceField("endTime", value)}
         leftBars={leftBars}
         rightBars={rightBars}
         bufferBars={bufferBars}
@@ -763,38 +648,41 @@ export default function App() {
               }))
             : []
         }
-        onLeftBarsChange={setLeftBars}
-        onRightBarsChange={setRightBars}
-        onBufferBarsChange={setBufferBars}
-        onEmaLengthsChange={setEmaLengths}
+        onLeftBarsChange={(value) => setWorkspaceField("leftBars", value)}
+        onRightBarsChange={(value) => setWorkspaceField("rightBars", value)}
+        onBufferBarsChange={(value) => setWorkspaceField("bufferBars", value)}
+        onEmaLengthsChange={(value) => setWorkspaceField("emaLengths", value)}
         onEmaEnabledChange={(enabled) => {
-          setEmaEnabled(enabled);
+          setWorkspaceField("emaEnabled", enabled);
           if (!enabled) {
             clearEmaSelection();
           }
         }}
         onEmaSelect={(length) => {
           clearOverlaySelection();
-          setSelectedAnnotationId(null);
-          setSelectedEmaLength(length);
+          patchWorkspace({
+            selectedAnnotationId: null,
+            selectedEmaLength: length,
+          });
         }}
         autoViewportFetch={autoViewportFetch}
-        onAutoViewportFetchChange={setAutoViewportFetch}
+        onAutoViewportFetchChange={(value) =>
+          setWorkspaceField("autoViewportFetch", value)
+        }
         overlayLayerCounts={overlayLayerCounts}
         overlayLayers={overlayLayers}
-        initialOpenPanel={toolbarOpenPanel}
-        onOpenPanelChange={setToolbarOpenPanel}
+        openPanel={toolbarOpenPanel}
+        onOpenPanelChange={(panel) => setWorkspaceField("toolbarOpenPanel", panel)}
         onOverlayLayerChange={(layer, enabled) => {
-          setOverlayLayers((current) => ({ ...current, [layer]: enabled }));
+          setWorkspace((current) => ({
+            ...current,
+            overlayLayers: {
+              ...current.overlayLayers,
+              [layer]: enabled,
+            },
+          }));
           if (selectedOverlay) {
-            const selectedLayer =
-              selectedOverlay.kind === "pivot-marker"
-                ? "pivot"
-                : selectedOverlay.kind === "leg-line"
-                  ? "leg"
-                  : selectedOverlay.kind === "major-lh-marker"
-                    ? "major_lh"
-                    : "breakout_start";
+            const selectedLayer = overlayKindToLayer(selectedOverlay.kind);
             if (selectedLayer === layer && !enabled) {
               clearOverlaySelection();
             }
@@ -823,16 +711,26 @@ export default function App() {
             confirmationGuide={confirmationGuide}
             annotationCount={visibleAnnotations.length}
             annotationRailPosition={annotationRailPosition}
-            onAnnotationRailPositionChange={setAnnotationRailPosition}
+            onAnnotationRailPositionChange={(position) =>
+              setWorkspaceField("annotationRailPosition", position)
+            }
             annotationToolbarPosition={annotationToolbarPosition}
-            onAnnotationToolbarPositionChange={setAnnotationToolbarPosition}
+            onAnnotationToolbarPositionChange={(position) =>
+              setWorkspaceField("annotationToolbarPosition", position)
+            }
             annotationToolbarOpenPopover={annotationToolbarOpenPopover}
-            onAnnotationToolbarOpenPopoverChange={setAnnotationToolbarOpenPopover}
+            onAnnotationToolbarOpenPopoverChange={(popover) =>
+              setWorkspaceField("annotationToolbarOpenPopover", popover)
+            }
             selectedEmaLine={selectedEmaLine}
             emaToolbarPosition={emaToolbarPosition}
-            onEmaToolbarPositionChange={setEmaToolbarPosition}
+            onEmaToolbarPositionChange={(position) =>
+              setWorkspaceField("emaToolbarPosition", position)
+            }
             emaToolbarOpenPopover={emaToolbarOpenPopover}
-            onEmaToolbarOpenPopoverChange={setEmaToolbarOpenPopover}
+            onEmaToolbarOpenPopoverChange={(popover) =>
+              setWorkspaceField("emaToolbarOpenPopover", popover)
+            }
             onEmaStyleChange={patchEmaStyle}
             viewportFamilyKey={activeFamilyKey}
             initialViewport={viewportStateRef.current}
@@ -859,49 +757,56 @@ export default function App() {
                 end: annotation.end,
                 style: defaultAnnotationStyle(annotation.kind),
               };
-              setAnnotations((current) => [
+              setWorkspace((current) => ({
                 ...current,
-                nextAnnotation,
-              ]);
-              setSelectedAnnotationId(nextAnnotation.id);
-              setAnnotationTool("none");
+                annotations: [...current.annotations, nextAnnotation],
+                selectedAnnotationId: nextAnnotation.id,
+                annotationTool: "none",
+              }));
             }}
             onAnnotationSelect={(annotationId) => {
-              setSelectedAnnotationId(annotationId);
+              setWorkspaceField("selectedAnnotationId", annotationId);
               clearEmaSelection();
               clearOverlaySelection();
             }}
             onAnnotationUpdate={(annotationId, nextStart, nextEnd) => {
-              setAnnotations((current) =>
-                current.map((annotation) =>
+              setWorkspace((current) => ({
+                ...current,
+                annotations: current.annotations.map((annotation) =>
                   annotation.id === annotationId
                     ? { ...annotation, start: nextStart, end: nextEnd }
                     : annotation,
                 ),
-              );
+              }));
             }}
             onAnnotationDuplicate={duplicateAnnotation}
             onAnnotationStyleChange={patchAnnotationStyle}
             onAnnotationToolChange={(tool) => {
-              setAnnotationTool(tool);
+              setWorkspaceField("annotationTool", tool);
               if (tool !== "none") {
                 clearChartSelection();
               }
             }}
             onDeleteSelectedAnnotation={deleteSelectedAnnotation}
             onClearAnnotations={() => {
-              setAnnotations((current) =>
-                current.filter((annotation) => annotation.familyKey !== activeFamilyKey),
-              );
-              setSelectedAnnotationId(null);
+              setWorkspace((current) => ({
+                ...current,
+                annotations: current.annotations.filter(
+                  (annotation) => annotation.familyKey !== activeFamilyKey,
+                ),
+                selectedAnnotationId: null,
+              }));
             }}
             onOverlaySelect={(overlay, anchorPoint) => {
-              setConfirmationGuide(null);
+              setWorkspace((current) => ({
+                ...current,
+                confirmationGuide: null,
+                selectedAnnotationId: null,
+                selectedOverlayId: overlay?.overlay_id ?? null,
+                detailAnchor: anchorPoint,
+                inspectorPanelManualPosition: false,
+              }));
               clearEmaSelection();
-              setSelectedAnnotationId(null);
-              setSelectedOverlayId(overlay?.overlay_id ?? null);
-              setDetailAnchor(anchorPoint);
-              setInspectorPanelManualPosition(false);
             }}
             onOverlayCommandSelect={(overlay) => {
               void handleOverlayCommandSelect(overlay);
@@ -913,8 +818,12 @@ export default function App() {
             anchorPoint={detailAnchor}
             initialPosition={inspectorPanelPosition}
             initialManualPosition={inspectorPanelManualPosition}
-            onPositionChange={setInspectorPanelPosition}
-            onManualPositionChange={setInspectorPanelManualPosition}
+            onPositionChange={(position) =>
+              setWorkspaceField("inspectorPanelPosition", position)
+            }
+            onManualPositionChange={(manual) =>
+              setWorkspaceField("inspectorPanelManualPosition", manual)
+            }
             detail={detailData}
             loading={detailLoading}
             error={detailError}

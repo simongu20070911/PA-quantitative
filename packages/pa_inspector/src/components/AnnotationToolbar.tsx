@@ -1,20 +1,22 @@
 import {
   useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 
 import {
   ANNOTATION_COLOR_PALETTE,
-  ANNOTATION_LINE_STYLES,
-  ANNOTATION_LINE_WIDTHS,
   getAnnotationStyle,
-  lineDashForStyle,
 } from "../lib/annotationStyle";
+import {
+  ColorPopover,
+  LineStylePreview,
+  LineWidthPreview,
+  StylePopover,
+  WidthPopover,
+  lineStyleLabel,
+  useFloatingToolbar,
+} from "./toolbarShared";
 import type {
-  AnnotationLineStyle,
   AnnotationStyle,
   AnnotationToolbarPopover,
   ChartAnnotation,
@@ -52,184 +54,34 @@ export function AnnotationToolbar({
   onAnnotationDuplicate,
   onDeleteSelectedAnnotation,
 }: AnnotationToolbarProps) {
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const dragCleanupRef = useRef<(() => void) | null>(null);
   const style = annotation ? getAnnotationStyle(annotation) : null;
-  const [position, setPosition] = useState<FloatingPosition | null>(initialPosition);
-  const [openPopover, setOpenPopover] =
-    useState<AnnotationToolbarPopover>(initialOpenPopover);
-
-  useEffect(() => {
-    if (!annotation) {
-      setOpenPopover(null);
-    }
-  }, [annotation]);
-
-  useEffect(() => {
-    onPositionChange(position);
-  }, [onPositionChange, position]);
-
-  useEffect(() => {
-    onOpenPopoverChange(openPopover);
-  }, [onOpenPopoverChange, openPopover]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    const surface = surfaceRef.current;
-    if (!host || !surface) {
-      return;
-    }
-    const minLeft = surface.offsetLeft + 12;
-    const maxLeft = Math.max(
-      minLeft,
-      surface.offsetLeft + surface.clientWidth - TOOLBAR_WIDTH - 12,
-    );
-    const minTop = surface.offsetTop + 12;
-    const maxTop = Math.max(
-      minTop,
-      surface.offsetTop + surface.clientHeight - TOOLBAR_HEIGHT - 12,
-    );
-    const nextDefault = {
-      left: maxLeft,
-      top: minTop,
-    };
-    setPosition((current) =>
-      current
-        ? {
-            left: clamp(current.left, minLeft, maxLeft),
-            top: clamp(current.top, minTop, maxTop),
-          }
-        : nextDefault,
-    );
-  }, [annotation, hostRef, surfaceRef]);
-
-  useEffect(() => {
-    return () => {
-      dragCleanupRef.current?.();
-      dragCleanupRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!openPopover) {
-      return;
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      const toolbar = toolbarRef.current;
-      if (toolbar?.contains(event.target as Node)) {
-        return;
-      }
-      setOpenPopover(null);
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [openPopover]);
+  const {
+    toolbarRef,
+    openPopover,
+    setOpenPopover,
+    left,
+    top,
+    beginToolbarDrag,
+    togglePopover,
+    swallowPointer,
+    activateButton,
+    onToolbarPointerDown,
+  } = useFloatingToolbar({
+    active: annotation !== null,
+    hostRef,
+    surfaceRef,
+    toolbarWidth: TOOLBAR_WIDTH,
+    toolbarHeight: TOOLBAR_HEIGHT,
+    initialPosition,
+    initialOpenPopover,
+    onPositionChange,
+    onOpenPopoverChange,
+    dragFromContainerBackground: true,
+  });
 
   if (!annotation || !style) {
     return null;
   }
-
-  const surface = surfaceRef.current;
-  const minLeft = (surface?.offsetLeft ?? 0) + 12;
-  const maxLeft = Math.max(
-    minLeft,
-    (surface?.offsetLeft ?? 0) + (surface?.clientWidth ?? TOOLBAR_WIDTH + 24) - TOOLBAR_WIDTH - 12,
-  );
-  const minTop = (surface?.offsetTop ?? 0) + 12;
-  const maxTop = Math.max(
-    minTop,
-    (surface?.offsetTop ?? 0) + (surface?.clientHeight ?? TOOLBAR_HEIGHT + 24) - TOOLBAR_HEIGHT - 12,
-  );
-  const left = clamp(
-    position?.left ?? maxLeft,
-    minLeft,
-    maxLeft,
-  );
-  const top = clamp(
-    position?.top ?? minTop,
-    minTop,
-    maxTop,
-  );
-
-  const beginToolbarDrag = (
-    event: ReactPointerEvent<HTMLElement>,
-  ) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const origin = { x: event.clientX, y: event.clientY };
-    const startPosition = { left, top };
-    event.preventDefault();
-    event.stopPropagation();
-    dragCleanupRef.current?.();
-
-    let active = true;
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      if (!active || moveEvent.buttons === 0) {
-        stopDrag();
-        return;
-      }
-      setPosition({
-        left: clamp(
-          startPosition.left + (moveEvent.clientX - origin.x),
-          minLeft,
-          maxLeft,
-        ),
-        top: clamp(
-          startPosition.top + (moveEvent.clientY - origin.y),
-          minTop,
-          maxTop,
-        ),
-      });
-    };
-
-    const stopDrag = () => {
-      if (!active) {
-        return;
-      }
-      active = false;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", stopDrag);
-      window.removeEventListener("pointercancel", stopDrag);
-      window.removeEventListener("mouseup", stopDrag);
-      window.removeEventListener("blur", stopDrag);
-      dragCleanupRef.current = null;
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", stopDrag);
-    window.addEventListener("pointercancel", stopDrag);
-    window.addEventListener("mouseup", stopDrag);
-    window.addEventListener("blur", stopDrag);
-    dragCleanupRef.current = stopDrag;
-  };
-
-  const togglePopover = (key: AnnotationToolbarPopover) => {
-    setOpenPopover((current) => (current === key ? null : key));
-  };
-
-  const swallowPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-  };
-
-  const onToolbarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    if (event.target === event.currentTarget) {
-      beginToolbarDrag(event);
-    }
-  };
-
-  const activateButton = (
-    event: ReactPointerEvent<HTMLElement>,
-    action: () => void,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    action();
-  };
 
   return (
     <div
@@ -360,54 +212,20 @@ export function AnnotationToolbar({
         />
       ) : null}
       {openPopover === "width" ? (
-        <div className="annotation-toolbar-popover">
-          <div className="annotation-toolbar-menu">
-            {ANNOTATION_LINE_WIDTHS.map((widthValue) => (
-              <button
-                className={
-                  widthValue === style.lineWidth
-                    ? "annotation-toolbar-menu-item active"
-                    : "annotation-toolbar-menu-item"
-                }
-                key={widthValue}
-                onPointerDown={(event) =>
-                  activateButton(event, () =>
-                    onAnnotationStyleChange(annotation.id, { lineWidth: widthValue }),
-                  )
-                }
-                type="button"
-              >
-                <LineWidthPreview width={widthValue} />
-                <span>{widthValue}px</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <WidthPopover
+          onSelect={(lineWidth) =>
+            onAnnotationStyleChange(annotation.id, { lineWidth })
+          }
+          selectedWidth={style.lineWidth}
+        />
       ) : null}
       {openPopover === "style" ? (
-        <div className="annotation-toolbar-popover">
-          <div className="annotation-toolbar-menu">
-            {ANNOTATION_LINE_STYLES.map((styleKey) => (
-              <button
-                className={
-                  styleKey === style.lineStyle
-                    ? "annotation-toolbar-menu-item active"
-                    : "annotation-toolbar-menu-item"
-                }
-                key={styleKey}
-                onPointerDown={(event) =>
-                  activateButton(event, () =>
-                    onAnnotationStyleChange(annotation.id, { lineStyle: styleKey }),
-                  )
-                }
-                type="button"
-              >
-                <LineStylePreview styleKey={styleKey} />
-                <span>{lineStyleLabel(styleKey)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <StylePopover
+          onSelect={(lineStyle) =>
+            onAnnotationStyleChange(annotation.id, { lineStyle })
+          }
+          selectedStyle={style.lineStyle}
+        />
       ) : null}
       {openPopover === "opacity" ? (
         <div className="annotation-toolbar-popover annotation-toolbar-popover-wide">
@@ -433,57 +251,6 @@ export function AnnotationToolbar({
       ) : null}
     </div>
   );
-}
-
-function ColorPopover({
-  title,
-  colors,
-  selectedColor,
-  onSelect,
-}: {
-  title: string;
-  colors: string[];
-  selectedColor: string;
-  onSelect: (color: string) => void;
-}) {
-  return (
-    <div className="annotation-toolbar-popover">
-      <div className="annotation-toolbar-popover-title">{title}</div>
-      <div className="annotation-toolbar-color-grid">
-        {colors.map((color) => (
-          <button
-            className={
-              color === selectedColor
-                ? "annotation-toolbar-color-swatch active"
-                : "annotation-toolbar-color-swatch"
-            }
-            key={color}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onSelect(color);
-            }}
-            style={{ backgroundColor: color }}
-            type="button"
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function lineStyleLabel(style: AnnotationLineStyle) {
-  if (style === "dashed") {
-    return "Dashed";
-  }
-  if (style === "dotted") {
-    return "Dotted";
-  }
-  return "Solid";
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function GripDotsIcon() {
@@ -569,39 +336,6 @@ function OpacityIcon() {
         strokeWidth="1.5"
       />
       <path d="M10 5.5V16.4" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  );
-}
-
-function LineWidthPreview({ width }: { width: number }) {
-  return (
-    <svg aria-hidden="true" className="annotation-toolbar-line-preview" viewBox="0 0 36 12">
-      <line
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth={width}
-        x1="4"
-        x2="32"
-        y1="6"
-        y2="6"
-      />
-    </svg>
-  );
-}
-
-function LineStylePreview({ styleKey }: { styleKey: AnnotationLineStyle }) {
-  return (
-    <svg aria-hidden="true" className="annotation-toolbar-line-preview" viewBox="0 0 36 12">
-      <line
-        stroke="currentColor"
-        strokeDasharray={lineDashForStyle(styleKey).join(" ")}
-        strokeLinecap="round"
-        strokeWidth="2"
-        x1="4"
-        x2="32"
-        y1="6"
-        y2="6"
-      />
     </svg>
   );
 }

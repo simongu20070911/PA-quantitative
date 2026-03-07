@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type RefObject } from "react";
 
 import type { ChartAdapter } from "../lib/chartAdapter";
 import { defaultAnnotationStyle } from "../lib/annotationStyle";
+import { overlayKindToLayer } from "../lib/overlayLayers";
 import {
   findOverlayAtPoint,
   hitTestAnnotation,
@@ -20,13 +21,6 @@ import type {
   OverlayLayer,
   SessionProfile,
 } from "../lib/types";
-
-const LAYER_KIND_MAP: Record<OverlayLayer, ReadonlySet<string>> = {
-  pivot: new Set(["pivot-marker"]),
-  leg: new Set(["leg-line"]),
-  major_lh: new Set(["major-lh-marker"]),
-  breakout_start: new Set(["breakout-marker"]),
-};
 
 export interface OverlayCanvasProps {
   shellRef: RefObject<HTMLElement | null>;
@@ -104,16 +98,10 @@ export function OverlayCanvas({
   const onOverlayCommandSelectRef = useRef(onOverlayCommandSelect);
 
   const visibleOverlays = useMemo(() => {
-    const allowedKinds = new Set<string>();
-    (Object.entries(enabledLayers) as Array<[OverlayLayer, boolean]>).forEach(
-      ([layer, enabled]) => {
-        if (!enabled) {
-          return;
-        }
-        LAYER_KIND_MAP[layer].forEach((kind) => allowedKinds.add(kind));
-      },
-    );
-    return overlays.filter((overlay) => allowedKinds.has(overlay.kind));
+    return overlays.filter((overlay) => {
+      const layer = overlayKindToLayer(overlay.kind);
+      return layer !== null && enabledLayers[layer];
+    });
   }, [enabledLayers, overlays]);
 
   const syncInspectorPrimitiveState = (nextAdapter: ChartAdapter | null = adapter) => {

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
+import { OVERLAY_LAYER_LABELS } from "../lib/overlayLayers";
 import type {
   EmaStyle,
   InspectorToolbarPanel,
@@ -7,13 +8,6 @@ import type {
   SelectorMode,
   SessionProfile,
 } from "../lib/types";
-
-const OVERLAY_LABELS: Record<OverlayLayer, string> = {
-  pivot: "Pivots",
-  leg: "Legs",
-  major_lh: "Major LH",
-  breakout_start: "Breakouts",
-};
 
 export interface ToolbarProps {
   apiBaseUrl: string;
@@ -53,21 +47,13 @@ export interface ToolbarProps {
   overlayLayerCounts: Record<OverlayLayer, number>;
   overlayLayers: Record<OverlayLayer, boolean>;
   onOverlayLayerChange: (layer: OverlayLayer, enabled: boolean) => void;
-  initialOpenPanel: InspectorToolbarPanel;
+  openPanel: InspectorToolbarPanel;
   onOpenPanelChange: (panel: InspectorToolbarPanel) => void;
   loading: boolean;
   onLoad: () => void;
 }
 
 export function Toolbar(props: ToolbarProps) {
-  const [openPanel, setOpenPanel] = useState<InspectorToolbarPanel>(
-    props.initialOpenPanel,
-  );
-
-  useEffect(() => {
-    props.onOpenPanelChange(openPanel);
-  }, [openPanel, props]);
-
   const selectorSummary = useMemo(() => {
     if (props.selectorMode === "session_date") {
       return `Session ${props.sessionDate || "default"}`;
@@ -92,7 +78,7 @@ export function Toolbar(props: ToolbarProps) {
   ).filter((layer) => props.overlayLayers[layer]).length;
 
   function togglePanel(panel: Exclude<InspectorToolbarPanel, null>) {
-    setOpenPanel((current) => (current === panel ? null : panel));
+    props.onOpenPanelChange(props.openPanel === panel ? null : panel);
   }
 
   return (
@@ -125,7 +111,7 @@ export function Toolbar(props: ToolbarProps) {
 
         <div className="toolbar-actions">
           <button
-            className={openPanel === "jump" ? "toolbar-action active" : "toolbar-action"}
+            className={props.openPanel === "jump" ? "toolbar-action active" : "toolbar-action"}
             onClick={() => togglePanel("jump")}
             type="button"
           >
@@ -133,7 +119,7 @@ export function Toolbar(props: ToolbarProps) {
           </button>
           <button
             className={
-              openPanel === "display" ? "toolbar-action active" : "toolbar-action"
+              props.openPanel === "display" ? "toolbar-action active" : "toolbar-action"
             }
             onClick={() => togglePanel("display")}
             type="button"
@@ -142,7 +128,7 @@ export function Toolbar(props: ToolbarProps) {
           </button>
           <button
             className={
-              openPanel === "layers" ? "toolbar-action active" : "toolbar-action"
+              props.openPanel === "layers" ? "toolbar-action active" : "toolbar-action"
             }
             onClick={() => togglePanel("layers")}
             type="button"
@@ -151,7 +137,7 @@ export function Toolbar(props: ToolbarProps) {
             <code>{activeLayerCount}</code>
           </button>
           <button
-            className={openPanel === "data" ? "toolbar-action active" : "toolbar-action"}
+            className={props.openPanel === "data" ? "toolbar-action active" : "toolbar-action"}
             onClick={() => togglePanel("data")}
             type="button"
           >
@@ -168,7 +154,7 @@ export function Toolbar(props: ToolbarProps) {
         </div>
       </div>
 
-      {openPanel === "jump" ? (
+      {props.openPanel === "jump" ? (
         <div className="toolbar-popover">
           <div className="compact-row">
             <span className="mode-label">Selector</span>
@@ -237,7 +223,7 @@ export function Toolbar(props: ToolbarProps) {
         </div>
       ) : null}
 
-      {openPanel === "display" ? (
+      {props.openPanel === "display" ? (
         <div className="toolbar-popover">
           <div className="compact-grid">
             <label className="field">
@@ -330,7 +316,7 @@ export function Toolbar(props: ToolbarProps) {
         </div>
       ) : null}
 
-      {openPanel === "layers" ? (
+      {props.openPanel === "layers" ? (
         <div className="toolbar-popover">
           <p className="toolbar-note">
             Layer toggles follow the overlay payload returned by the backend for the
@@ -349,7 +335,7 @@ export function Toolbar(props: ToolbarProps) {
                   }
                   type="checkbox"
                 />
-                <span>{OVERLAY_LABELS[layer]}</span>
+                  <span>{OVERLAY_LAYER_LABELS[layer]}</span>
                 <code>{props.overlayLayerCounts[layer]}</code>
               </label>
             ))}
@@ -357,7 +343,7 @@ export function Toolbar(props: ToolbarProps) {
         </div>
       ) : null}
 
-      {openPanel === "data" ? (
+      {props.openPanel === "data" ? (
         <div className="toolbar-popover">
           <div className="compact-grid">
             <label className="field">

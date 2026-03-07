@@ -62,6 +62,51 @@ interface PersistedInspectorEnvelope extends PersistedInspectorState {
   version: number;
 }
 
+export function buildDefaultInspectorState(args: {
+  apiBaseUrl: string;
+  dataVersion: string;
+  overlayLayers: Record<OverlayLayer, boolean>;
+  annotationRailPosition: FloatingPosition;
+  inspectorPanelPosition: FloatingPosition;
+}): PersistedInspectorState {
+  return {
+    apiBaseUrl: args.apiBaseUrl,
+    dataVersion: args.dataVersion,
+    symbol: "ES",
+    timeframe: "1m",
+    sessionProfile: "eth_full",
+    selectorMode: "session_date",
+    sessionDate: "20251117",
+    centerBarId: "29390399",
+    startTime: "",
+    endTime: "",
+    leftBars: "240",
+    rightBars: "240",
+    bufferBars: "120",
+    emaLengths: "",
+    emaEnabled: false,
+    emaStyles: {},
+    selectedEmaLength: null,
+    emaToolbarPosition: null,
+    emaToolbarOpenPopover: null,
+    autoViewportFetch: false,
+    overlayLayers: args.overlayLayers,
+    annotations: [],
+    annotationTool: "none",
+    selectedAnnotationId: null,
+    selectedOverlayId: null,
+    detailAnchor: null,
+    confirmationGuide: null,
+    toolbarOpenPanel: null,
+    annotationRailPosition: args.annotationRailPosition,
+    annotationToolbarPosition: null,
+    annotationToolbarOpenPopover: null,
+    inspectorPanelPosition: args.inspectorPanelPosition,
+    inspectorPanelManualPosition: false,
+    viewport: null,
+  };
+}
+
 export function loadPersistedInspectorState(
   defaults: PersistedInspectorState,
 ): PersistedInspectorState {

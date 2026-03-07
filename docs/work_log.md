@@ -603,3 +603,9 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`; live Playwright check on `http://127.0.0.1:4173` confirmed plain overlay click selects and command-click shows the confirmation guide
 - Next: If overlay interactions still misbehave on any browser, compare the chart click `sourceEvent` coordinates against primitive hit-test coordinates and add a tiny browser-specific normalization layer only if needed.
+
+### 2026-03-07
+- Summary: Started inspector factoring by centralizing overlay-layer semantics, extracting shared floating-toolbar behavior and popover primitives for EMA and annotation controls, making the top toolbar controlled by `App`, and collapsing persisted inspector workspace fields in `App` into one state object instead of dozens of mirrored `useState` calls.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/EmaToolbar.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/components/toolbarShared.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/overlayLayers.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: Continue the state cleanup by pulling the remaining `App` event handlers and chart-selection actions into a dedicated inspector workspace/controller hook so `App` becomes orchestration instead of a large command surface.
