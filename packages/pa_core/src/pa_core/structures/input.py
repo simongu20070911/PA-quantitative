@@ -22,6 +22,11 @@ from pa_core.artifacts.structures import (
     load_structure_artifact,
     load_structure_manifest,
 )
+from pa_core.artifacts.structure_events import (
+    StructureEventArtifactManifest,
+    load_structure_event_artifact,
+    load_structure_event_manifest,
+)
 from pa_core.artifacts.layout import (
     bar_dataset_root,
     feature_dataset_root,
@@ -118,6 +123,17 @@ class StructureDependency:
     frame: pa.Table
 
 
+@dataclass(frozen=True, slots=True)
+class StructureEventDependency:
+    kind: str
+    rulebook_version: str
+    structure_version: str
+    input_ref: str
+    ref: str
+    manifest: StructureEventArtifactManifest
+    frame: pa.Table
+
+
 def build_feature_ref(
     *,
     feature_key: str,
@@ -177,6 +193,49 @@ def load_structure_dependency(
         parquet_engine=parquet_engine,
     )
     return StructureDependency(
+        kind=kind,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        ref=ref,
+        manifest=manifest,
+        frame=frame,
+    )
+
+
+def load_structure_event_dependency(
+    *,
+    artifacts_root: Path,
+    kind: str,
+    rulebook_version: str,
+    structure_version: str,
+    input_ref: str,
+    years: Iterable[int] | None = None,
+    parquet_engine: str = "pyarrow",
+) -> StructureEventDependency:
+    ref = build_structure_ref(
+        kind=kind,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+    )
+    manifest = load_structure_event_manifest(
+        artifacts_root=artifacts_root,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        kind=kind,
+    )
+    frame = load_structure_event_artifact(
+        artifacts_root=artifacts_root,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        kind=kind,
+        years=years,
+        parquet_engine=parquet_engine,
+    )
+    return StructureEventDependency(
         kind=kind,
         rulebook_version=rulebook_version,
         structure_version=structure_version,

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 
+import { useDraggableFloatingSurface, useFloatingSurfacePosition } from "../lib/floatingSurface";
 import type { AnnotationTool, FloatingPosition } from "../lib/types";
 
 interface AnnotationRailProps {
@@ -25,66 +26,17 @@ export function AnnotationRail({
 }: AnnotationRailProps) {
   const railRef = useRef<HTMLElement | null>(null);
   const gripRef = useRef<HTMLButtonElement | null>(null);
-  const onPositionChangeRef = useRef(onPositionChange);
-  const [position, setPosition] = useState(initialPosition);
+  const { position, setPosition } = useFloatingSurfacePosition({
+    initialPosition,
+    onPositionChange,
+  });
 
-  useEffect(() => {
-    onPositionChangeRef.current = onPositionChange;
-  }, [onPositionChange]);
-
-  useEffect(() => {
-    onPositionChangeRef.current(position);
-  }, [position]);
-
-  useEffect(() => {
-    const grip = gripRef.current;
-    const rail = railRef.current;
-    if (!grip || !rail) {
-      return;
-    }
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) {
-        return;
-      }
-      const parent = rail.offsetParent;
-      if (!(parent instanceof HTMLElement)) {
-        return;
-      }
-      const railRect = rail.getBoundingClientRect();
-      const parentRect = parent.getBoundingClientRect();
-      const offsetX = event.clientX - railRect.left;
-      const offsetY = event.clientY - railRect.top;
-      grip.setPointerCapture(event.pointerId);
-
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const nextLeft = moveEvent.clientX - parentRect.left - offsetX;
-        const nextTop = moveEvent.clientY - parentRect.top - offsetY;
-        setPosition({
-          left: clamp(nextLeft, 8, Math.max(8, parentRect.width - railRect.width - 8)),
-          top: clamp(nextTop, 8, Math.max(8, parentRect.height - railRect.height - 8)),
-        });
-      };
-
-      const stopDrag = (endEvent: PointerEvent) => {
-        if (grip.hasPointerCapture(endEvent.pointerId)) {
-          grip.releasePointerCapture(endEvent.pointerId);
-        }
-        grip.removeEventListener("pointermove", onPointerMove);
-        grip.removeEventListener("pointerup", stopDrag);
-        grip.removeEventListener("pointercancel", stopDrag);
-      };
-
-      grip.addEventListener("pointermove", onPointerMove);
-      grip.addEventListener("pointerup", stopDrag);
-      grip.addEventListener("pointercancel", stopDrag);
-    };
-
-    grip.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      grip.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, []);
+  useDraggableFloatingSurface({
+    handleRef: gripRef,
+    surfaceRef: railRef,
+    clampInset: 8,
+    setPosition,
+  });
 
   return (
     <aside
@@ -174,10 +126,6 @@ export function AnnotationRail({
       </div>
     </aside>
   );
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function GripIcon() {

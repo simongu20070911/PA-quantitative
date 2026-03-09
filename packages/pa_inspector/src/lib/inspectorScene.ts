@@ -6,6 +6,7 @@ import {
   getAnnotationStyle,
   lineDashForStyle,
 } from "./annotationStyle";
+import { resolveOverlaySemantics } from "./overlaySemantics";
 import type {
   AnnotationAnchor,
   ChartAnnotation,
@@ -381,7 +382,7 @@ export function findOverlayAtPoint(
 ): Drawable | null {
   for (let index = drawables.length - 1; index >= 0; index -= 1) {
     const drawable = drawables[index];
-    if (drawable.overlay.kind === "leg-line") {
+    if (resolveOverlaySemantics(drawable.overlay).geometryKind === "leg-line") {
       const [start, end] = drawable.points;
       if (pointToSegmentDistance(x, y, start, end) <= drawable.radius) {
         return drawable;
@@ -405,6 +406,7 @@ export function resolveOverlayDrawables(
   const barTimeById = new Map(bars.map((bar) => [bar.bar_id, bar.time]));
   const overlayDrawables: Drawable[] = [];
   for (const overlay of overlays) {
+    const semantics = resolveOverlaySemantics(overlay);
     const points = overlay.anchor_bars.map((barId, index) => {
       const time = barTimeById.get(barId);
       if (time === undefined) {
@@ -423,12 +425,7 @@ export function resolveOverlayDrawables(
     overlayDrawables.push({
       overlay,
       points: points as Array<{ x: number; y: number }>,
-      radius:
-        overlay.kind === "leg-line"
-          ? 8
-          : isShortTermPivot(overlay.style_key)
-            ? 7
-            : 9,
+      radius: semantics.geometryKind === "leg-line" ? 8 : semantics.pivotTier === "pivot_st" ? 7 : 9,
     });
   }
   return overlayDrawables;
@@ -691,8 +688,9 @@ function drawOverlay(
   drawable: Drawable,
   selected: boolean,
 ) {
+  const semantics = resolveOverlaySemantics(drawable.overlay);
   const style = overlayStyle(drawable.overlay.style_key, selected);
-  const isMarker = drawable.overlay.kind !== "leg-line";
+  const isMarker = semantics.geometryKind !== "leg-line";
   context.save();
   context.lineJoin = "round";
   context.lineCap = "round";
@@ -708,22 +706,22 @@ function drawOverlay(
       : "rgba(255, 255, 255, 0.24)";
   context.shadowBlur = isMarker ? (selected ? 2 : 0) : selected ? 10 : 2;
 
-  if (drawable.overlay.kind === "leg-line") {
+  if (semantics.geometryKind === "leg-line") {
     const [start, end] = drawable.points;
     drawLegLine(context, start, end, style, selected);
     drawLegEndpoint(context, end, style);
-  } else if (drawable.overlay.kind === "pivot-marker") {
+  } else if (semantics.geometryKind === "pivot-marker") {
     const [point] = drawable.points;
-    const isHigh = drawable.overlay.style_key.includes(".high.");
-    if (isShortTermPivot(drawable.overlay.style_key)) {
+    const isHigh = semantics.pivotDirection === "high";
+    if (semantics.pivotTier === "pivot_st") {
       drawDiamondBadge(context, point.x, point.y, 4.5, isHigh ? "above" : "below", style);
     } else {
       drawPivotBadge(context, point.x, point.y, 5, isHigh ? "down" : "up", style);
     }
-  } else if (drawable.overlay.kind === "major-lh-marker") {
+  } else if (semantics.geometryKind === "major-lh-marker") {
     const [point] = drawable.points;
     drawDiamondBadge(context, point.x, point.y, 6, "above", style);
-  } else if (drawable.overlay.kind === "breakout-marker") {
+  } else if (semantics.geometryKind === "breakout-marker") {
     const [point] = drawable.points;
     drawBreakoutBadge(context, point.x, point.y, 6, style);
   }
@@ -956,10 +954,6 @@ function overlayStyle(styleKey: string, selected: boolean): OverlayPaint {
     lineWidth: selected ? 2.5 : 1.55,
     dash: [],
   };
-}
-
-function isShortTermPivot(styleKey: string): boolean {
-  return styleKey.startsWith("pivot_st.");
 }
 
 function pointInsideAnnotationBox(

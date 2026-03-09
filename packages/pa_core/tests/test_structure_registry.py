@@ -40,7 +40,9 @@ class StructureRegistryTests(unittest.TestCase):
         )
         self.assertTrue(by_kind["pivot_st"].has_events)
         self.assertTrue(by_kind["pivot"].has_events)
-        self.assertFalse(by_kind["leg"].has_events)
+        self.assertTrue(by_kind["leg"].has_events)
+        self.assertTrue(by_kind["major_lh"].has_events)
+        self.assertTrue(by_kind["breakout_start"].has_events)
 
     def test_source_versions_are_registry_owned(self) -> None:
         self.assertEqual(structure_source_versions("artifact_v0_1"), ("v0_1", "v1"))
@@ -55,4 +57,3 @@ class StructureRegistryTests(unittest.TestCase):
             [(node.kind, node.depends_on) for node in artifact_profile.nodes],
             [(node.kind, node.depends_on) for node in runtime_profile.nodes],
         )
-

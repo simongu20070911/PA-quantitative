@@ -180,9 +180,9 @@ Explanation codes:
 
 ## Publication Intent
 
-`v0.2` pivot publication is replay-capable for pivots:
+`v0.2` publication is replay-capable across the active structure chain:
 
 - latest-state `objects` datasets
 - sparse lifecycle `events` datasets
 
-`v0.2` legs, `major_lh`, and `breakout_start` remain object-only in this phase.
+This now covers `pivot_st`, `pivot`, `leg`, `major_lh`, and `breakout_start` outputs emitted under `rulebook=v0_2`.

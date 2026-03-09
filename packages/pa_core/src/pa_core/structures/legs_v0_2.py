@@ -8,34 +8,34 @@ from typing import Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import load_canonical_bars
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
-from pa_core.artifacts.structures import (
-    STRUCTURE_ARTIFACT_SCHEMA,
-    StructureArtifactManifest,
-    StructureArtifactWriter,
-    load_structure_artifact,
-)
-from pa_core.common import build_bar_lookup, resolve_latest_bar_data_version
-from pa_core.features.edge_features import EDGE_FEATURE_KEYS
+from pa_core.artifacts.structures import STRUCTURE_ARTIFACT_SCHEMA, StructureArtifactManifest
+from pa_core.common import build_bar_lookup
 from pa_core.rulebooks.v0_2 import (
-    LEG_BAR_FINALIZATION,
     LEG_BASE_EXPLANATION_CODES,
     LEG_KIND_GROUP,
     LEG_RULEBOOK_VERSION,
     LEG_SAME_TYPE_REPLACEMENT_CODE,
     LEG_STRUCTURE_VERSION,
-    LEG_TIMING_SEMANTICS,
     PIVOT_KIND_GROUP,
     PIVOT_RULEBOOK_VERSION,
     PIVOT_STRUCTURE_VERSION,
 )
 from pa_core.structures.ids import build_structure_id
-from pa_core.structures.input import (
-    build_structure_input_ref,
-    build_structure_ref,
-    load_structure_inputs,
+from pa_core.structures.lifecycle_frames import (
+    DerivedLifecycleFrames,
+    DerivedLifecycleReasons,
+    EXPLANATION_CODES_PAYLOAD_SCHEMA,
+    build_lifecycle_frames_from_upstream_events,
+)
+from pa_core.structures.materialization import (
+    load_structure_bar_frame,
+    load_structure_dependency_from_context,
+    load_structure_event_dependency_from_context,
+    resolve_structure_materialization_context,
+    write_structure_artifact_from_context,
+    write_structure_event_artifact_from_context,
 )
 
 
@@ -50,6 +50,13 @@ class LegMaterializationConfig:
     rulebook_version: str = LEG_RULEBOOK_VERSION
     structure_version: str = LEG_STRUCTURE_VERSION
     parquet_engine: str = "pyarrow"
+
+
+LEG_LIFECYCLE_REASONS = DerivedLifecycleReasons(
+    created="end_pivot_visible",
+    confirmed="end_pivot_confirmed",
+    invalidated="pivot_pair_no_longer_visible",
+)
 
 
 def build_leg_structure_frame(
@@ -101,66 +108,71 @@ def build_leg_structure_frame(
     )
 
 
+def build_leg_lifecycle_frames(
+    *,
+    bar_frame: pa.Table,
+    pivot_event_frame: pa.Table,
+    feature_refs: Sequence[str],
+    rulebook_version: str = LEG_RULEBOOK_VERSION,
+    structure_version: str = LEG_STRUCTURE_VERSION,
+    structure_scope: str | None = None,
+) -> DerivedLifecycleFrames:
+    return build_lifecycle_frames_from_upstream_events(
+        bar_frame=bar_frame.select(["bar_id", "session_id", "session_date"]),
+        dependency_event_frames={PIVOT_KIND_GROUP: pivot_event_frame},
+        build_family_frame=lambda dependency_frames: build_leg_structure_frame(
+            bar_frame=bar_frame,
+            pivot_frame=dependency_frames[PIVOT_KIND_GROUP],
+            feature_refs=feature_refs,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            structure_scope=structure_scope,
+        ),
+        reasons=LEG_LIFECYCLE_REASONS,
+    )
+
+
 def materialize_legs(config: LegMaterializationConfig) -> StructureArtifactManifest:
-    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
-    structure_inputs = load_structure_inputs(
+    context = resolve_structure_materialization_context(
         artifacts_root=config.artifacts_root,
-        data_version=data_version,
+        data_version=config.data_version,
         feature_version=config.feature_version,
         feature_params_hash=config.feature_params_hash,
-        feature_keys=EDGE_FEATURE_KEYS,
-    )
-    pivot_ref = build_structure_ref(
-        kind=PIVOT_KIND_GROUP,
-        rulebook_version=config.pivot_rulebook_version,
-        structure_version=config.pivot_structure_version,
-        input_ref=structure_inputs.input_ref,
-    )
-    pivot_frame = load_structure_artifact(
-        artifacts_root=config.artifacts_root,
-        rulebook_version=config.pivot_rulebook_version,
-        structure_version=config.pivot_structure_version,
-        input_ref=structure_inputs.input_ref,
-        kind=PIVOT_KIND_GROUP,
-        dataset_class="objects",
+        source_profile="artifact_v0_2",
         parquet_engine=config.parquet_engine,
+        version_overrides={
+            PIVOT_KIND_GROUP: (config.pivot_rulebook_version, config.pivot_structure_version),
+            LEG_KIND_GROUP: (config.rulebook_version, config.structure_version),
+        },
     )
-    bar_frame = load_canonical_bars(
-        artifacts_root=config.artifacts_root,
-        data_version=data_version,
+    pivot_dependency = load_structure_dependency_from_context(context, kind=PIVOT_KIND_GROUP)
+    pivot_event_dependency = load_structure_event_dependency_from_context(context, kind=PIVOT_KIND_GROUP)
+    bar_frame = load_structure_bar_frame(
+        context,
         columns=["bar_id", "session_id", "session_date", "high", "low"],
-        parquet_engine=config.parquet_engine,
     )
-    leg_input_ref = build_structure_input_ref(
-        data_version=data_version,
-        feature_version=config.feature_version,
-        feature_params_hash=config.feature_params_hash,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(pivot_ref,),
-    )
-    leg_frame = build_leg_structure_frame(
+    leg_frames = build_leg_lifecycle_frames(
         bar_frame=bar_frame,
-        pivot_frame=pivot_frame,
-        feature_refs=structure_inputs.feature_refs,
-    )
-    if leg_frame.num_rows == 0:
-        raise ValueError("No leg rows were generated from the current v0.2 structural pivots.")
-    writer = StructureArtifactWriter(
-        artifacts_root=config.artifacts_root,
-        kind=LEG_KIND_GROUP,
-        structure_version=config.structure_version,
+        pivot_event_frame=pivot_event_dependency.frame,
+        feature_refs=context.structure_inputs.feature_refs,
         rulebook_version=config.rulebook_version,
-        timing_semantics=LEG_TIMING_SEMANTICS,
-        bar_finalization=LEG_BAR_FINALIZATION,
-        input_ref=leg_input_ref,
-        data_version=data_version,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(pivot_ref,),
-        dataset_class="objects",
-        parquet_engine=config.parquet_engine,
+        structure_version=config.structure_version,
     )
-    writer.write_chunk(leg_frame)
-    return writer.finalize()
+    if leg_frames.object_frame.num_rows == 0:
+        raise ValueError("No leg rows were generated from the current v0.2 structural pivots.")
+    manifest = write_structure_artifact_from_context(
+        context,
+        kind=LEG_KIND_GROUP,
+        frame=leg_frames.object_frame,
+    )
+    if context.dataset_specs_by_kind[LEG_KIND_GROUP].has_events:
+        write_structure_event_artifact_from_context(
+            context,
+            kind=LEG_KIND_GROUP,
+            frame=leg_frames.event_frame,
+            payload_schema=EXPLANATION_CODES_PAYLOAD_SCHEMA,
+        )
+    return manifest
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

@@ -6,7 +6,10 @@ import numpy as np
 import pyarrow as pa
 
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
-from pa_core.structures.breakout_starts import build_bearish_breakout_start_frame
+from pa_core.structures.breakout_starts import (
+    build_bearish_breakout_start_frame,
+    build_bearish_breakout_start_lifecycle_frames,
+)
 from pa_core.structures.input import EdgeFeatureArrays, feature_arrays_from_source
 
 
@@ -172,6 +175,49 @@ class BreakoutStartTests(unittest.TestCase):
         self.assertEqual(frame.num_rows, 1)
         self.assertIn("cross_session_breakout", frame.to_pylist()[0]["explanation_codes"])
 
+    def test_breakout_lifecycle_publishes_on_confirmation_bar(self) -> None:
+        bar_frame = _make_bar_frame(
+            bar_ids=np.array([100, 110, 120, 130, 135, 137, 140], dtype=np.int64),
+            session_ids=np.full(7, 20240102, dtype=np.int64),
+            session_dates=np.full(7, 20240102, dtype=np.int64),
+            lows=np.array([7.0, 9.0, 6.0, 8.0, 5.0, 4.0, 3.0], dtype=np.float64),
+        )
+        feature_bundle = _make_feature_bundle(
+            bar_frame=bar_frame,
+            hl_overlap=np.array([0.0, 0.2, 0.2, 0.1, 0.0, 0.0, 0.0]),
+            body_overlap=np.array([0.0, 0.1, 0.1, 0.1, 0.0, 0.0, 0.0]),
+            hl_gap=np.array([0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0]),
+            body_gap=np.array([0.0, 0.0, 0.0, 0.0, -0.5, -0.5, -0.5]),
+        )
+        frames = build_bearish_breakout_start_lifecycle_frames(
+            bar_frame=bar_frame,
+            feature_bundle=feature_bundle,
+            leg_event_frame=pa.Table.from_pylist(
+                [
+                    _structure_event("leg-up-100-110:created:110", "leg-up-100-110", "leg_up", 110, "created", "confirmed", 100, 110, 111, (100, 110)),
+                    _structure_event("leg-down-110-120:created:120", "leg-down-110-120", "leg_down", 120, "created", "confirmed", 110, 120, 121, (110, 120)),
+                    _structure_event("leg-up-120-130:created:130", "leg-up-120-130", "leg_up", 130, "created", "confirmed", 120, 130, 131, (120, 130)),
+                    _structure_event("leg-down-130-140:created:140", "leg-down-130-140", "leg_down", 140, "created", "confirmed", 130, 140, 141, (130, 140)),
+                ]
+            ),
+            major_lh_event_frame=pa.Table.from_pylist(
+                [
+                    _structure_event("major-lh-110-130:created:130", "major-lh-110-130", "major_lh", 130, "created", "candidate", 110, 130, None, (110, 120, 130)),
+                    _structure_event("major-lh-110-130:confirmed:140", "major-lh-110-130", "major_lh", 140, "confirmed", "confirmed", 110, 130, 141, (110, 120, 130)),
+                ]
+            ),
+            feature_refs=("feature=a",),
+        )
+
+        self.assertEqual(frames.object_frame.num_rows, 1)
+        object_row = frames.object_frame.to_pylist()[0]
+        self.assertEqual(object_row["start_bar_id"], 135)
+        self.assertEqual(object_row["confirm_bar_id"], 135)
+        event_row = frames.event_frame.to_pylist()[0]
+        self.assertEqual(event_row["event_type"], "created")
+        self.assertEqual(event_row["state_after_event"], "confirmed")
+        self.assertEqual(event_row["event_bar_id"], 140)
+
 
 def _make_bar_frame(
     *,
@@ -281,6 +327,40 @@ def _make_major_lh_frame(
             }
         )
     return pa.Table.from_pylist(payload)
+
+
+def _structure_event(
+    event_id: str,
+    structure_id: str,
+    kind: str,
+    event_bar_id: int,
+    event_type: str,
+    state_after_event: str,
+    start_bar_id: int,
+    end_bar_id: int,
+    confirm_bar_id: int | None,
+    anchor_bar_ids: tuple[int, ...],
+) -> dict[str, object]:
+    return {
+        "event_id": event_id,
+        "structure_id": structure_id,
+        "kind": kind,
+        "event_type": event_type,
+        "event_bar_id": event_bar_id,
+        "event_order": 0,
+        "state_after_event": state_after_event,
+        "reason_codes": ("test",),
+        "start_bar_id": start_bar_id,
+        "end_bar_id": end_bar_id,
+        "confirm_bar_id": confirm_bar_id,
+        "anchor_bar_ids": anchor_bar_ids,
+        "predecessor_structure_id": None,
+        "successor_structure_id": None,
+        "payload_after": {"explanation_codes": ("test",)},
+        "changed_fields": (),
+        "session_id": 20240102,
+        "session_date": 20240102,
+    }
 
 
 if __name__ == "__main__":

@@ -125,8 +125,8 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             payload = response.json()
             self.assertEqual(payload["meta"]["as_of_bar_id"], 120)
-            self.assertEqual(payload["meta"]["replay_source"], "lifecycle_events_plus_as_of_objects")
-            self.assertEqual(payload["meta"]["replay_completeness"], "lifecycle_events_plus_snapshot_objects")
+            self.assertEqual(payload["meta"]["replay_source"], "lifecycle_events")
+            self.assertEqual(payload["meta"]["replay_completeness"], "lifecycle_events_complete_chain")
             self.assertEqual(
                 {structure["structure_id"] for structure in payload["structures"]},
                 {"pivot-high-110", "leg-up-90-110"},
@@ -208,19 +208,22 @@ class ApiAppTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertEqual([bar["bar_id"] for bar in payload["bars"]], [130])
+            self.assertEqual([bar["bar_id"] for bar in payload["bars"]], [110, 120, 130])
             self.assertEqual(
                 [
                     (structure["structure_id"], structure["state"])
                     for structure in payload["structures"]
                 ],
-                [("pivot-low-130", "candidate")],
+                [("major-lh-110-130", "candidate"), ("pivot-low-130", "candidate")],
             )
             self.assertEqual(
                 [(event["event_type"], event["event_bar_id"]) for event in payload["events"]],
-                [("created", 130)],
+                [("created", 130), ("created", 130)],
             )
-            self.assertEqual(payload["events"][0]["payload_after"]["extreme_price"], 6.5)
+            pivot_event = next(
+                event for event in payload["events"] if event["structure_id"] == "pivot-low-130"
+            )
+            self.assertEqual(pivot_event["payload_after"]["extreme_price"], 6.5)
             self.assertEqual(
                 [(overlay["source_structure_id"], overlay["style_key"]) for overlay in payload["overlays"]],
                 [("pivot-low-130", "pivot.low.candidate")],
@@ -261,7 +264,7 @@ class ApiAppTests(unittest.TestCase):
                     "timeframe": "1m",
                     "session_profile": "eth_full",
                     "data_version": "es_test_v1",
-                    "as_of_bar_id": "130",
+                    "as_of_bar_id": "120",
                 },
             )
             self.assertEqual(hidden.status_code, 404)
@@ -273,11 +276,11 @@ class ApiAppTests(unittest.TestCase):
                     "timeframe": "1m",
                     "session_profile": "eth_full",
                     "data_version": "es_test_v1",
-                    "as_of_bar_id": "140",
+                    "as_of_bar_id": "130",
                 },
             )
             self.assertEqual(visible.status_code, 200)
-            self.assertEqual(visible.json()["versions"]["as_of_bar_id"], 140)
+            self.assertEqual(visible.json()["versions"]["as_of_bar_id"], 130)
 
     def test_chart_window_requires_exactly_one_selector(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -429,8 +432,8 @@ class ApiAppTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertEqual(payload["meta"]["replay_source"], "lifecycle_events_plus_as_of_objects")
-            self.assertEqual(payload["meta"]["replay_completeness"], "lifecycle_events_plus_snapshot_objects")
+            self.assertEqual(payload["meta"]["replay_source"], "lifecycle_events")
+            self.assertEqual(payload["meta"]["replay_completeness"], "lifecycle_events_complete_chain")
             pivot_structures = {
                 (structure["kind"], structure["state"], structure["start_bar_id"])
                 for structure in payload["structures"]
@@ -870,6 +873,56 @@ def _write_structure_artifacts(root: Path) -> None:
         ],
         feature_refs=feature_refs,
     )
+    _write_structure_event_dataset(
+        root=root,
+        kind=LEG_KIND_GROUP,
+        structure_version=LEG_STRUCTURE_VERSION,
+        rulebook_version=LEG_RULEBOOK_VERSION,
+        input_ref=leg_input_ref,
+        feature_refs=feature_refs,
+        rows=[
+            {
+                "event_id": "leg-up-90-110:created:110",
+                "structure_id": "leg-up-90-110",
+                "kind": "leg_up",
+                "event_type": "created",
+                "event_bar_id": 110,
+                "event_order": 0,
+                "state_after_event": "candidate",
+                "reason_codes": ("end_pivot_visible",),
+                "start_bar_id": 90,
+                "end_bar_id": 110,
+                "confirm_bar_id": None,
+                "anchor_bar_ids": (90, 110),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {"explanation_codes": ("pivot_v0_2_chain",)},
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+            {
+                "event_id": "leg-up-90-110:confirmed:115",
+                "structure_id": "leg-up-90-110",
+                "kind": "leg_up",
+                "event_type": "confirmed",
+                "event_bar_id": 115,
+                "event_order": 0,
+                "state_after_event": "confirmed",
+                "reason_codes": ("end_pivot_confirmed",),
+                "start_bar_id": 90,
+                "end_bar_id": 110,
+                "confirm_bar_id": 115,
+                "anchor_bar_ids": (90, 110),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": None,
+                "changed_fields": ("confirm_bar_id", "state"),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+        ],
+    )
     _write_structure_dataset(
         root=root,
         kind=MAJOR_LH_KIND_GROUP,
@@ -895,6 +948,58 @@ def _write_structure_artifacts(root: Path) -> None:
         ],
         feature_refs=feature_refs,
     )
+    _write_structure_event_dataset(
+        root=root,
+        kind=MAJOR_LH_KIND_GROUP,
+        structure_version=MAJOR_LH_STRUCTURE_VERSION,
+        rulebook_version=MAJOR_LH_RULEBOOK_VERSION,
+        input_ref=major_lh_input_ref,
+        feature_refs=feature_refs,
+        rows=[
+            {
+                "event_id": "major-lh-110-130:created:130",
+                "structure_id": "major-lh-110-130",
+                "kind": "major_lh",
+                "event_type": "created",
+                "event_bar_id": 130,
+                "event_order": 0,
+                "state_after_event": "candidate",
+                "reason_codes": ("lower_high_visible",),
+                "start_bar_id": 110,
+                "end_bar_id": 130,
+                "confirm_bar_id": None,
+                "anchor_bar_ids": (110, 120, 130),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {"explanation_codes": ("lower_high",)},
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+            {
+                "event_id": "major-lh-110-130:confirmed:140",
+                "structure_id": "major-lh-110-130",
+                "kind": "major_lh",
+                "event_type": "confirmed",
+                "event_bar_id": 140,
+                "event_order": 0,
+                "state_after_event": "confirmed",
+                "reason_codes": ("proving_leg_broke_prior_low",),
+                "start_bar_id": 110,
+                "end_bar_id": 130,
+                "confirm_bar_id": 140,
+                "anchor_bar_ids": (110, 120, 130),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {
+                    "explanation_codes": ("lower_high", "proving_break"),
+                },
+                "changed_fields": ("confirm_bar_id", "state", "explanation_codes"),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+        ],
+    )
     _write_structure_dataset(
         root=root,
         kind=BREAKOUT_START_KIND_GROUP,
@@ -919,6 +1024,36 @@ def _write_structure_artifacts(root: Path) -> None:
             }
         ],
         feature_refs=feature_refs,
+    )
+    _write_structure_event_dataset(
+        root=root,
+        kind=BREAKOUT_START_KIND_GROUP,
+        structure_version=BREAKOUT_START_STRUCTURE_VERSION,
+        rulebook_version=BREAKOUT_START_RULEBOOK_VERSION,
+        input_ref=breakout_input_ref,
+        feature_refs=feature_refs,
+        rows=[
+            {
+                "event_id": "breakout-140:created:140",
+                "structure_id": "breakout-140",
+                "kind": "bearish_breakout_start",
+                "event_type": "created",
+                "event_bar_id": 140,
+                "event_order": 0,
+                "state_after_event": "confirmed",
+                "reason_codes": ("breakout_start_visible",),
+                "start_bar_id": 140,
+                "end_bar_id": 140,
+                "confirm_bar_id": 140,
+                "anchor_bar_ids": (130, 120, 140),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {"explanation_codes": ("breakout_start",)},
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+        ],
     )
 
 
@@ -960,6 +1095,11 @@ def _write_structure_event_dataset(
     payload_schema: pa.DataType | None = None,
     rows: list[dict[str, object]],
 ) -> None:
+    resolved_payload_schema = (
+        payload_schema
+        if payload_schema is not None
+        else pa.struct([("explanation_codes", pa.list_(pa.string()))])
+    )
     writer = StructureEventArtifactWriter(
         artifacts_root=root,
         kind=kind,
@@ -970,10 +1110,10 @@ def _write_structure_event_dataset(
         input_ref=input_ref,
         data_version="es_test_v1",
         feature_refs=feature_refs,
-        payload_schema=payload_schema,
+        payload_schema=resolved_payload_schema,
     )
     writer.write_chunk(
-        pa.Table.from_pylist(rows, schema=build_structure_event_artifact_schema(payload_schema))
+        pa.Table.from_pylist(rows, schema=build_structure_event_artifact_schema(resolved_payload_schema))
     )
     writer.finalize()
 

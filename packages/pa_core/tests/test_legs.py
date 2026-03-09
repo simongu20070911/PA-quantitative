@@ -22,6 +22,7 @@ from pa_core.structures.legs import (
     LEG_TIMING_SEMANTICS,
     build_leg_structure_frame,
 )
+from pa_core.structures.legs_v0_2 import build_leg_lifecycle_frames
 from pa_core.structures.pivots import (
     PIVOT_KIND_GROUP,
     PIVOT_RULEBOOK_VERSION,
@@ -307,9 +308,38 @@ class LegStructureTests(unittest.TestCase):
                 input_ref="bars-test__features-test__structures-abc12345",
                 kind=LEG_KIND_GROUP,
             )
-            self.assertEqual(len(objects), 1)
-            self.assertEqual(objects[0].kind, "leg_up")
-            self.assertEqual(objects[0].anchor_bar_ids, (605, 620))
+        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects[0].kind, "leg_up")
+        self.assertEqual(objects[0].anchor_bar_ids, (605, 620))
+
+    def test_leg_lifecycle_tracks_end_pivot_candidate_then_confirmed(self) -> None:
+        bar_frame = _make_bar_frame(
+            bar_ids=np.arange(400, 431, dtype=np.int64),
+            session_ids=np.full(31, 20240105, dtype=np.int64),
+            session_dates=np.full(31, 20240105, dtype=np.int64),
+            highs=np.linspace(20.0, 30.0, 31),
+            lows=np.linspace(5.0, 10.0, 31),
+        )
+        bar_frame = _replace_bar_value(bar_frame, column="high", bar_id=405, value=35.0)
+        bar_frame = _replace_bar_value(bar_frame, column="low", bar_id=420, value=1.0)
+        frames = build_leg_lifecycle_frames(
+            bar_frame=bar_frame,
+            pivot_event_frame=pa.Table.from_pylist(
+                [
+                    _pivot_event("pivot_high-405:created:405", "pivot_high-405", "pivot_high", "created", 405, "confirmed", 405, 410, None),
+                    _pivot_event("pivot_low-420:created:420", "pivot_low-420", "pivot_low", "created", 420, "candidate", 420, None, {"explanation_codes": ("window_5x5",)}),
+                    _pivot_event("pivot_low-420:confirmed:425", "pivot_low-420", "pivot_low", "confirmed", 425, "confirmed", 420, 425, None, changed_fields=("confirm_bar_id",)),
+                ]
+            ),
+            feature_refs=("feature=a",),
+        )
+
+        events = frames.event_frame.to_pylist()
+        self.assertEqual(
+            [(event["event_type"], event["event_bar_id"], event["state_after_event"]) for event in events],
+            [("created", 420, "candidate"), ("confirmed", 425, "confirmed")],
+        )
+        self.assertEqual(frames.object_frame.to_pylist()[0]["state"], "confirmed")
 
 
 def _make_bar_frame(
@@ -354,6 +384,41 @@ def _make_pivot_frame(
             }
         )
     return pa.Table.from_pylist(payload)
+
+
+def _pivot_event(
+    event_id: str,
+    structure_id: str,
+    kind: str,
+    event_type: str,
+    event_bar_id: int,
+    state_after_event: str,
+    start_bar_id: int,
+    confirm_bar_id: int | None,
+    payload_after: dict[str, object] | None,
+    *,
+    changed_fields: tuple[str, ...] = (),
+) -> dict[str, object]:
+    return {
+        "event_id": event_id,
+        "structure_id": structure_id,
+        "kind": kind,
+        "event_type": event_type,
+        "event_bar_id": event_bar_id,
+        "event_order": 0,
+        "state_after_event": state_after_event,
+        "reason_codes": ("test",),
+        "start_bar_id": start_bar_id,
+        "end_bar_id": None,
+        "confirm_bar_id": confirm_bar_id,
+        "anchor_bar_ids": (start_bar_id,),
+        "predecessor_structure_id": None,
+        "successor_structure_id": None,
+        "payload_after": payload_after,
+        "changed_fields": changed_fields,
+        "session_id": 20240105,
+        "session_date": 20240105,
+    }
 
 
 def _replace_bar_value(

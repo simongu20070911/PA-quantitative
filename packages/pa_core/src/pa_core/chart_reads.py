@@ -37,6 +37,7 @@ from pa_core.structures.pivots_v0_2 import (
 )
 from pa_core.structures.registry import (
     build_structure_feature_refs,
+    get_structure_source_profile,
     resolve_structure_dataset_specs,
     structure_source_versions,
 )
@@ -110,8 +111,11 @@ class ChartContext:
     overlays: tuple[OverlayObject, ...]
     structure_records: dict[str, StructureRecord]
     structure_event_records: tuple[StructureEventRecord, ...]
+    structure_dataset_refs_by_kind: dict[str, tuple[tuple[str, ...], tuple[str, ...]]]
+    structure_event_kind_groups: dict[str, str]
     rulebook_version: str | None
     structure_version: str | None
+    replay_chain_complete: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,9 +267,14 @@ def resolve_structure_detail(
     structure_id: str,
     as_of_bar_id: int | None,
 ) -> ResolvedStructureDetail:
-    record = context.structure_records[structure_id]
-    row = record.row
-    feature_refs = tuple(str(value) for value in row["feature_refs"])
+    record = context.structure_records.get(structure_id)
+    row = record.row if record is not None else None
+    feature_refs: tuple[str, ...] | None = (
+        tuple(str(value) for value in row["feature_refs"]) if row is not None else None
+    )
+    structure_refs: tuple[str, ...] | None = (
+        dataset_structure_refs(record.dataset) if record is not None else None
+    )
     if as_of_bar_id is not None:
         replay_rows = (
             resolve_structure_rows_from_lifecycle_events(
@@ -277,12 +286,19 @@ def resolve_structure_detail(
         )
         if structure_id in replay_rows:
             row = replay_rows[structure_id]
-        elif not _structure_row_visible_as_of(record.row, as_of_bar_id):
+        elif record is None or not _structure_row_visible_as_of(record.row, as_of_bar_id):
             raise KeyError(structure_id)
+    if row is None:
+        raise KeyError(structure_id)
+    if feature_refs is None or structure_refs is None:
+        kind_group = context.structure_event_kind_groups.get(structure_id)
+        if kind_group is None:
+            raise KeyError(structure_id)
+        feature_refs, structure_refs = context.structure_dataset_refs_by_kind[kind_group]
     return ResolvedStructureDetail(
         row=row,
         feature_refs=feature_refs,
-        structure_refs=dataset_structure_refs(record.dataset),
+        structure_refs=structure_refs,
     )
 
 
@@ -420,6 +436,8 @@ def _load_chart_context_cached(
     overlays: list[OverlayObject] = []
     structure_records: dict[str, StructureRecord] = {}
     structure_event_records: list[StructureEventRecord] = []
+    structure_dataset_refs_by_kind: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+    structure_event_kind_groups: dict[str, str] = {}
     datasets = _load_overlay_source_datasets_for_window(
         artifacts_root=artifacts_path,
         data_version=resolved_data_version,
@@ -437,6 +455,10 @@ def _load_chart_context_cached(
         datasets=datasets,
     )
     for dataset in datasets:
+        structure_dataset_refs_by_kind[dataset.manifest.kind] = (
+            tuple(str(value) for value in dataset.manifest.feature_refs),
+            tuple(str(value) for value in dataset.manifest.structure_refs),
+        )
         overlays.extend(
             project_overlay_objects(
                 bar_frame=family_bars.select(["bar_id", "high", "low"]),
@@ -462,6 +484,8 @@ def _load_chart_context_cached(
             family_bar_frame=family_bars,
         )
     )
+    for record in structure_event_records:
+        structure_event_kind_groups[str(record.row["structure_id"])] = record.kind_group
     rulebook_version, structure_version = structure_source_versions(resolved_structure_source)
 
     bar_rows = family_bars.to_pylist()
@@ -490,8 +514,11 @@ def _load_chart_context_cached(
         overlays=tuple(sort_overlay_objects_for_render(overlays)),
         structure_records=structure_records,
         structure_event_records=tuple(structure_event_records),
+        structure_dataset_refs_by_kind=structure_dataset_refs_by_kind,
+        structure_event_kind_groups=structure_event_kind_groups,
         rulebook_version=rulebook_version,
         structure_version=structure_version,
+        replay_chain_complete=_structure_source_replay_complete(resolved_structure_source),
     )
 
 
@@ -539,7 +566,13 @@ def _load_runtime_family_context(
     overlays: list[OverlayObject] = []
     structure_records: dict[str, StructureRecord] = {}
     structure_event_records: list[StructureEventRecord] = []
+    structure_dataset_refs_by_kind: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+    structure_event_kind_groups: dict[str, str] = {}
     for dataset in runtime_chain.datasets:
+        structure_dataset_refs_by_kind[dataset.kind] = (
+            tuple(str(value) for value in dataset.feature_refs),
+            tuple(str(value) for value in dataset.structure_refs),
+        )
         overlays.extend(
             project_overlay_objects(
                 bar_frame=runtime_chain.bar_frame.select(["bar_id", "high", "low"]),
@@ -557,6 +590,7 @@ def _load_runtime_family_context(
     for dataset in runtime_chain.event_datasets:
         for row in dataset.frame.to_pylist():
             structure_event_records.append(StructureEventRecord(row=row, kind_group=dataset.kind))
+            structure_event_kind_groups[str(row["structure_id"])] = dataset.kind
 
     bar_rows = runtime_chain.bar_frame.to_pylist()
     bar_rows_by_id = {int(row["bar_id"]): row for row in bar_rows}
@@ -584,8 +618,11 @@ def _load_runtime_family_context(
         overlays=tuple(sort_overlay_objects_for_render(overlays)),
         structure_records=structure_records,
         structure_event_records=tuple(structure_event_records),
+        structure_dataset_refs_by_kind=structure_dataset_refs_by_kind,
+        structure_event_kind_groups=structure_event_kind_groups,
         rulebook_version=PIVOT_V0_2_RULEBOOK_VERSION,
         structure_version=PIVOT_V0_2_STRUCTURE_VERSION,
+        replay_chain_complete=_structure_source_replay_complete(structure_source),
     )
 
 
@@ -716,6 +753,7 @@ def _artifact_structure_source_available(
     if structure_source not in {"artifact_v0_1", "artifact_v0_2"}:
         return False
     from pa_core.artifacts.structures import load_structure_manifest
+    from pa_core.artifacts.structure_events import load_structure_event_manifest
 
     feature_refs = build_structure_feature_refs(
         artifacts_root=artifacts_root,
@@ -741,6 +779,18 @@ def _artifact_structure_source_available(
                 input_ref=dataset_spec.input_ref,
                 kind=dataset_spec.kind,
                 dataset_class="objects",
+            )
+        except FileNotFoundError:
+            return False
+        if not dataset_spec.has_events:
+            continue
+        try:
+            load_structure_event_manifest(
+                artifacts_root=artifacts_root,
+                rulebook_version=dataset_spec.rulebook_version,
+                structure_version=dataset_spec.structure_version,
+                input_ref=dataset_spec.input_ref,
+                kind=dataset_spec.kind,
             )
         except FileNotFoundError:
             return False
@@ -831,7 +881,7 @@ def _load_structure_event_records_for_window(
     parquet_engine: str,
     family_bar_frame: pa.Table,
 ) -> tuple[StructureEventRecord, ...]:
-    if structure_source != "artifact_v0_2":
+    if structure_source not in {"artifact_v0_2", "artifact_v0_1"}:
         return ()
     years = {int(value) // 10_000 for value in family_bar_frame.column("session_date").to_pylist()}
     feature_refs = build_structure_feature_refs(
@@ -840,34 +890,40 @@ def _load_structure_event_records_for_window(
         feature_version=feature_version,
         feature_params_hash=feature_params_hash,
     )
-    dataset_specs = {
-        dataset_spec.kind: dataset_spec
-        for dataset_spec in resolve_structure_dataset_specs(
-            data_version=data_version,
-            feature_version=feature_version,
-            feature_params_hash=feature_params_hash,
-            feature_refs=feature_refs,
-            source=structure_source,
-        )
-    }
+    dataset_specs = resolve_structure_dataset_specs(
+        data_version=data_version,
+        feature_version=feature_version,
+        feature_params_hash=feature_params_hash,
+        feature_refs=feature_refs,
+        source=structure_source,
+    )
     records: list[StructureEventRecord] = []
-    for kind_group in (PIVOT_ST_SPEC.kind_group, PIVOT_V0_2_KIND_GROUP):
-        dataset_spec = dataset_specs[kind_group]
+    for dataset_spec in dataset_specs:
+        if not dataset_spec.has_events:
+            continue
         try:
             frame = load_structure_event_artifact(
                 artifacts_root=artifacts_root,
                 rulebook_version=dataset_spec.rulebook_version,
                 structure_version=dataset_spec.structure_version,
                 input_ref=dataset_spec.input_ref,
-                kind=kind_group,
+                kind=dataset_spec.kind,
                 years=years,
                 parquet_engine=parquet_engine,
             )
         except FileNotFoundError:
             continue
         for row in frame.to_pylist():
-            records.append(StructureEventRecord(row=row, kind_group=kind_group))
+            records.append(StructureEventRecord(row=row, kind_group=dataset_spec.kind))
     return tuple(records)
+
+
+def _structure_source_replay_complete(structure_source: str) -> bool:
+    try:
+        profile = get_structure_source_profile(structure_source)
+    except ValueError:
+        return False
+    return all(node.has_events for node in profile.nodes if node.has_objects)
 
 
 def _extend_family_bars_for_overlay_anchors(

@@ -8,16 +8,10 @@ from typing import Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import load_canonical_bars
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
-from pa_core.artifacts.structures import (
-    STRUCTURE_ARTIFACT_SCHEMA,
-    StructureArtifactManifest,
-    StructureArtifactWriter,
-)
-from pa_core.common import build_bar_lookup, optional_int, resolve_latest_bar_data_version
-from pa_core.features.edge_features import EDGE_FEATURE_KEYS
+from pa_core.artifacts.structures import STRUCTURE_ARTIFACT_SCHEMA, StructureArtifactManifest
+from pa_core.common import build_bar_lookup, optional_int
 from pa_core.rulebooks.v0_1 import (
     BREAKOUT_START_BAR_FINALIZATION,
     BREAKOUT_START_EXPLANATION_CODES,
@@ -31,17 +25,22 @@ from pa_core.rulebooks.v0_1 import (
     MAJOR_LH_KIND_GROUP,
     MAJOR_LH_RULEBOOK_VERSION,
     MAJOR_LH_STRUCTURE_VERSION,
-    PIVOT_KIND_GROUP,
-    PIVOT_RULEBOOK_VERSION,
-    PIVOT_STRUCTURE_VERSION,
 )
 from pa_core.structures.ids import build_structure_id
-from pa_core.structures.input import (
-    EdgeFeatureArrays,
-    build_structure_ref,
-    build_structure_input_ref,
-    load_structure_dependency,
-    load_structure_inputs,
+from pa_core.structures.input import EdgeFeatureArrays
+from pa_core.structures.lifecycle_frames import (
+    DerivedLifecycleFrames,
+    DerivedLifecycleReasons,
+    EXPLANATION_CODES_PAYLOAD_SCHEMA,
+    build_lifecycle_frames_from_upstream_events,
+)
+from pa_core.structures.materialization import (
+    load_structure_bar_frame,
+    load_structure_dependency_from_context,
+    load_structure_event_dependency_from_context,
+    resolve_structure_materialization_context,
+    write_structure_artifact_from_context,
+    write_structure_event_artifact_from_context,
 )
 from pa_core.structures.leg_strength import compute_leg_strength
 
@@ -59,6 +58,13 @@ class BreakoutStartMaterializationConfig:
     rulebook_version: str = BREAKOUT_START_RULEBOOK_VERSION
     structure_version: str = BREAKOUT_START_STRUCTURE_VERSION
     parquet_engine: str = "pyarrow"
+
+
+BREAKOUT_START_LIFECYCLE_REASONS = DerivedLifecycleReasons(
+    created="breakout_start_visible",
+    confirmed="breakout_start_visible",
+    invalidated="breakout_context_no_longer_visible",
+)
 
 
 def build_bearish_breakout_start_frame(
@@ -149,90 +155,103 @@ def build_bearish_breakout_start_frame(
     )
 
 
+def build_bearish_breakout_start_lifecycle_frames(
+    *,
+    bar_frame: pa.Table,
+    feature_bundle: EdgeFeatureArrays,
+    leg_event_frame: pa.Table,
+    major_lh_event_frame: pa.Table,
+    feature_refs: Sequence[str],
+    rulebook_version: str = BREAKOUT_START_RULEBOOK_VERSION,
+    structure_version: str = BREAKOUT_START_STRUCTURE_VERSION,
+    structure_scope: str | None = None,
+) -> DerivedLifecycleFrames:
+    return build_lifecycle_frames_from_upstream_events(
+        bar_frame=bar_frame.select(["bar_id", "session_id", "session_date"]),
+        dependency_event_frames={
+            LEG_KIND_GROUP: leg_event_frame,
+            MAJOR_LH_KIND_GROUP: major_lh_event_frame,
+        },
+        build_family_frame=lambda dependency_frames: build_bearish_breakout_start_frame(
+            bar_frame=bar_frame,
+            feature_bundle=feature_bundle,
+            leg_frame=dependency_frames[LEG_KIND_GROUP],
+            major_lh_frame=dependency_frames[MAJOR_LH_KIND_GROUP],
+            feature_refs=feature_refs,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            structure_scope=structure_scope,
+        ),
+        reasons=BREAKOUT_START_LIFECYCLE_REASONS,
+    )
+
+
 def materialize_bearish_breakout_starts(
     config: BreakoutStartMaterializationConfig,
 ) -> StructureArtifactManifest:
-    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
-    structure_inputs = load_structure_inputs(
+    source_profile = "artifact_v0_2" if config.rulebook_version == "v0_2" else "artifact_v0_1"
+    context = resolve_structure_materialization_context(
         artifacts_root=config.artifacts_root,
-        data_version=data_version,
+        data_version=config.data_version,
         feature_version=config.feature_version,
         feature_params_hash=config.feature_params_hash,
-        feature_keys=EDGE_FEATURE_KEYS,
-    )
-    pivot_free_input_ref = structure_inputs.input_ref
-    leg_input_ref = _build_leg_input_ref(
-        data_version=data_version,
-        feature_version=config.feature_version,
-        feature_params_hash=config.feature_params_hash,
-        feature_refs=structure_inputs.feature_refs,
-        pivot_input_ref=pivot_free_input_ref,
-    )
-    leg_dependency = load_structure_dependency(
-        artifacts_root=config.artifacts_root,
-        kind=LEG_KIND_GROUP,
-        rulebook_version=config.leg_rulebook_version,
-        structure_version=config.leg_structure_version,
-        input_ref=leg_input_ref,
+        source_profile=source_profile,
         parquet_engine=config.parquet_engine,
+        version_overrides={
+            LEG_KIND_GROUP: (config.leg_rulebook_version, config.leg_structure_version),
+            MAJOR_LH_KIND_GROUP: (config.major_lh_rulebook_version, config.major_lh_structure_version),
+            BREAKOUT_START_KIND_GROUP: (config.rulebook_version, config.structure_version),
+        },
     )
-    major_lh_input_ref = build_structure_input_ref(
-        data_version=data_version,
-        feature_version=config.feature_version,
-        feature_params_hash=config.feature_params_hash,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(leg_dependency.ref,),
-    )
-    major_lh_dependency = load_structure_dependency(
-        artifacts_root=config.artifacts_root,
-        kind=MAJOR_LH_KIND_GROUP,
-        rulebook_version=config.major_lh_rulebook_version,
-        structure_version=config.major_lh_structure_version,
-        input_ref=major_lh_input_ref,
-        parquet_engine=config.parquet_engine,
-    )
-    breakout_input_ref = build_structure_input_ref(
-        data_version=data_version,
-        feature_version=config.feature_version,
-        feature_params_hash=config.feature_params_hash,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(leg_dependency.ref, major_lh_dependency.ref),
-    )
-    bar_frame = load_canonical_bars(
-        artifacts_root=config.artifacts_root,
-        data_version=data_version,
+    bar_frame = load_structure_bar_frame(
+        context,
         columns=["bar_id", "session_id", "session_date", "low"],
-        parquet_engine=config.parquet_engine,
     )
-    breakout_frame = build_bearish_breakout_start_frame(
-        bar_frame=bar_frame,
-        feature_bundle=structure_inputs.feature_arrays,
-        leg_frame=leg_dependency.frame,
-        major_lh_frame=major_lh_dependency.frame,
-        feature_refs=structure_inputs.feature_refs,
-        rulebook_version=config.rulebook_version,
-        structure_version=config.structure_version,
-    )
-    if breakout_frame.num_rows == 0:
+    if context.dataset_specs_by_kind[BREAKOUT_START_KIND_GROUP].has_events:
+        leg_event_dependency = load_structure_event_dependency_from_context(context, kind=LEG_KIND_GROUP)
+        major_lh_event_dependency = load_structure_event_dependency_from_context(context, kind=MAJOR_LH_KIND_GROUP)
+        breakout_lifecycle_frames = build_bearish_breakout_start_lifecycle_frames(
+            bar_frame=bar_frame,
+            feature_bundle=context.structure_inputs.feature_arrays,
+            leg_event_frame=leg_event_dependency.frame,
+            major_lh_event_frame=major_lh_event_dependency.frame,
+            feature_refs=context.structure_inputs.feature_refs,
+            rulebook_version=config.rulebook_version,
+            structure_version=config.structure_version,
+        )
+        object_frame = breakout_lifecycle_frames.object_frame
+        event_frame = breakout_lifecycle_frames.event_frame
+    else:
+        leg_dependency = load_structure_dependency_from_context(context, kind=LEG_KIND_GROUP)
+        major_lh_dependency = load_structure_dependency_from_context(context, kind=MAJOR_LH_KIND_GROUP)
+        object_frame = build_bearish_breakout_start_frame(
+            bar_frame=bar_frame,
+            feature_bundle=context.structure_inputs.feature_arrays,
+            leg_frame=leg_dependency.frame,
+            major_lh_frame=major_lh_dependency.frame,
+            feature_refs=context.structure_inputs.feature_refs,
+            rulebook_version=config.rulebook_version,
+            structure_version=config.structure_version,
+        )
+        event_frame = None
+    if object_frame.num_rows == 0:
         raise ValueError(
             "No bearish_breakout_start rows were generated from the current major_lh artifacts."
         )
 
-    writer = StructureArtifactWriter(
-        artifacts_root=config.artifacts_root,
+    manifest = write_structure_artifact_from_context(
+        context,
         kind=BREAKOUT_START_KIND_GROUP,
-        structure_version=config.structure_version,
-        rulebook_version=config.rulebook_version,
-        timing_semantics=BREAKOUT_START_TIMING_SEMANTICS,
-        bar_finalization=BREAKOUT_START_BAR_FINALIZATION,
-        input_ref=breakout_input_ref,
-        data_version=data_version,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(leg_dependency.ref, major_lh_dependency.ref),
-        parquet_engine=config.parquet_engine,
+        frame=object_frame,
     )
-    writer.write_chunk(breakout_frame)
-    return writer.finalize()
+    if event_frame is not None:
+        write_structure_event_artifact_from_context(
+            context,
+            kind=BREAKOUT_START_KIND_GROUP,
+            frame=event_frame,
+            payload_schema=EXPLANATION_CODES_PAYLOAD_SCHEMA,
+        )
+    return manifest
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -279,29 +298,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(json.dumps(manifest.to_dict(), indent=2, sort_keys=True))
     return 0
-
-
-def _build_leg_input_ref(
-    *,
-    data_version: str,
-    feature_version: str,
-    feature_params_hash: str,
-    feature_refs: Sequence[str],
-    pivot_input_ref: str,
-) -> str:
-    pivot_ref = build_structure_ref(
-        kind=PIVOT_KIND_GROUP,
-        rulebook_version=PIVOT_RULEBOOK_VERSION,
-        structure_version=PIVOT_STRUCTURE_VERSION,
-        input_ref=pivot_input_ref,
-    )
-    return build_structure_input_ref(
-        data_version=data_version,
-        feature_version=feature_version,
-        feature_params_hash=feature_params_hash,
-        feature_refs=feature_refs,
-        structure_refs=(pivot_ref,),
-    )
 
 
 def _find_breakout_bar_id(

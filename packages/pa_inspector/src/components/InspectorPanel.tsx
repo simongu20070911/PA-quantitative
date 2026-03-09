@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { useDraggableFloatingSurface, useFloatingSurfacePosition } from "../lib/floatingSurface";
 import type {
   ChartBar,
   FloatingPosition,
@@ -42,23 +43,17 @@ export function InspectorPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const dragHandleRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedOverlayRef = useRef(false);
-  const onPositionChangeRef = useRef(onPositionChange);
   const onManualPositionChangeRef = useRef(onManualPositionChange);
-  const [position, setPosition] = useState(initialPosition);
+  const { position, setPosition } = useFloatingSurfacePosition({
+    initialPosition,
+    onPositionChange,
+  });
   const [manualPosition, setManualPosition] = useState(initialManualPosition);
   const overlayKey = overlay?.overlay_id ?? null;
 
   useEffect(() => {
-    onPositionChangeRef.current = onPositionChange;
-  }, [onPositionChange]);
-
-  useEffect(() => {
     onManualPositionChangeRef.current = onManualPositionChange;
   }, [onManualPositionChange]);
-
-  useEffect(() => {
-    onPositionChangeRef.current(position);
-  }, [position]);
 
   useEffect(() => {
     onManualPositionChangeRef.current(manualPosition);
@@ -97,61 +92,19 @@ export function InspectorPanel({
     setManualPosition(false);
   }, [anchorPoint, overlayKey]);
 
-  useEffect(() => {
-    const handle = dragHandleRef.current;
-    const panel = panelRef.current;
-    if (!handle || !panel) {
-      return;
-    }
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) {
-        return;
-      }
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest("button")) {
-        return;
-      }
-      const parent = panel.offsetParent;
-      if (!(parent instanceof HTMLElement)) {
-        return;
-      }
-      const panelRect = panel.getBoundingClientRect();
-      const parentRect = parent.getBoundingClientRect();
-      const offsetX = event.clientX - panelRect.left;
-      const offsetY = event.clientY - panelRect.top;
+  useDraggableFloatingSurface({
+    handleRef: dragHandleRef,
+    surfaceRef: panelRef,
+    clampInset: 14,
+    setPosition,
+    onDragStart: () => {
       setManualPosition(true);
-      handle.setPointerCapture(event.pointerId);
-
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const nextLeft = moveEvent.clientX - parentRect.left - offsetX;
-        const nextTop = moveEvent.clientY - parentRect.top - offsetY;
-        const gap = 14;
-        setPosition({
-          left: Math.max(gap, Math.min(nextLeft, parentRect.width - panelRect.width - gap)),
-          top: Math.max(gap, Math.min(nextTop, parentRect.height - panelRect.height - gap)),
-        });
-      };
-
-      const stopDrag = (endEvent: PointerEvent) => {
-        if (handle.hasPointerCapture(endEvent.pointerId)) {
-          handle.releasePointerCapture(endEvent.pointerId);
-        }
-        handle.removeEventListener("pointermove", onPointerMove);
-        handle.removeEventListener("pointerup", stopDrag);
-        handle.removeEventListener("pointercancel", stopDrag);
-      };
-
-      handle.addEventListener("pointermove", onPointerMove);
-      handle.addEventListener("pointerup", stopDrag);
-      handle.addEventListener("pointercancel", stopDrag);
-    };
-
-    handle.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      handle.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, []);
+    },
+    canStartDrag: (event) => {
+      const target = event.target;
+      return !(target instanceof HTMLElement && target.closest("button"));
+    },
+  });
 
   if (!overlay && !detail && !loading && !error) {
     return null;

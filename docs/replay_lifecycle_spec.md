@@ -248,22 +248,21 @@ That means:
 
 ## Current Publication Status
 
-Current shipped publication is mixed by rulebook version.
+Current shipped publication is split by rulebook version, but no longer mixed within the active `v0.2` chain.
 
 Current status:
 
 - `v0.1` structure datasets remain latest-state snapshots only
-- `v0.2` pivots now publish both latest-state `objects` datasets and sparse lifecycle `events` datasets
-- `v0.2` legs, `major_lh`, and breakout-start outputs remain object-only in the current phase
-- the backend now supports replay-oriented chart-window and structure-detail reads that resolve pivots from lifecycle events when present and fall back to conservative `as_of` object resolution for the rest of the chain
+- the active `v0.2` structure chain now publishes both latest-state `objects` datasets and sparse lifecycle `events` datasets for `pivot_st`, `pivot`, `leg`, `major_lh`, and breakout-start families
+- backend chart-window and structure-detail reads now resolve the full `v0.2` chain from lifecycle events when those datasets are present, including replay-visible structures that do not survive in the latest-state object datasets
 
 Implication:
 
 - current artifacts are acceptable for latest-state exploration
-- current mixed replay path is useful for pivot-first lifecycle review without future leakage
-- current artifacts are still insufficient as the sole source for fully coherent full-chain lifecycle replay
+- current `v0.2` lifecycle artifacts are also sufficient for coherent full-chain replay without pushing semantics into the inspector
+- the remaining publication gap is operational rather than architectural: canonical live `artifact_v0_2` still needs full-dataset materialization where only `runtime_v0_2` is available today
 
-Future replay work must add lifecycle-capable structure publication without moving semantics into the inspector.
+Future replay work must keep lifecycle-capable publication as the backend-owned source of truth without moving semantics into the inspector.
 The preferred implementation pattern is now:
 
 - one latest-state `objects` row per `structure_id`

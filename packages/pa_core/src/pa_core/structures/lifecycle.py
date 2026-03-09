@@ -48,11 +48,11 @@ def resolve_structure_states_from_lifecycle_events(
             current=current,
             allow_initial_confirmed=allow_initial_confirmed,
         )
-        resolved = _apply_event_to_structure_state(row=event, current=current)
-        if event.event_type in {"invalidated", "replaced"} or event.state_after_event == "invalidated":
-            active_by_structure_id.pop(event.structure_id, None)
-            continue
-        active_by_structure_id[event.structure_id] = resolved
+        _apply_lifecycle_event(
+            active_by_structure_id,
+            event=event,
+            current=current,
+        )
     return active_by_structure_id
 
 
@@ -70,6 +70,26 @@ def resolve_structure_rows_from_lifecycle_events(
             allow_initial_confirmed=allow_initial_confirmed,
         ).items()
     }
+
+
+def advance_structure_states_from_lifecycle_event(
+    active_by_structure_id: dict[str, ResolvedStructureState],
+    event_row: Mapping[str, object] | StructureLifecycleEvent,
+    *,
+    allow_initial_confirmed: bool = False,
+) -> None:
+    event = coerce_structure_lifecycle_event(event_row)
+    current = active_by_structure_id.get(event.structure_id)
+    _validate_lifecycle_transition(
+        event=event,
+        current=current,
+        allow_initial_confirmed=allow_initial_confirmed,
+    )
+    _apply_lifecycle_event(
+        active_by_structure_id,
+        event=event,
+        current=current,
+    )
 
 
 def coerce_structure_lifecycle_event(
@@ -207,6 +227,19 @@ def _apply_event_to_structure_state(
         reason_codes=tuple(str(value) for value in resolved.get("reason_codes") or ()),
         explanation_codes=tuple(str(value) for value in resolved.get("explanation_codes") or ()),
     )
+
+
+def _apply_lifecycle_event(
+    active_by_structure_id: dict[str, ResolvedStructureState],
+    *,
+    event: StructureLifecycleEvent,
+    current: ResolvedStructureState | None,
+) -> None:
+    resolved = _apply_event_to_structure_state(row=event, current=current)
+    if event.event_type in {"invalidated", "replaced"} or event.state_after_event == "invalidated":
+        active_by_structure_id.pop(event.structure_id, None)
+        return
+    active_by_structure_id[event.structure_id] = resolved
 
 
 def _validate_lifecycle_transition(

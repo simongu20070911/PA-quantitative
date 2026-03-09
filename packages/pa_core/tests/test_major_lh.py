@@ -5,7 +5,10 @@ import unittest
 import numpy as np
 import pyarrow as pa
 
-from pa_core.structures.major_lh import build_major_lh_structure_frame
+from pa_core.structures.major_lh import (
+    build_major_lh_lifecycle_frames,
+    build_major_lh_structure_frame,
+)
 
 
 class MajorLowerHighTests(unittest.TestCase):
@@ -163,6 +166,34 @@ class MajorLowerHighTests(unittest.TestCase):
         self.assertEqual(frame.num_rows, 1)
         self.assertIn("cross_session_sequence", frame.to_pylist()[0]["explanation_codes"])
 
+    def test_major_lh_lifecycle_tracks_candidate_then_confirmed(self) -> None:
+        bar_frame = _make_bar_frame(
+            bar_ids=np.array([100, 110, 120, 130, 140], dtype=np.int64),
+            session_ids=np.full(5, 20240102, dtype=np.int64),
+            session_dates=np.full(5, 20240102, dtype=np.int64),
+            highs=np.array([12.0, 20.0, 13.0, 18.0, 11.0], dtype=np.float64),
+            lows=np.array([5.0, 9.0, 6.0, 8.0, 4.0], dtype=np.float64),
+        )
+        frames = build_major_lh_lifecycle_frames(
+            bar_frame=bar_frame,
+            leg_event_frame=pa.Table.from_pylist(
+                [
+                    _leg_event("leg-up-100-110:created:110", "leg-up-100-110", "leg_up", "created", 110, "confirmed", 100, 110, 111),
+                    _leg_event("leg-down-110-120:created:120", "leg-down-110-120", "leg_down", "created", 120, "confirmed", 110, 120, 121),
+                    _leg_event("leg-up-120-130:created:130", "leg-up-120-130", "leg_up", "created", 130, "confirmed", 120, 130, 131),
+                    _leg_event("leg-down-130-140:created:140", "leg-down-130-140", "leg_down", "created", 140, "confirmed", 130, 140, 141),
+                ]
+            ),
+            feature_refs=("feature=a",),
+        )
+
+        events = frames.event_frame.to_pylist()
+        self.assertEqual(
+            [(event["event_type"], event["event_bar_id"], event["state_after_event"]) for event in events],
+            [("created", 130, "candidate"), ("confirmed", 140, "confirmed")],
+        )
+        self.assertEqual(frames.object_frame.to_pylist()[0]["state"], "confirmed")
+
 
 def _make_bar_frame(
     *,
@@ -206,6 +237,39 @@ def _make_leg_frame(
             }
         )
     return pa.Table.from_pylist(payload)
+
+
+def _leg_event(
+    event_id: str,
+    structure_id: str,
+    kind: str,
+    event_type: str,
+    event_bar_id: int,
+    state_after_event: str,
+    start_bar_id: int,
+    end_bar_id: int,
+    confirm_bar_id: int | None,
+) -> dict[str, object]:
+    return {
+        "event_id": event_id,
+        "structure_id": structure_id,
+        "kind": kind,
+        "event_type": event_type,
+        "event_bar_id": event_bar_id,
+        "event_order": 0,
+        "state_after_event": state_after_event,
+        "reason_codes": ("test",),
+        "start_bar_id": start_bar_id,
+        "end_bar_id": end_bar_id,
+        "confirm_bar_id": confirm_bar_id,
+        "anchor_bar_ids": (start_bar_id, end_bar_id),
+        "predecessor_structure_id": None,
+        "successor_structure_id": None,
+        "payload_after": {"explanation_codes": ("pivot_chain_v1", "alternating_extreme_pivots")},
+        "changed_fields": (),
+        "session_id": 20240102,
+        "session_date": 20240102,
+    }
 
 
 if __name__ == "__main__":

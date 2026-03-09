@@ -30,14 +30,17 @@ from pa_core.rulebooks.v0_2 import (
     PIVOT_ST_BAR_FINALIZATION,
     PIVOT_ST_KIND_GROUP,
 )
-from pa_core.structures.breakout_starts import build_bearish_breakout_start_frame
+from pa_core.structures.breakout_starts import build_bearish_breakout_start_lifecycle_frames
 from pa_core.structures.input import (
     FEATURE_BUNDLE_BASE_COLUMNS,
     structure_inputs_from_frames,
 )
+from pa_core.structures.legs_v0_2 import (
+    build_leg_lifecycle_frames,
+    build_leg_structure_frame,
+)
+from pa_core.structures.major_lh import build_major_lh_lifecycle_frames
 from pa_core.structures.registry import resolve_structure_dataset_specs
-from pa_core.structures.legs_v0_2 import build_leg_structure_frame
-from pa_core.structures.major_lh import build_major_lh_structure_frame
 from pa_core.structures.pivots_v0_2 import PIVOT_SPEC, PIVOT_ST_SPEC, build_pivot_tier_frames
 
 
@@ -195,10 +198,12 @@ def load_runtime_structure_chain(
         frame=pivot_frames.event_frame.drop(["_anchor_index"]),
     )
     leg_spec = dataset_specs_by_kind[LEG_KIND_GROUP]
-    leg_frame = build_leg_structure_frame(
+    leg_frames = build_leg_lifecycle_frames(
         bar_frame=bar_frame.select(["bar_id", "session_id", "session_date", "high", "low"]),
-        pivot_frame=pivot_dataset.frame,
+        pivot_event_frame=pivot_event_dataset.frame,
         feature_refs=structure_inputs.feature_refs,
+        rulebook_version=leg_spec.rulebook_version,
+        structure_version=leg_spec.structure_version,
         structure_scope=family_spec.input_ref,
     )
     leg_dataset = RuntimeStructureDataset(
@@ -209,15 +214,25 @@ def load_runtime_structure_chain(
         input_ref=leg_spec.input_ref,
         structure_refs=leg_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
-        frame=leg_frame,
+        frame=leg_frames.object_frame,
+    )
+    leg_event_dataset = RuntimeStructureEventDataset(
+        kind=LEG_KIND_GROUP,
+        rulebook_version=leg_spec.rulebook_version,
+        structure_version=leg_spec.structure_version,
+        bar_finalization=LEG_BAR_FINALIZATION,
+        input_ref=leg_spec.input_ref,
+        structure_refs=leg_spec.structure_refs,
+        feature_refs=structure_inputs.feature_refs,
+        frame=leg_frames.event_frame,
     )
     major_spec = dataset_specs_by_kind[MAJOR_LH_KIND_GROUP]
-    major_frame = build_major_lh_structure_frame(
+    major_frames = build_major_lh_lifecycle_frames(
         bar_frame=bar_frame.select(["bar_id", "session_id", "session_date", "high", "low"]),
-        leg_frame=leg_frame,
+        leg_event_frame=leg_event_dataset.frame,
         feature_refs=structure_inputs.feature_refs,
-        rulebook_version=MAJOR_LH_RULEBOOK_VERSION,
-        structure_version=MAJOR_LH_STRUCTURE_VERSION,
+        rulebook_version=major_spec.rulebook_version,
+        structure_version=major_spec.structure_version,
         structure_scope=family_spec.input_ref,
     )
     major_dataset = RuntimeStructureDataset(
@@ -228,17 +243,27 @@ def load_runtime_structure_chain(
         input_ref=major_spec.input_ref,
         structure_refs=major_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
-        frame=major_frame,
+        frame=major_frames.object_frame,
+    )
+    major_event_dataset = RuntimeStructureEventDataset(
+        kind=MAJOR_LH_KIND_GROUP,
+        rulebook_version=major_spec.rulebook_version,
+        structure_version=major_spec.structure_version,
+        bar_finalization=MAJOR_LH_BAR_FINALIZATION,
+        input_ref=major_spec.input_ref,
+        structure_refs=major_spec.structure_refs,
+        feature_refs=structure_inputs.feature_refs,
+        frame=major_frames.event_frame,
     )
     breakout_spec = dataset_specs_by_kind[BREAKOUT_START_KIND_GROUP]
-    breakout_frame = build_bearish_breakout_start_frame(
+    breakout_frames = build_bearish_breakout_start_lifecycle_frames(
         bar_frame=bar_frame.select(["bar_id", "session_id", "session_date", "low"]),
         feature_bundle=structure_inputs.feature_arrays,
-        leg_frame=leg_frame,
-        major_lh_frame=major_frame,
+        leg_event_frame=leg_event_dataset.frame,
+        major_lh_event_frame=major_event_dataset.frame,
         feature_refs=structure_inputs.feature_refs,
-        rulebook_version=BREAKOUT_START_RULEBOOK_VERSION,
-        structure_version=BREAKOUT_START_STRUCTURE_VERSION,
+        rulebook_version=breakout_spec.rulebook_version,
+        structure_version=breakout_spec.structure_version,
         structure_scope=family_spec.input_ref,
     )
     breakout_dataset = RuntimeStructureDataset(
@@ -249,7 +274,17 @@ def load_runtime_structure_chain(
         input_ref=breakout_spec.input_ref,
         structure_refs=breakout_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
-        frame=breakout_frame,
+        frame=breakout_frames.object_frame,
+    )
+    breakout_event_dataset = RuntimeStructureEventDataset(
+        kind=BREAKOUT_START_KIND_GROUP,
+        rulebook_version=breakout_spec.rulebook_version,
+        structure_version=breakout_spec.structure_version,
+        bar_finalization=BREAKOUT_START_BAR_FINALIZATION,
+        input_ref=breakout_spec.input_ref,
+        structure_refs=breakout_spec.structure_refs,
+        feature_refs=structure_inputs.feature_refs,
+        frame=breakout_frames.event_frame,
     )
 
     return RuntimeStructureChain(
@@ -257,7 +292,13 @@ def load_runtime_structure_chain(
         bar_frame=bar_frame,
         feature_bundle=feature_bundle,
         datasets=(pivot_st_dataset, pivot_dataset, leg_dataset, major_dataset, breakout_dataset),
-        event_datasets=(pivot_st_event_dataset, pivot_event_dataset),
+        event_datasets=(
+            pivot_st_event_dataset,
+            pivot_event_dataset,
+            leg_event_dataset,
+            major_event_dataset,
+            breakout_event_dataset,
+        ),
     )
 
 

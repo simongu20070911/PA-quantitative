@@ -132,9 +132,9 @@ Current derived structure policy:
 - current materialized breakout-start dataset contains `4,164` confirmed `bearish_breakout_start` rows
 - structure manifests carry explicit `timing_semantics`, `bar_finalization`, `feature_refs`, and manifest-level `structure_refs`
 - structure artifacts preserve `rulebook_version`, `confirm_bar_id`, `session_id`, and `session_date`
-- current shipped structure artifacts are latest-state snapshots and are not yet replay-complete lifecycle datasets
+- the shipped `v0.1` structure artifacts remain latest-state snapshots, while the `v0.2` structure chain now supports full lifecycle-backed publication across `pivot_st`, `pivot`, `leg`, `major_lh`, and breakout-start families
 - canonical `eth_full 1m` `v0.2` structure objects are not yet materialized under `artifacts/structures/`, so the inspector/API must currently choose between canonical `v0.1` artifacts and runtime `v0.2` reads
-- `v0.2` pivot publication now also supports sparse lifecycle `events` datasets under `dataset=events` alongside latest-state `objects` datasets under `dataset=objects`
+- `v0.2` structure publication now supports sparse lifecycle `events` datasets under `dataset=events` alongside latest-state `objects` datasets under `dataset=objects` for `pivot_st`, `pivot`, `leg`, `major_lh`, and breakout-start
 - lifecycle event artifacts now carry optional typed `payload_after` plus sparse `changed_fields`, with the payload schema stored in the event manifest for replay readers
 - non-canonical derived families now also support a backend-native runtime structure chain that computes family-specific edge features plus `pivot`, `leg`, `major_lh`, and breakout-start rows directly from the requested session/timeframe bar family instead of projecting canonical `1m` structures
 
@@ -153,11 +153,12 @@ Current API policy:
 - `pa_api` is now the thin read layer over the current `pa_core` artifact chain
 - chart-window and structure-detail orchestration for source resolution, artifact/runtime loading, replay row resolution, and overlay projection now lives in `packages/pa_core/src/pa_core/chart_reads.py`, with `packages/pa_api/src/pa_api/service.py` focused on request validation and API-model shaping
 - backend structure-source topology for `artifact_v0_1`, `artifact_v0_2`, and `runtime_v0_2` is now defined once in `packages/pa_core/src/pa_core/structures/registry.py` and consumed by both chart reads and runtime chain assembly
+- the `leg`, `major_lh`, and `breakout_start` artifact materializers now resolve upstream dependency frames, `input_ref`, `structure_refs`, timing semantics, and bar-finalization through shared materialization helpers in `packages/pa_core/src/pa_core/structures/materialization.py` instead of reconstructing that provenance in each family module
 - `GET /chart-window` supports `center_bar_id`, `session_date`, or explicit `start_time` / `end_time` selectors plus overlay-layer filtering
 - `GET /chart-window` and `GET /structure/{structure_id}` now also accept an explicit `structure_source` selector with `auto`, `artifact_v0_1`, `artifact_v0_2`, and `runtime_v0_2` profiles
 - canonical `auto` reads now resolve structure source explicitly: prefer `artifact_v0_2` when materialized, then `artifact_v0_1`, then fall back to `runtime_v0_2`
 - `GET /chart-window` now also supports an optional `as_of_bar_id` cursor and returns backend-resolved structure summaries plus overlays as of that bar without leaking future confirmed state
-- `GET /chart-window` now also returns sparse pivot lifecycle events for replay when `v0.2` pivot event artifacts are available, while non-pivot structures still fall back to snapshot-object replay semantics
+- `GET /chart-window` now resolves the full `v0.2` structure chain from lifecycle events when those datasets are available, including `leg`, `major_lh`, and breakout-start families instead of only pivots
 - replay resolution now uses a shared `pa_core` lifecycle reducer over event rows instead of a pivot-specific API-side row rebuilder, and replay event responses now expose `payload_after` plus `changed_fields`
 - `GET /chart-window` now also supports `session_profile` plus derived minute `timeframe` families backed by deterministic backend filtering/aggregation from canonical `eth_full 1m`
 - `GET /chart-window` now also supports repeated `ema_length` query params and returns backend-computed `ema_lines` plus requested lengths in window metadata
@@ -193,8 +194,8 @@ Current inspector policy:
 - canonical-family `runtime_v0_2` chart loads now build the runtime structure chain against the requested candidate window instead of the full family, which brings the live v0.2 inspector path back into an interactive load range
 - replay now uses an explicit choose-the-cursor flow: future bars remain visible only while no replay cursor has been selected, and once a cursor is chosen the chart surface hides future bars instead of merely dimming them
 - inspector window caching is now bounded and replay `as_of_bar_id` snapshots no longer enter the long-lived chart cache or adjacent-window prefetch path, which prevents replay stepping from accumulating an unbounded pile of heavy chart payloads in browser memory
-- backend replay reads are now pivot-aware under `v0.2` across both canonical artifact-backed families and runtime-derived families: pivot objects resolve from lifecycle events while the rest of the structure chain still uses conservative snapshot-object `as_of` reads
-- the pivot-first implementation has now been generalized into a shared lifecycle reducer contract in `pa_core`, but only pivot-family datasets publish lifecycle rows today
+- backend replay reads are now full-chain lifecycle-aware under `v0.2` across both canonical artifact-backed families and runtime-derived families: `pivot_st`, `pivot`, `leg`, `major_lh`, and breakout-start rows all resolve through the shared lifecycle reducer
+- the shared lifecycle reducer in `pa_core` now powers both family-level event publication and API/runtime replay reads, and structure detail can resolve replay-visible rows even when they no longer survive in latest-state object datasets
 - the live chart-window path now supplements missing canonical anchor bars before overlay projection, which prevents long-span overlays from crashing the inspector on real data windows
 - the inspector now also includes a local left-rail annotation layer for chart markup with line and box tools anchored to `bar_id + price`, plus selection and deletion behavior that scales with chart pan and zoom while remaining non-canonical UI state
 - those non-canonical local annotations now survive browser reloads alongside the current chart-family controls, selections, floating-panel placement, and layer-toggle preferences, but they are still browser-local state rather than canonical review artifacts
@@ -210,15 +211,14 @@ That means:
 3. build the first inspector workflow on top of `pivot`, `pivot_st`, `leg`, `major_lh`, and breakout-start outputs
 4. preserve provenance back to `bar_id`, `feature_version`, `structure_refs`, and `data_version`
 5. keep semantics in `pa_core`, not the API or inspector
-6. deepen replay correctness from pivot-first lifecycle publication before expanding event publication to the rest of the structure chain
+6. materialize canonical `artifact_v0_2` on the live dataset so the now-complete `v0.2` lifecycle chain is available without runtime fallback
 
 ## Known Gaps
 
 - No materialized overlay artifacts exist yet for the current structure slice.
 - Canonical `eth_full 1m` `v0.2` structure objects are still not materialized, so `artifact_v0_2` remains an explicit but currently unavailable source profile on the live dataset.
 - Because canonical `artifact_v0_2` is still unavailable, the inspector now steers ordinary `v0.2` use toward `runtime_v0_2` rather than presenting `artifact_v0_2` as a normal working choice.
-- Lifecycle events are now fully implemented for `v0.2` pivots across canonical and runtime family reads; legs, `major_lh`, and breakout starts remain object-only.
-- Replay currently mixes pivot lifecycle events with snapshot-object reads for the rest of the chain; full-chain lifecycle replay is still incomplete.
+- Canonical live `artifact_v0_2` artifacts still need a full-dataset materialization run before the inspector can stop preferring `runtime_v0_2` in ordinary use.
 - Review capture is still unimplemented.
 - Browser-level smoke checks now work locally through Playwright CLI, but they are not yet packaged into a repeatable automated test target.
 

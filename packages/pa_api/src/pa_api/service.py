@@ -554,11 +554,19 @@ def _context_meta(
         replay_source=(
             None
             if as_of_bar_id is None
-            else ("lifecycle_events_plus_as_of_objects" if has_lifecycle_events else "as_of_objects")
+            else ("lifecycle_events" if has_lifecycle_events else "as_of_objects")
         ),
         replay_completeness=(
             None
             if as_of_bar_id is None
-            else ("lifecycle_events_plus_snapshot_objects" if has_lifecycle_events else "snapshot_objects_only")
+            else (
+                "lifecycle_events_complete_chain"
+                if has_lifecycle_events and context.replay_chain_complete
+                else (
+                    "lifecycle_events_plus_snapshot_objects"
+                    if has_lifecycle_events
+                    else "snapshot_objects_only"
+                )
+            )
         ),
     )

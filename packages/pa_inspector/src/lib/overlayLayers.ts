@@ -1,4 +1,5 @@
 import type { Overlay, OverlayLayer } from "./types";
+import { resolveOverlayLayer } from "./overlaySemantics";
 
 export const INITIAL_OVERLAY_LAYERS: Record<OverlayLayer, boolean> = {
   pivot_st: false,
@@ -29,40 +30,7 @@ export const OVERLAY_LAYER_LABELS: Record<OverlayLayer, string> = {
 };
 
 export function overlayToLayer(overlay: Overlay): OverlayLayer | null {
-  const sourceKind = overlay.meta.source_kind;
-  if (typeof sourceKind === "string") {
-    if (sourceKind.startsWith("pivot_st_")) {
-      return "pivot_st";
-    }
-    if (sourceKind.startsWith("pivot_")) {
-      return "pivot";
-    }
-    if (sourceKind.startsWith("leg_")) {
-      return "leg";
-    }
-    if (sourceKind === "major_lh") {
-      return "major_lh";
-    }
-    if (sourceKind === "bearish_breakout_start") {
-      return "breakout_start";
-    }
-  }
-  if (overlay.kind === "leg-line") {
-    return "leg";
-  }
-  if (overlay.kind === "major-lh-marker") {
-    return "major_lh";
-  }
-  if (overlay.kind === "breakout-marker") {
-    return "breakout_start";
-  }
-  if (overlay.style_key.startsWith("pivot_st.")) {
-    return "pivot_st";
-  }
-  if (overlay.style_key.startsWith("pivot.")) {
-    return "pivot";
-  }
-  return null;
+  return resolveOverlayLayer(overlay);
 }
 
 export function filterOverlaysByEnabledLayers(
