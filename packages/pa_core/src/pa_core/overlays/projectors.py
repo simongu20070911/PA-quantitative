@@ -6,6 +6,7 @@ from typing import Sequence
 import pyarrow as pa
 
 from pa_core.artifacts.structures import StructureArtifactManifest
+from pa_core.common import build_bar_lookup
 from pa_core.schemas import OverlayObject
 from pa_core.structures.breakout_starts import (
     BREAKOUT_START_KIND_GROUP,
@@ -91,7 +92,7 @@ def project_overlay_objects(
     if structure_frame.num_rows == 0:
         return []
 
-    bar_lookup = _build_bar_lookup(bar_frame)
+    bar_lookup = build_bar_lookup(bar_frame, duplicate_error_context="Overlay projection")
     overlays = []
     for row in structure_frame.to_pylist():
         overlay = _project_structure_row(
@@ -308,13 +309,3 @@ def _bar_price(
     except KeyError as exc:
         raise ValueError(f"Overlay projection missing canonical bar_id={bar_id}.") from exc
     return float(row[field])
-
-
-def _build_bar_lookup(bar_frame: pa.Table) -> dict[int, dict[str, object]]:
-    lookup: dict[int, dict[str, object]] = {}
-    for row in bar_frame.to_pylist():
-        bar_id = int(row["bar_id"])
-        if bar_id in lookup:
-            raise ValueError("Overlay projection requires unique canonical bar_id values.")
-        lookup[bar_id] = row
-    return lookup

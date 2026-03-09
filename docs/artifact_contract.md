@@ -117,11 +117,16 @@ Structure snapshot fields carried only when needed:
 - `anchor_bar_ids`
 - `confirm_bar_id` if applicable
 
+Kind-specific post-event state fields:
+
+- `payload_after` as a typed struct carrying the structure-family fields that are true after this event
+- `changed_fields` when a dataset version wants sparse patch semantics for `updated` or `confirmed` rows
+
 Action-specific payload rules:
 
 - `created` rows must carry the full currently visible structure shape
 - `updated` rows should carry only the changed structure snapshot fields unless a dataset version explicitly chooses full post-event snapshots
-- `confirmed` rows should usually carry only the event envelope plus `confirm_bar_id`
+- `confirmed` rows should usually carry only the event envelope plus `confirm_bar_id` and any sparse `changed_fields` needed to apply the post-event state
 - `invalidated` rows should usually carry only the event envelope
 - `replaced` rows should usually carry only the event envelope plus `successor_structure_id`
 
@@ -130,12 +135,13 @@ Relationship fields such as `predecessor_structure_id` and `successor_structure_
 Shared provenance policy:
 
 - keep `rulebook_version`, `structure_version`, `feature_refs`, `structure_refs`, `input_ref`, and other dataset-wide provenance in manifests by default
+- keep the event dataset's typed `payload_after` schema in the manifest so artifact readers and replay resolvers can rebuild the correct nested schema
 - duplicate shared provenance into event rows only when a dataset version explicitly prefers fully standalone rows
 
 Current implementation status:
 
 - the shipped `v0_1` datasets are object-only and still use the legacy object path layout under `.../kind=<kind>/`
-- no canonical lifecycle event datasets are materialized yet
+- `v0.2` pivot datasets now materialize canonical lifecycle `events` datasets with manifest-backed typed `payload_after` schemas
 - the current snapshot datasets are not replay-complete because invalidation, replacement, and intermediate candidate visibility are not yet published as events
 
 ## ID Rules

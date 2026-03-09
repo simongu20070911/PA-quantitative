@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal, Mapping
+from dataclasses import dataclass, field
+from typing import Any, Literal, Mapping
 
 Alignment = Literal["bar", "edge", "segment", "structure"]
+StructureEventType = Literal["created", "updated", "confirmed", "invalidated", "replaced"]
 StructureState = Literal["candidate", "confirmed", "invalidated"]
 MetadataScalar = str | int | float | bool
 MetadataValue = MetadataScalar | tuple[MetadataScalar, ...]
@@ -49,6 +50,46 @@ class StructureObject:
     feature_refs: tuple[str, ...]
     rulebook_version: str
     explanation_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StructureLifecycleEvent:
+    event_id: str
+    structure_id: str
+    kind: str
+    event_type: StructureEventType
+    event_bar_id: int
+    event_order: int
+    state_after_event: StructureState
+    reason_codes: tuple[str, ...]
+    start_bar_id: int
+    end_bar_id: int | None
+    confirm_bar_id: int | None
+    anchor_bar_ids: tuple[int, ...]
+    predecessor_structure_id: str | None = None
+    successor_structure_id: str | None = None
+    payload_after: Mapping[str, Any] | None = None
+    changed_fields: tuple[str, ...] = field(default_factory=tuple)
+    session_id: int | None = None
+    session_date: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedStructureState:
+    structure_id: str
+    kind: str
+    state: StructureState
+    start_bar_id: int
+    end_bar_id: int | None
+    confirm_bar_id: int | None
+    anchor_bar_ids: tuple[int, ...]
+    session_id: int | None
+    session_date: int | None
+    predecessor_structure_id: str | None = None
+    successor_structure_id: str | None = None
+    payload: Mapping[str, Any] = field(default_factory=dict)
+    reason_codes: tuple[str, ...] = field(default_factory=tuple)
+    explanation_codes: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)

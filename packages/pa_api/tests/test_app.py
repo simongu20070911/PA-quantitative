@@ -11,7 +11,10 @@ from pa_api import create_app
 from pa_api.service import ChartApiConfig, ChartApiService
 from pa_core.artifacts.bars import BarArtifactWriter
 from pa_core.artifacts.features import FeatureArtifactWriter
-from pa_core.artifacts.structure_events import STRUCTURE_EVENT_ARTIFACT_SCHEMA, StructureEventArtifactWriter
+from pa_core.artifacts.structure_events import (
+    StructureEventArtifactWriter,
+    build_structure_event_artifact_schema,
+)
 from pa_core.artifacts.structures import STRUCTURE_ARTIFACT_SCHEMA, StructureArtifactWriter
 from pa_core.rulebooks.v0_2 import (
     BREAKOUT_START_KIND_GROUP,
@@ -26,6 +29,7 @@ from pa_core.rulebooks.v0_2 import (
 )
 from pa_core.structures.input import build_feature_ref, build_structure_input_ref, build_structure_ref
 from pa_core.structures.pivots_v0_2 import (
+    PIVOT_EVENT_PAYLOAD_SCHEMA,
     PIVOT_KIND_GROUP,
     PIVOT_RULEBOOK_VERSION,
     PIVOT_STRUCTURE_VERSION,
@@ -121,8 +125,8 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             payload = response.json()
             self.assertEqual(payload["meta"]["as_of_bar_id"], 120)
-            self.assertEqual(payload["meta"]["replay_source"], "pivot_events_plus_as_of_objects")
-            self.assertEqual(payload["meta"]["replay_completeness"], "pivot_events_plus_snapshot_objects")
+            self.assertEqual(payload["meta"]["replay_source"], "lifecycle_events_plus_as_of_objects")
+            self.assertEqual(payload["meta"]["replay_completeness"], "lifecycle_events_plus_snapshot_objects")
             self.assertEqual(
                 {structure["structure_id"] for structure in payload["structures"]},
                 {"pivot-high-110", "leg-up-90-110"},
@@ -216,6 +220,7 @@ class ApiAppTests(unittest.TestCase):
                 [(event["event_type"], event["event_bar_id"]) for event in payload["events"]],
                 [("created", 130)],
             )
+            self.assertEqual(payload["events"][0]["payload_after"]["extreme_price"], 6.5)
             self.assertEqual(
                 [(overlay["source_structure_id"], overlay["style_key"]) for overlay in payload["overlays"]],
                 [("pivot-low-130", "pivot.low.candidate")],
@@ -424,8 +429,8 @@ class ApiAppTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertEqual(payload["meta"]["replay_source"], "pivot_events_plus_as_of_objects")
-            self.assertEqual(payload["meta"]["replay_completeness"], "pivot_events_plus_snapshot_objects")
+            self.assertEqual(payload["meta"]["replay_source"], "lifecycle_events_plus_as_of_objects")
+            self.assertEqual(payload["meta"]["replay_completeness"], "lifecycle_events_plus_snapshot_objects")
             pivot_structures = {
                 (structure["kind"], structure["state"], structure["start_bar_id"])
                 for structure in payload["structures"]
@@ -668,6 +673,7 @@ def _write_structure_artifacts(root: Path) -> None:
         rulebook_version=PIVOT_ST_SPEC.rulebook_version,
         input_ref=pivot_input_ref,
         feature_refs=feature_refs,
+        payload_schema=PIVOT_EVENT_PAYLOAD_SCHEMA,
         rows=[
             {
                 "event_id": "pivot-st-high-100:created:100",
@@ -684,6 +690,14 @@ def _write_structure_artifacts(root: Path) -> None:
                 "anchor_bar_ids": (100,),
                 "predecessor_structure_id": None,
                 "successor_structure_id": None,
+                "payload_after": {
+                    "explanation_codes": ("left_window_2",),
+                    "extreme_price": 12.0,
+                    "left_window": 2,
+                    "right_window": 2,
+                    "crosses_session_boundary": False,
+                },
+                "changed_fields": (),
                 "session_id": 20240102,
                 "session_date": 20240102,
             },
@@ -702,6 +716,8 @@ def _write_structure_artifacts(root: Path) -> None:
                 "anchor_bar_ids": (100,),
                 "predecessor_structure_id": None,
                 "successor_structure_id": None,
+                "payload_after": None,
+                "changed_fields": ("confirm_bar_id",),
                 "session_id": 20240102,
                 "session_date": 20240102,
             },
@@ -753,6 +769,7 @@ def _write_structure_artifacts(root: Path) -> None:
         rulebook_version=PIVOT_RULEBOOK_VERSION,
         input_ref=pivot_input_ref,
         feature_refs=feature_refs,
+        payload_schema=PIVOT_EVENT_PAYLOAD_SCHEMA,
         rows=[
             {
                 "event_id": "pivot-high-110:created:110",
@@ -769,6 +786,14 @@ def _write_structure_artifacts(root: Path) -> None:
                 "anchor_bar_ids": (110,),
                 "predecessor_structure_id": None,
                 "successor_structure_id": None,
+                "payload_after": {
+                    "explanation_codes": ("left_window_3",),
+                    "extreme_price": 13.0,
+                    "left_window": 5,
+                    "right_window": 5,
+                    "crosses_session_boundary": False,
+                },
+                "changed_fields": (),
                 "session_id": 20240102,
                 "session_date": 20240102,
             },
@@ -787,6 +812,8 @@ def _write_structure_artifacts(root: Path) -> None:
                 "anchor_bar_ids": (110,),
                 "predecessor_structure_id": None,
                 "successor_structure_id": None,
+                "payload_after": None,
+                "changed_fields": ("confirm_bar_id",),
                 "session_id": 20240102,
                 "session_date": 20240102,
             },
@@ -805,6 +832,14 @@ def _write_structure_artifacts(root: Path) -> None:
                 "anchor_bar_ids": (130,),
                 "predecessor_structure_id": None,
                 "successor_structure_id": None,
+                "payload_after": {
+                    "explanation_codes": ("left_window_3",),
+                    "extreme_price": 6.5,
+                    "left_window": 5,
+                    "right_window": 5,
+                    "crosses_session_boundary": False,
+                },
+                "changed_fields": (),
                 "session_id": 20240102,
                 "session_date": 20240102,
             },
@@ -922,6 +957,7 @@ def _write_structure_event_dataset(
     rulebook_version: str,
     input_ref: str,
     feature_refs: tuple[str, ...],
+    payload_schema: pa.DataType | None = None,
     rows: list[dict[str, object]],
 ) -> None:
     writer = StructureEventArtifactWriter(
@@ -934,8 +970,11 @@ def _write_structure_event_dataset(
         input_ref=input_ref,
         data_version="es_test_v1",
         feature_refs=feature_refs,
+        payload_schema=payload_schema,
     )
-    writer.write_chunk(pa.Table.from_pylist(rows, schema=STRUCTURE_EVENT_ARTIFACT_SCHEMA))
+    writer.write_chunk(
+        pa.Table.from_pylist(rows, schema=build_structure_event_artifact_schema(payload_schema))
+    )
     writer.finalize()
 
 

@@ -1,6 +1,6 @@
 # Project Status
 
-Status date: 2026-03-08
+Status date: 2026-03-09
 Project root: `/Users/simongu/Projects/PA quantitative`
 
 ## Summary
@@ -21,6 +21,7 @@ The project currently has:
 - an append-only session log in `docs/work_log.md`
 - a minimal package skeleton under `packages/`
 - initial typed schema objects in `packages/pa_core/src/pa_core/schemas.py`
+- shared typed structure lifecycle event and resolved replay-state models in `packages/pa_core/src/pa_core/schemas.py`
 - a canonical ES bar ingestion layer in `packages/pa_core/src/pa_core/data/`
 - a canonical `BarArrays` wrapper boundary for typed-array computation
 - a bar artifact layout, manifest, and reader path in `packages/pa_core/src/pa_core/artifacts/`
@@ -72,6 +73,7 @@ Implemented:
 - a dedicated replay/lifecycle spec that freezes backend-owned structure identity, transition, and replay-cursor semantics
 - a `v0.2` pivot rulebook slice with short-term pivots, structural pivots, and structural-leg semantics
 - structure dependency provenance through manifest-level `structure_refs` and hashed downstream `input_ref` values
+- explicit `StructureLifecycleEvent` and `ResolvedStructureState` dataclasses backing the shared lifecycle reducer contract
 - deterministic leg materialization with same-type pivot replacement, candidate/confirmed timing semantics, and stable IDs
 - deterministic `major_lh` materialization with tail-candidate behavior and proving-leg confirmation
 - deterministic bearish breakout-start materialization with internal leg-strength gating and earliest-break selection
@@ -133,6 +135,7 @@ Current derived structure policy:
 - current shipped structure artifacts are latest-state snapshots and are not yet replay-complete lifecycle datasets
 - canonical `eth_full 1m` `v0.2` structure objects are not yet materialized under `artifacts/structures/`, so the inspector/API must currently choose between canonical `v0.1` artifacts and runtime `v0.2` reads
 - `v0.2` pivot publication now also supports sparse lifecycle `events` datasets under `dataset=events` alongside latest-state `objects` datasets under `dataset=objects`
+- lifecycle event artifacts now carry optional typed `payload_after` plus sparse `changed_fields`, with the payload schema stored in the event manifest for replay readers
 - non-canonical derived families now also support a backend-native runtime structure chain that computes family-specific edge features plus `pivot`, `leg`, `major_lh`, and breakout-start rows directly from the requested session/timeframe bar family instead of projecting canonical `1m` structures
 
 Current derived overlay policy:
@@ -148,11 +151,14 @@ Current derived overlay policy:
 Current API policy:
 
 - `pa_api` is now the thin read layer over the current `pa_core` artifact chain
+- chart-window and structure-detail orchestration for source resolution, artifact/runtime loading, replay row resolution, and overlay projection now lives in `packages/pa_core/src/pa_core/chart_reads.py`, with `packages/pa_api/src/pa_api/service.py` focused on request validation and API-model shaping
+- backend structure-source topology for `artifact_v0_1`, `artifact_v0_2`, and `runtime_v0_2` is now defined once in `packages/pa_core/src/pa_core/structures/registry.py` and consumed by both chart reads and runtime chain assembly
 - `GET /chart-window` supports `center_bar_id`, `session_date`, or explicit `start_time` / `end_time` selectors plus overlay-layer filtering
 - `GET /chart-window` and `GET /structure/{structure_id}` now also accept an explicit `structure_source` selector with `auto`, `artifact_v0_1`, `artifact_v0_2`, and `runtime_v0_2` profiles
 - canonical `auto` reads now resolve structure source explicitly: prefer `artifact_v0_2` when materialized, then `artifact_v0_1`, then fall back to `runtime_v0_2`
 - `GET /chart-window` now also supports an optional `as_of_bar_id` cursor and returns backend-resolved structure summaries plus overlays as of that bar without leaking future confirmed state
 - `GET /chart-window` now also returns sparse pivot lifecycle events for replay when `v0.2` pivot event artifacts are available, while non-pivot structures still fall back to snapshot-object replay semantics
+- replay resolution now uses a shared `pa_core` lifecycle reducer over event rows instead of a pivot-specific API-side row rebuilder, and replay event responses now expose `payload_after` plus `changed_fields`
 - `GET /chart-window` now also supports `session_profile` plus derived minute `timeframe` families backed by deterministic backend filtering/aggregation from canonical `eth_full 1m`
 - `GET /chart-window` now also supports repeated `ema_length` query params and returns backend-computed `ema_lines` plus requested lengths in window metadata
 - for non-canonical families such as `eth_full 5m`, `GET /chart-window` now builds native family features and structures in `pa_core` before projecting overlays, instead of returning structure-less derived bars
@@ -188,6 +194,7 @@ Current inspector policy:
 - replay now uses an explicit choose-the-cursor flow: future bars remain visible only while no replay cursor has been selected, and once a cursor is chosen the chart surface hides future bars instead of merely dimming them
 - inspector window caching is now bounded and replay `as_of_bar_id` snapshots no longer enter the long-lived chart cache or adjacent-window prefetch path, which prevents replay stepping from accumulating an unbounded pile of heavy chart payloads in browser memory
 - backend replay reads are now pivot-aware under `v0.2` across both canonical artifact-backed families and runtime-derived families: pivot objects resolve from lifecycle events while the rest of the structure chain still uses conservative snapshot-object `as_of` reads
+- the pivot-first implementation has now been generalized into a shared lifecycle reducer contract in `pa_core`, but only pivot-family datasets publish lifecycle rows today
 - the live chart-window path now supplements missing canonical anchor bars before overlay projection, which prevents long-span overlays from crashing the inspector on real data windows
 - the inspector now also includes a local left-rail annotation layer for chart markup with line and box tools anchored to `bar_id + price`, plus selection and deletion behavior that scales with chart pan and zoom while remaining non-canonical UI state
 - those non-canonical local annotations now survive browser reloads alongside the current chart-family controls, selections, floating-panel placement, and layer-toggle preferences, but they are still browser-local state rather than canonical review artifacts

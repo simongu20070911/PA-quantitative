@@ -27,20 +27,15 @@ from pa_core.rulebooks.v0_2 import (
     MAJOR_LH_STRUCTURE_VERSION,
     PIVOT_BAR_FINALIZATION,
     PIVOT_KIND_GROUP,
-    PIVOT_RULEBOOK_VERSION,
-    PIVOT_STRUCTURE_VERSION,
     PIVOT_ST_BAR_FINALIZATION,
     PIVOT_ST_KIND_GROUP,
-    PIVOT_ST_RULEBOOK_VERSION,
-    PIVOT_ST_STRUCTURE_VERSION,
 )
 from pa_core.structures.breakout_starts import build_bearish_breakout_start_frame
 from pa_core.structures.input import (
     FEATURE_BUNDLE_BASE_COLUMNS,
-    build_structure_input_ref,
-    build_structure_ref,
     structure_inputs_from_frames,
 )
+from pa_core.structures.registry import resolve_structure_dataset_specs
 from pa_core.structures.legs_v0_2 import build_leg_structure_frame
 from pa_core.structures.major_lh import build_major_lh_structure_frame
 from pa_core.structures.pivots_v0_2 import PIVOT_SPEC, PIVOT_ST_SPEC, build_pivot_tier_frames
@@ -136,29 +131,40 @@ def load_runtime_structure_chain(
         feature_params_hash=feature_params_hash,
         feature_keys=EDGE_FEATURE_KEYS,
     )
+    dataset_specs_by_kind = {
+        dataset_spec.kind: dataset_spec
+        for dataset_spec in resolve_structure_dataset_specs(
+            data_version=family_spec.input_ref,
+            feature_version=feature_version,
+            feature_params_hash=feature_params_hash,
+            feature_refs=structure_inputs.feature_refs,
+            source="runtime_v0_2",
+        )
+    }
 
     pivot_st_frames = build_pivot_tier_frames(
         structure_inputs,
         tier_spec=PIVOT_ST_SPEC,
         structure_scope=family_spec.input_ref,
     )
+    pivot_st_spec = dataset_specs_by_kind[PIVOT_ST_KIND_GROUP]
     pivot_st_dataset = RuntimeStructureDataset(
         kind=PIVOT_ST_KIND_GROUP,
-        rulebook_version=PIVOT_ST_RULEBOOK_VERSION,
-        structure_version=PIVOT_ST_STRUCTURE_VERSION,
+        rulebook_version=pivot_st_spec.rulebook_version,
+        structure_version=pivot_st_spec.structure_version,
         bar_finalization=PIVOT_ST_BAR_FINALIZATION,
-        input_ref=structure_inputs.input_ref,
-        structure_refs=(),
+        input_ref=pivot_st_spec.input_ref,
+        structure_refs=pivot_st_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=pivot_st_frames.object_frame.drop(["_anchor_index"]),
     )
     pivot_st_event_dataset = RuntimeStructureEventDataset(
         kind=PIVOT_ST_KIND_GROUP,
-        rulebook_version=PIVOT_ST_RULEBOOK_VERSION,
-        structure_version=PIVOT_ST_STRUCTURE_VERSION,
+        rulebook_version=pivot_st_spec.rulebook_version,
+        structure_version=pivot_st_spec.structure_version,
         bar_finalization=PIVOT_ST_BAR_FINALIZATION,
-        input_ref=structure_inputs.input_ref,
-        structure_refs=(),
+        input_ref=pivot_st_spec.input_ref,
+        structure_refs=pivot_st_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=pivot_st_frames.event_frame.drop(["_anchor_index"]),
     )
@@ -167,40 +173,28 @@ def load_runtime_structure_chain(
         tier_spec=PIVOT_SPEC,
         structure_scope=family_spec.input_ref,
     )
+    pivot_spec = dataset_specs_by_kind[PIVOT_KIND_GROUP]
     pivot_dataset = RuntimeStructureDataset(
         kind=PIVOT_KIND_GROUP,
-        rulebook_version=PIVOT_RULEBOOK_VERSION,
-        structure_version=PIVOT_STRUCTURE_VERSION,
+        rulebook_version=pivot_spec.rulebook_version,
+        structure_version=pivot_spec.structure_version,
         bar_finalization=PIVOT_BAR_FINALIZATION,
-        input_ref=structure_inputs.input_ref,
-        structure_refs=(),
+        input_ref=pivot_spec.input_ref,
+        structure_refs=pivot_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=pivot_frames.object_frame.drop(["_anchor_index"]),
     )
     pivot_event_dataset = RuntimeStructureEventDataset(
         kind=PIVOT_KIND_GROUP,
-        rulebook_version=PIVOT_RULEBOOK_VERSION,
-        structure_version=PIVOT_STRUCTURE_VERSION,
+        rulebook_version=pivot_spec.rulebook_version,
+        structure_version=pivot_spec.structure_version,
         bar_finalization=PIVOT_BAR_FINALIZATION,
-        input_ref=structure_inputs.input_ref,
-        structure_refs=(),
+        input_ref=pivot_spec.input_ref,
+        structure_refs=pivot_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=pivot_frames.event_frame.drop(["_anchor_index"]),
     )
-    pivot_ref = build_structure_ref(
-        kind=pivot_dataset.kind,
-        rulebook_version=pivot_dataset.rulebook_version,
-        structure_version=pivot_dataset.structure_version,
-        input_ref=pivot_dataset.input_ref,
-    )
-
-    leg_input_ref = build_structure_input_ref(
-        data_version=family_spec.input_ref,
-        feature_version=feature_version,
-        feature_params_hash=feature_params_hash,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(pivot_ref,),
-    )
+    leg_spec = dataset_specs_by_kind[LEG_KIND_GROUP]
     leg_frame = build_leg_structure_frame(
         bar_frame=bar_frame.select(["bar_id", "session_id", "session_date", "high", "low"]),
         pivot_frame=pivot_dataset.frame,
@@ -209,28 +203,15 @@ def load_runtime_structure_chain(
     )
     leg_dataset = RuntimeStructureDataset(
         kind=LEG_KIND_GROUP,
-        rulebook_version=LEG_RULEBOOK_VERSION,
-        structure_version=LEG_STRUCTURE_VERSION,
+        rulebook_version=leg_spec.rulebook_version,
+        structure_version=leg_spec.structure_version,
         bar_finalization=LEG_BAR_FINALIZATION,
-        input_ref=leg_input_ref,
-        structure_refs=(pivot_ref,),
+        input_ref=leg_spec.input_ref,
+        structure_refs=leg_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=leg_frame,
     )
-    leg_ref = build_structure_ref(
-        kind=leg_dataset.kind,
-        rulebook_version=leg_dataset.rulebook_version,
-        structure_version=leg_dataset.structure_version,
-        input_ref=leg_dataset.input_ref,
-    )
-
-    major_input_ref = build_structure_input_ref(
-        data_version=family_spec.input_ref,
-        feature_version=feature_version,
-        feature_params_hash=feature_params_hash,
-        feature_refs=structure_inputs.feature_refs,
-        structure_refs=(leg_ref,),
-    )
+    major_spec = dataset_specs_by_kind[MAJOR_LH_KIND_GROUP]
     major_frame = build_major_lh_structure_frame(
         bar_frame=bar_frame.select(["bar_id", "session_id", "session_date", "high", "low"]),
         leg_frame=leg_frame,
@@ -241,21 +222,15 @@ def load_runtime_structure_chain(
     )
     major_dataset = RuntimeStructureDataset(
         kind=MAJOR_LH_KIND_GROUP,
-        rulebook_version=MAJOR_LH_RULEBOOK_VERSION,
-        structure_version=MAJOR_LH_STRUCTURE_VERSION,
+        rulebook_version=major_spec.rulebook_version,
+        structure_version=major_spec.structure_version,
         bar_finalization=MAJOR_LH_BAR_FINALIZATION,
-        input_ref=major_input_ref,
-        structure_refs=(leg_ref,),
+        input_ref=major_spec.input_ref,
+        structure_refs=major_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=major_frame,
     )
-    major_ref = build_structure_ref(
-        kind=major_dataset.kind,
-        rulebook_version=major_dataset.rulebook_version,
-        structure_version=major_dataset.structure_version,
-        input_ref=major_dataset.input_ref,
-    )
-
+    breakout_spec = dataset_specs_by_kind[BREAKOUT_START_KIND_GROUP]
     breakout_frame = build_bearish_breakout_start_frame(
         bar_frame=bar_frame.select(["bar_id", "session_id", "session_date", "low"]),
         feature_bundle=structure_inputs.feature_arrays,
@@ -268,17 +243,11 @@ def load_runtime_structure_chain(
     )
     breakout_dataset = RuntimeStructureDataset(
         kind=BREAKOUT_START_KIND_GROUP,
-        rulebook_version=BREAKOUT_START_RULEBOOK_VERSION,
-        structure_version=BREAKOUT_START_STRUCTURE_VERSION,
+        rulebook_version=breakout_spec.rulebook_version,
+        structure_version=breakout_spec.structure_version,
         bar_finalization=BREAKOUT_START_BAR_FINALIZATION,
-        input_ref=build_structure_input_ref(
-            data_version=family_spec.input_ref,
-            feature_version=feature_version,
-            feature_params_hash=feature_params_hash,
-            feature_refs=structure_inputs.feature_refs,
-            structure_refs=(leg_ref, major_ref),
-        ),
-        structure_refs=(leg_ref, major_ref),
+        input_ref=breakout_spec.input_ref,
+        structure_refs=breakout_spec.structure_refs,
         feature_refs=structure_inputs.feature_refs,
         frame=breakout_frame,
     )

@@ -88,6 +88,7 @@ export function OverlayCanvas({
     current: AnnotationAnchor;
   } | null>(null);
   const lineSnapActiveRef = useRef(false);
+  const modifierPressedRef = useRef(false);
   const barsRef = useRef(bars);
   const annotationsRef = useRef(annotations);
   const visibleOverlaysRef = useRef<Overlay[]>([]);
@@ -185,9 +186,11 @@ export function OverlayCanvas({
   useEffect(() => {
     const onKeyChange = (event: KeyboardEvent) => {
       lineSnapActiveRef.current = event.metaKey || event.ctrlKey;
+      modifierPressedRef.current = event.metaKey || event.ctrlKey;
     };
     const onBlur = () => {
       lineSnapActiveRef.current = false;
+      modifierPressedRef.current = false;
     };
     window.addEventListener("keydown", onKeyChange);
     window.addEventListener("keyup", onKeyChange);
@@ -246,7 +249,7 @@ export function OverlayCanvas({
       }
 
       onAnnotationSelectRef.current(null);
-      if (param.sourceEvent?.metaKey || param.sourceEvent?.ctrlKey) {
+      if (param.sourceEvent?.metaKey || param.sourceEvent?.ctrlKey || modifierPressedRef.current) {
         onOverlayCommandSelectRef.current(overlayDrawable.overlay);
         return;
       }
@@ -375,6 +378,19 @@ export function OverlayCanvas({
       }
 
       const renderData = adapter.getInspectorRenderData();
+      const overlayDrawable = findOverlayAtPoint(
+        renderData.overlayDrawables,
+        point.x,
+        point.y,
+      );
+      if (overlayDrawable && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        suppressNextChartClickRef.current = true;
+        onAnnotationSelectRef.current(null);
+        onOverlayCommandSelectRef.current(overlayDrawable.overlay);
+        return;
+      }
       const annotationHit = hitTestAnnotation(
         renderData.annotationDrawables,
         point.x,
@@ -557,16 +573,35 @@ export function OverlayCanvas({
       syncInspectorPrimitiveState(adapter);
     };
 
+    const onContextMenu = (event: MouseEvent) => {
+      const point = {
+        x: event.clientX - surface.getBoundingClientRect().left,
+        y: event.clientY - surface.getBoundingClientRect().top,
+      };
+      const renderData = adapter.getInspectorRenderData();
+      const overlayDrawable = findOverlayAtPoint(
+        renderData.overlayDrawables,
+        point.x,
+        point.y,
+      );
+      if (overlayDrawable && (event.metaKey || event.ctrlKey || modifierPressedRef.current)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
     surface.addEventListener("pointerdown", onPointerDown, true);
     surface.addEventListener("pointermove", onPointerMove, true);
     surface.addEventListener("pointerup", onPointerUp, true);
     surface.addEventListener("pointercancel", onPointerCancel, true);
+    surface.addEventListener("contextmenu", onContextMenu, true);
 
     return () => {
       surface.removeEventListener("pointerdown", onPointerDown, true);
       surface.removeEventListener("pointermove", onPointerMove, true);
       surface.removeEventListener("pointerup", onPointerUp, true);
       surface.removeEventListener("pointercancel", onPointerCancel, true);
+      surface.removeEventListener("contextmenu", onContextMenu, true);
     };
   }, [
     adapter,

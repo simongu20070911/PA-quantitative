@@ -107,6 +107,8 @@ Event-type rules:
 - `confirmed` sets `state_after_event = confirmed`
 - `invalidated` and `replaced` set `state_after_event = invalidated`
 - if a structure is born already confirmed, emit one `created` or `confirmed` event according to the dataset convention, but the convention must be stable within the version
+- replay reducers must reject illegal first transitions by default rather than silently treating them as `created`
+- a reducer may accept an initial `confirmed` event only when the caller explicitly opts into a stable born-confirmed dataset convention for that read path or dataset version
 
 Practical design preference:
 
@@ -149,6 +151,23 @@ The following fields describe the structure shape after an event:
 
 These are structure snapshot fields, not universally required event-envelope fields.
 
+## Post-Event Payload
+
+Lifecycle rows may also carry post-event state outside the cross-structure core fields.
+
+Shared optional fields:
+
+- `payload_after`: a typed structure-family payload describing the fields that are true after this event
+- `changed_fields`: optional sparse patch hints naming which core or payload fields changed on this event
+
+Rules:
+
+- `payload_after` is the post-event state, not the pre-event state
+- `created` must carry a full post-event payload when the structure family has payload fields beyond the shared core columns
+- `updated` and `confirmed` may carry sparse post-event payload patches rather than a full post-event payload
+- `changed_fields` is an optimization and audit aid; replay correctness must not depend on the UI inferring missing changes
+- replay reducers must apply events into one resolved `active_state_by_structure_id` map instead of re-deriving family-specific semantics from visible bars
+
 Emission rules:
 
 - `created` must carry the full currently visible structure shape
@@ -165,6 +184,7 @@ Optional but important relationship fields:
 Provenance preference:
 
 - `rulebook_version`, `structure_version`, `feature_refs`, `input_ref`, and other shared provenance should live at the dataset or manifest level by default
+- typed `payload_after` schema metadata should live at the event-dataset manifest level so loaders can reconstruct the correct nested schema
 - row-level duplication of shared provenance is optional and should be used only when a dataset version intentionally prefers fully standalone rows
 
 Rules:
@@ -244,3 +264,9 @@ Implication:
 - current artifacts are still insufficient as the sole source for fully coherent full-chain lifecycle replay
 
 Future replay work must add lifecycle-capable structure publication without moving semantics into the inspector.
+The preferred implementation pattern is now:
+
+- one latest-state `objects` row per `structure_id`
+- append-only `events` rows with a shared lifecycle envelope
+- optional typed `payload_after` per structure family
+- one shared backend reducer that applies lifecycle rows into resolved replay state across all kinds

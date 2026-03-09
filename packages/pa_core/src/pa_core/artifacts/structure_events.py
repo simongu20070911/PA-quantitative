@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 from dataclasses import asdict, dataclass
@@ -27,29 +28,45 @@ STRUCTURE_EVENT_ARTIFACT_COLUMNS = (
     "anchor_bar_ids",
     "predecessor_structure_id",
     "successor_structure_id",
+    "payload_after",
+    "changed_fields",
     "session_id",
     "session_date",
 )
-STRUCTURE_EVENT_ARTIFACT_SCHEMA = pa.schema(
-    [
-        ("event_id", pa.string()),
-        ("structure_id", pa.string()),
-        ("kind", pa.string()),
-        ("event_type", pa.string()),
-        ("event_bar_id", pa.int64()),
-        ("event_order", pa.int64()),
-        ("state_after_event", pa.string()),
-        ("reason_codes", pa.list_(pa.string())),
-        ("start_bar_id", pa.int64()),
-        ("end_bar_id", pa.int64()),
-        ("confirm_bar_id", pa.int64()),
-        ("anchor_bar_ids", pa.list_(pa.int64())),
-        ("predecessor_structure_id", pa.string()),
-        ("successor_structure_id", pa.string()),
-        ("session_id", pa.int64()),
-        ("session_date", pa.int64()),
-    ]
-)
+EMPTY_PAYLOAD_SCHEMA = pa.struct([])
+
+
+def build_structure_event_artifact_schema(
+    payload_schema: pa.DataType | None = None,
+) -> pa.Schema:
+    payload_type = payload_schema or EMPTY_PAYLOAD_SCHEMA
+    if not pa.types.is_struct(payload_type):
+        raise TypeError("Structure event payload schema must be a struct type.")
+    return pa.schema(
+        [
+            ("event_id", pa.string()),
+            ("structure_id", pa.string()),
+            ("kind", pa.string()),
+            ("event_type", pa.string()),
+            ("event_bar_id", pa.int64()),
+            ("event_order", pa.int64()),
+            ("state_after_event", pa.string()),
+            ("reason_codes", pa.list_(pa.string())),
+            ("start_bar_id", pa.int64()),
+            ("end_bar_id", pa.int64()),
+            ("confirm_bar_id", pa.int64()),
+            ("anchor_bar_ids", pa.list_(pa.int64())),
+            ("predecessor_structure_id", pa.string()),
+            ("successor_structure_id", pa.string()),
+            ("payload_after", payload_type),
+            ("changed_fields", pa.list_(pa.string())),
+            ("session_id", pa.int64()),
+            ("session_date", pa.int64()),
+        ]
+    )
+
+
+STRUCTURE_EVENT_ARTIFACT_SCHEMA = build_structure_event_artifact_schema()
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +80,7 @@ class StructureEventArtifactManifest:
     data_version: str
     feature_refs: tuple[str, ...]
     structure_refs: tuple[str, ...]
+    payload_schema_b64: str
     row_count: int
     created_count: int
     updated_count: int
@@ -91,6 +109,9 @@ class StructureEventArtifactManifest:
             data_version=str(payload["data_version"]),
             feature_refs=tuple(str(value) for value in payload["feature_refs"]),
             structure_refs=tuple(str(value) for value in payload.get("structure_refs", [])),
+            payload_schema_b64=str(
+                payload.get("payload_schema_b64", _serialize_payload_schema(EMPTY_PAYLOAD_SCHEMA))
+            ),
             row_count=int(payload["row_count"]),
             created_count=int(payload["created_count"]),
             updated_count=int(payload["updated_count"]),
@@ -120,6 +141,7 @@ class StructureEventArtifactWriter:
         data_version: str,
         feature_refs: Sequence[str],
         structure_refs: Sequence[str] = (),
+        payload_schema: pa.DataType | None = None,
         parquet_engine: str = "pyarrow",
     ) -> None:
         self.artifacts_root = artifacts_root
@@ -132,6 +154,10 @@ class StructureEventArtifactWriter:
         self.data_version = data_version
         self.feature_refs = tuple(feature_refs)
         self.structure_refs = tuple(structure_refs)
+        self.payload_schema = payload_schema or EMPTY_PAYLOAD_SCHEMA
+        if not pa.types.is_struct(self.payload_schema):
+            raise TypeError("Structure event payload schema must be a struct type.")
+        self.schema = build_structure_event_artifact_schema(self.payload_schema)
         self.parquet_engine = parquet_engine
         self.dataset_root = structure_dataset_root(
             artifacts_root=artifacts_root,
@@ -159,7 +185,7 @@ class StructureEventArtifactWriter:
         self._reset_output_root()
 
     def write_chunk(self, events: Any) -> None:
-        table = _coerce_event_table(events)
+        table = _coerce_event_table(events, schema=self.schema)
         if table.num_rows == 0:
             return
         missing = [
@@ -168,7 +194,7 @@ class StructureEventArtifactWriter:
         if missing:
             raise ValueError(f"Structure event chunk is missing columns: {missing}")
 
-        ordered = table.select(list(STRUCTURE_EVENT_ARTIFACT_COLUMNS)).combine_chunks()
+        ordered = table.select(list(STRUCTURE_EVENT_ARTIFACT_COLUMNS)).combine_chunks().cast(self.schema)
         session_dates = np.asarray(
             ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
             dtype=np.int64,
@@ -241,6 +267,7 @@ class StructureEventArtifactWriter:
             data_version=self.data_version,
             feature_refs=self.feature_refs,
             structure_refs=self.structure_refs,
+            payload_schema_b64=_serialize_payload_schema(self.payload_schema),
             row_count=self._row_count,
             created_count=self._event_counts["created"],
             updated_count=self._event_counts["updated"],
@@ -298,6 +325,24 @@ def load_structure_event_manifest(
     )
 
 
+def load_structure_event_schema(
+    *,
+    artifacts_root: Path,
+    rulebook_version: str,
+    structure_version: str,
+    input_ref: str,
+    kind: str,
+) -> pa.Schema:
+    manifest = load_structure_event_manifest(
+        artifacts_root=artifacts_root,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        kind=kind,
+    )
+    return build_structure_event_artifact_schema(_deserialize_payload_schema(manifest.payload_schema_b64))
+
+
 def load_structure_event_artifact(
     *,
     artifacts_root: Path,
@@ -316,6 +361,9 @@ def load_structure_event_artifact(
         structure_version=structure_version,
         input_ref=input_ref,
         kind=kind,
+    )
+    schema = build_structure_event_artifact_schema(
+        _deserialize_payload_schema(manifest.payload_schema_b64)
     )
     selected_years = None if years is None else {int(value) for value in years}
     dataset_root = structure_dataset_root(
@@ -336,11 +384,11 @@ def load_structure_event_artifact(
         selected_parts.append(dataset_root / part)
 
     if not selected_parts:
-        return empty_table(STRUCTURE_EVENT_ARTIFACT_SCHEMA, columns)
+        return empty_table(schema, columns)
 
     events = concat_tables(
         [read_table(part, columns=columns) for part in selected_parts],
-        schema=STRUCTURE_EVENT_ARTIFACT_SCHEMA,
+        schema=schema,
     )
     return sort_table(
         events,
@@ -348,9 +396,21 @@ def load_structure_event_artifact(
     )
 
 
-def _coerce_event_table(events: Any) -> pa.Table:
+def _coerce_event_table(events: Any, *, schema: pa.Schema = STRUCTURE_EVENT_ARTIFACT_SCHEMA) -> pa.Table:
     if isinstance(events, pa.Table):
         return events.combine_chunks()
     if isinstance(events, list):
-        return pa.Table.from_pylist(events, schema=STRUCTURE_EVENT_ARTIFACT_SCHEMA).combine_chunks()
+        return pa.Table.from_pylist(events, schema=schema).combine_chunks()
     raise TypeError("Structure events must be a pyarrow.Table or a list of mapping rows.")
+
+
+def _serialize_payload_schema(payload_schema: pa.DataType) -> str:
+    schema = pa.schema([("payload_after", payload_schema)])
+    return base64.b64encode(schema.serialize().to_pybytes()).decode("ascii")
+
+
+def _deserialize_payload_schema(payload_schema_b64: str) -> pa.DataType:
+    schema = pa.ipc.read_schema(
+        pa.BufferReader(base64.b64decode(payload_schema_b64.encode("ascii")))
+    )
+    return schema.field("payload_after").type

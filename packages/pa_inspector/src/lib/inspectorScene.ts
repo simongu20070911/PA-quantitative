@@ -716,13 +716,13 @@ function drawOverlay(
     const [point] = drawable.points;
     const isHigh = drawable.overlay.style_key.includes(".high.");
     if (isShortTermPivot(drawable.overlay.style_key)) {
-      drawDiamondBadge(context, point.x, point.y, 4.5, style);
+      drawDiamondBadge(context, point.x, point.y, 4.5, isHigh ? "above" : "below", style);
     } else {
       drawPivotBadge(context, point.x, point.y, 5, isHigh ? "down" : "up", style);
     }
   } else if (drawable.overlay.kind === "major-lh-marker") {
     const [point] = drawable.points;
-    drawDiamondBadge(context, point.x, point.y, 6, style);
+    drawDiamondBadge(context, point.x, point.y, 6, "above", style);
   } else if (drawable.overlay.kind === "breakout-marker") {
     const [point] = drawable.points;
     drawBreakoutBadge(context, point.x, point.y, 6, style);
@@ -798,10 +798,11 @@ function drawDiamondBadge(
   x: number,
   y: number,
   size: number,
+  placement: "above" | "below",
   style: OverlayPaint,
 ) {
   const anchor = crispPoint(x, y);
-  const badgeY = crisp(anchor.y - 8);
+  const badgeY = crisp(anchor.y + (placement === "above" ? -8 : 8));
   context.strokeStyle = style.stroke;
   context.fillStyle = "rgba(255, 251, 242, 0.985)";
   drawDiamond(context, anchor.x, badgeY, size);

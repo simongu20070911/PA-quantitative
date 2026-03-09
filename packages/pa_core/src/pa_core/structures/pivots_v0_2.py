@@ -8,11 +8,11 @@ from typing import Literal, Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import list_bar_data_versions, load_bar_manifest
+from pa_core.artifacts.bars import load_bar_manifest
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structure_events import (
-    STRUCTURE_EVENT_ARTIFACT_SCHEMA,
+    build_structure_event_artifact_schema,
     StructureEventArtifactManifest,
     StructureEventArtifactWriter,
 )
@@ -50,6 +50,7 @@ from pa_core.rulebooks.v0_2 import (
     PIVOT_STRUCTURE_VERSION,
     PIVOT_TIMING_SEMANTICS,
 )
+from pa_core.common import resolve_latest_bar_data_version
 from pa_core.structures.ids import build_structure_id
 from pa_core.structures.input import (
     StructureInputs,
@@ -58,6 +59,15 @@ from pa_core.structures.input import (
 )
 
 PivotSide = Literal["high", "low"]
+PIVOT_EVENT_PAYLOAD_SCHEMA = pa.struct(
+    [
+        ("explanation_codes", pa.list_(pa.string())),
+        ("extreme_price", pa.float64()),
+        ("left_window", pa.int64()),
+        ("right_window", pa.int64()),
+        ("crosses_session_boundary", pa.bool_()),
+    ]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +164,10 @@ def build_pivot_tier_frames(
                 [], schema=STRUCTURE_ARTIFACT_SCHEMA.append(pa.field("_anchor_index", pa.int64()))
             ),
             event_frame=pa.Table.from_pylist(
-                [], schema=STRUCTURE_EVENT_ARTIFACT_SCHEMA.append(pa.field("_anchor_index", pa.int64()))
+                [],
+                schema=build_structure_event_artifact_schema(PIVOT_EVENT_PAYLOAD_SCHEMA).append(
+                    pa.field("_anchor_index", pa.int64())
+                ),
             ),
         )
 
@@ -187,13 +200,22 @@ def build_pivot_tier_frames(
             )
 
             explanation_codes = list(tier_spec.base_explanation_codes)
-            if _cross_session_window(
+            crosses_session_boundary = _cross_session_window(
                 session_id=bar_arrays.session_id,
                 anchor_index=anchor_index,
                 left_window=tier_spec.left_window,
                 right_window=tier_spec.right_window,
-            ):
+            )
+            if crosses_session_boundary:
                 explanation_codes.append(tier_spec.cross_session_code)
+            payload_after = _build_pivot_payload_after(
+                bar_arrays=bar_arrays,
+                anchor_index=anchor_index,
+                side=side,
+                explanation_codes=explanation_codes,
+                tier_spec=tier_spec,
+                crosses_session_boundary=crosses_session_boundary,
+            )
 
             final_state = "candidate"
             replacement_bar_index: int | None = None
@@ -253,6 +275,8 @@ def build_pivot_tier_frames(
                     anchor_bar_ids=anchor_bar_ids,
                     predecessor_structure_id=None,
                     successor_structure_id=None,
+                    payload_after=payload_after,
+                    changed_fields=(),
                     session_id=int(bar_arrays.session_id[anchor_index]),
                     session_date=int(bar_arrays.session_date[anchor_index]),
                     anchor_index=anchor_index,
@@ -274,6 +298,8 @@ def build_pivot_tier_frames(
                         anchor_bar_ids=anchor_bar_ids,
                         predecessor_structure_id=None,
                         successor_structure_id=None,
+                        payload_after=None,
+                        changed_fields=("confirm_bar_id",),
                         session_id=int(bar_arrays.session_id[confirm_index]),
                         session_date=int(bar_arrays.session_date[confirm_index]),
                         anchor_index=anchor_index,
@@ -318,6 +344,12 @@ def build_pivot_tier_frames(
                         anchor_bar_ids=anchor_bar_ids,
                         predecessor_structure_id=None,
                         successor_structure_id=successor_structure_id,
+                        payload_after=None,
+                        changed_fields=(
+                            ("successor_structure_id",)
+                            if successor_structure_id is not None
+                            else ()
+                        ),
                         session_id=int(bar_arrays.session_id[replacement_bar_index]),
                         session_date=int(bar_arrays.session_date[replacement_bar_index]),
                         anchor_index=anchor_index,
@@ -325,7 +357,9 @@ def build_pivot_tier_frames(
                 )
 
     object_schema = STRUCTURE_ARTIFACT_SCHEMA.append(pa.field("_anchor_index", pa.int64()))
-    event_schema = STRUCTURE_EVENT_ARTIFACT_SCHEMA.append(pa.field("_anchor_index", pa.int64()))
+    event_schema = build_structure_event_artifact_schema(PIVOT_EVENT_PAYLOAD_SCHEMA).append(
+        pa.field("_anchor_index", pa.int64())
+    )
     object_frame = (
         pa.Table.from_pylist(object_rows, schema=object_schema).sort_by(
             [("start_bar_id", "ascending"), ("kind", "ascending"), ("structure_id", "ascending")]
@@ -349,7 +383,7 @@ def materialize_pivot_tier(
     *,
     tier_spec: PivotTierSpec,
 ) -> PivotTierMaterializationResult:
-    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
     bar_manifest = load_bar_manifest(config.artifacts_root, data_version)
     object_writer: StructureArtifactWriter | None = None
     event_writer: StructureEventArtifactWriter | None = None
@@ -408,6 +442,7 @@ def materialize_pivot_tier(
                 input_ref=structure_inputs.input_ref,
                 data_version=data_version,
                 feature_refs=structure_inputs.feature_refs,
+                payload_schema=PIVOT_EVENT_PAYLOAD_SCHEMA,
                 parquet_engine=config.parquet_engine,
             )
 
@@ -575,6 +610,8 @@ def _build_event_row(
     anchor_bar_ids: Sequence[int],
     predecessor_structure_id: str | None,
     successor_structure_id: str | None,
+    payload_after: dict[str, object] | None,
+    changed_fields: Sequence[str],
     session_id: int,
     session_date: int,
     anchor_index: int,
@@ -595,8 +632,28 @@ def _build_event_row(
         "anchor_bar_ids": tuple(int(value) for value in anchor_bar_ids),
         "predecessor_structure_id": predecessor_structure_id,
         "successor_structure_id": successor_structure_id,
+        "payload_after": payload_after,
+        "changed_fields": tuple(str(value) for value in changed_fields),
         "session_id": session_id,
         "session_date": session_date,
+    }
+
+
+def _build_pivot_payload_after(
+    *,
+    bar_arrays,
+    anchor_index: int,
+    side: PivotSide,
+    explanation_codes: Sequence[str],
+    tier_spec: PivotTierSpec,
+    crosses_session_boundary: bool,
+) -> dict[str, object]:
+    return {
+        "explanation_codes": tuple(str(value) for value in explanation_codes),
+        "extreme_price": float(_pivot_value(bar_arrays, anchor_index, side)),
+        "left_window": int(tier_spec.left_window),
+        "right_window": int(tier_spec.right_window),
+        "crosses_session_boundary": bool(crosses_session_boundary),
     }
 
 
@@ -624,10 +681,3 @@ def _assign_event_order(event_rows: list[dict[str, object]]) -> list[dict[str, o
             event_order += 1
         row["event_order"] = event_order
     return ordered
-
-
-def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
-    versions = list_bar_data_versions(artifacts_root)
-    if not versions:
-        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
-    return versions[-1]

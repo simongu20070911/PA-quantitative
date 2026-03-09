@@ -7,6 +7,7 @@ from pathlib import Path
 import pyarrow as pa
 
 from pa_core.artifacts.bars import BarArtifactWriter
+from pa_core.structures.registry import resolve_structure_dataset_specs
 from pa_core.structures.runtime import load_runtime_structure_chain
 
 
@@ -62,6 +63,24 @@ class RuntimeStructureChainTests(unittest.TestCase):
             )
             self.assertEqual(major_frame.num_rows, 0)
             self.assertEqual(breakout_frame.num_rows, 0)
+            specs_by_kind = {
+                spec.kind: spec
+                for spec in resolve_structure_dataset_specs(
+                    data_version=chain.family_spec.input_ref,
+                    feature_version="v1",
+                    feature_params_hash="44136fa355b3678a",
+                    feature_refs=chain.datasets[0].feature_refs,
+                    source="runtime_v0_2",
+                )
+            }
+            for dataset in chain.datasets:
+                spec = specs_by_kind[dataset.kind]
+                self.assertEqual(dataset.input_ref, spec.input_ref)
+                self.assertEqual(dataset.structure_refs, spec.structure_refs)
+            for dataset in chain.event_datasets:
+                spec = specs_by_kind[dataset.kind]
+                self.assertEqual(dataset.input_ref, spec.input_ref)
+                self.assertEqual(dataset.structure_refs, spec.structure_refs)
 
 
 def _write_native_5m_source_bars(root: Path) -> None:

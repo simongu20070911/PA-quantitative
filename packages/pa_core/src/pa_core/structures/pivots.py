@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
-from pa_core.artifacts.bars import list_bar_data_versions, load_bar_manifest
+from pa_core.artifacts.bars import load_bar_manifest
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structures import (
@@ -18,6 +18,7 @@ from pa_core.artifacts.structures import (
 )
 from pa_core.data.bar_arrays import BarArrays
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
+from pa_core.common import resolve_latest_bar_data_version
 from pa_core.rulebooks.v0_1 import (
     PIVOT_BAR_FINALIZATION,
     PIVOT_BASE_EXPLANATION_CODES,
@@ -193,7 +194,7 @@ def build_pivot_structure_frame(
 
 
 def materialize_pivots(config: PivotMaterializationConfig) -> StructureArtifactManifest:
-    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
     bar_manifest = load_bar_manifest(config.artifacts_root, data_version)
     writer: StructureArtifactWriter | None = None
     carry_bar_arrays: BarArrays | None = None
@@ -410,14 +411,5 @@ def _compute_cross_session_window_mask(
         end = index + right_window
         mask[index] = session_id[start] != session_id[end]
     return mask
-
-
-def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
-    versions = list_bar_data_versions(artifacts_root)
-    if not versions:
-        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
-    return versions[-1]
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

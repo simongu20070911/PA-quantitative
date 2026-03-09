@@ -69,7 +69,10 @@ class StructureEventModel(BaseModel):
     end_bar_id: int | None
     confirm_bar_id: int | None
     anchor_bar_ids: list[int]
+    predecessor_structure_id: str | None = None
     successor_structure_id: str | None = None
+    payload_after: dict[str, Any] | None = None
+    changed_fields: list[str] = Field(default_factory=list)
 
 
 class ChartWindowMetaModel(BaseModel):

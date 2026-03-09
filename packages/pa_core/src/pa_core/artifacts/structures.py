@@ -9,6 +9,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 import pyarrow as pa
 
+from pa_core.common import optional_int
 from pa_core.schemas import StructureObject
 
 from .arrow import concat_tables, empty_table, read_table, sort_table, write_table
@@ -433,8 +434,8 @@ def frame_to_structure_objects(frame: pa.Table) -> list[StructureObject]:
                 kind=str(row_dict["kind"]),
                 state=str(row_dict["state"]),
                 start_bar_id=int(row_dict["start_bar_id"]),
-                end_bar_id=_optional_int(row_dict["end_bar_id"]),
-                confirm_bar_id=_optional_int(row_dict["confirm_bar_id"]),
+                end_bar_id=optional_int(row_dict["end_bar_id"]),
+                confirm_bar_id=optional_int(row_dict["confirm_bar_id"]),
                 anchor_bar_ids=tuple(int(value) for value in row_dict["anchor_bar_ids"]),
                 feature_refs=tuple(str(value) for value in row_dict["feature_refs"]),
                 rulebook_version=str(row_dict["rulebook_version"]),
@@ -466,20 +467,6 @@ def load_structure_objects(
         parquet_engine=parquet_engine,
     )
     return frame_to_structure_objects(frame)
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, pa.Scalar):
-        if not value.is_valid:
-            return None
-        value = value.as_py()
-    if value is None:
-        return None
-    return int(value)
-
-
 def _coerce_structure_table(structures: Any) -> pa.Table:
     if isinstance(structures, pa.Table):
         return structures.combine_chunks()

@@ -167,6 +167,7 @@ Required capabilities:
 Current progress:
 
 - `v0.2` pivots now publish latest-state `objects` plus sparse lifecycle `events`
+- lifecycle events now carry manifest-backed typed `payload_after` plus optional `changed_fields`, and replay applies them through a shared backend reducer rather than a pivot-specific API path
 - replay-capable API reads now resolve pivots from those lifecycle events in both canonical and runtime family reads while the rest of the chain still falls back to snapshot-object `as_of` reads
 - the next replay step is extending lifecycle publication beyond pivots
 

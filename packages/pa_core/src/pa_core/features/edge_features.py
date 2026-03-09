@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
-from pa_core.artifacts.bars import list_bar_data_versions, load_bar_manifest
+from pa_core.artifacts.bars import load_bar_manifest
 from pa_core.artifacts.arrow import read_table
 from pa_core.artifacts.features import (
     EMPTY_FEATURE_PARAMS,
@@ -17,6 +17,7 @@ from pa_core.artifacts.features import (
     FeatureArtifactWriter,
     build_feature_params_hash,
 )
+from pa_core.common import resolve_latest_bar_data_version
 from pa_core.artifacts.layout import bar_dataset_root, default_artifacts_root
 from pa_core.data.bar_arrays import BAR_ARRAY_COLUMNS, BarArrays, bar_arrays_from_frame
 from pa_core.features.kernels import gap_n1_kernel, overlap_n1_kernel
@@ -164,7 +165,7 @@ def compute_initial_edge_feature_bundle(bar_arrays: BarArrays) -> dict[str, pa.T
 def materialize_initial_edge_features(
     config: EdgeFeatureMaterializationConfig,
 ) -> dict[str, FeatureArtifactManifest]:
-    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
     bar_manifest = load_bar_manifest(config.artifacts_root, data_version)
     feature_params = config.params or EMPTY_FEATURE_PARAMS
     params_hash = build_feature_params_hash(feature_params)
@@ -287,14 +288,5 @@ def _expand_compact_edge_values(compact_values: np.ndarray) -> np.ndarray:
     if compact_values.size:
         values[1:] = compact_values
     return values
-
-
-def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
-    versions = list_bar_data_versions(artifacts_root)
-    if not versions:
-        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
-    return versions[-1]
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

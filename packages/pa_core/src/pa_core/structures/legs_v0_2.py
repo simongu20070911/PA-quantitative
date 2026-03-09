@@ -8,7 +8,7 @@ from typing import Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import list_bar_data_versions, load_canonical_bars
+from pa_core.artifacts.bars import load_canonical_bars
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structures import (
@@ -17,6 +17,7 @@ from pa_core.artifacts.structures import (
     StructureArtifactWriter,
     load_structure_artifact,
 )
+from pa_core.common import build_bar_lookup, resolve_latest_bar_data_version
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
 from pa_core.rulebooks.v0_2 import (
     LEG_BAR_FINALIZATION,
@@ -72,7 +73,7 @@ def build_leg_structure_frame(
         return pa.Table.from_pylist([], schema=STRUCTURE_ARTIFACT_SCHEMA)
 
     pivots.sort(key=lambda row: (int(row["start_bar_id"]), str(row["kind"]), str(row["structure_id"])))
-    bar_lookup = {int(row["bar_id"]): row for row in bar_frame.to_pylist()}
+    bar_lookup = build_bar_lookup(bar_frame, duplicate_error_context="Leg build")
     rows: list[dict[str, object]] = []
     active = _normalize_pivot_row(pivots[0], bar_lookup)
     for raw_row in pivots[1:]:
@@ -101,7 +102,7 @@ def build_leg_structure_frame(
 
 
 def materialize_legs(config: LegMaterializationConfig) -> StructureArtifactManifest:
-    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
     structure_inputs = load_structure_inputs(
         artifacts_root=config.artifacts_root,
         data_version=data_version,
@@ -290,10 +291,3 @@ def _resolve_leg_kind(*, start_pivot: dict[str, object], end_pivot: dict[str, ob
     if start_kind == "pivot_high" and end_kind == "pivot_low":
         return "leg_down"
     raise ValueError(f"Unsupported pivot transition for leg construction: {start_kind} -> {end_kind}")
-
-
-def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
-    versions = list_bar_data_versions(artifacts_root)
-    if not versions:
-        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
-    return versions[-1]

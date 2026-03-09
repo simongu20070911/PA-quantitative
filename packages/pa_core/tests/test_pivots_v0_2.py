@@ -18,7 +18,12 @@ from pa_core.artifacts.structures import (
 )
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS, EDGE_FEATURE_VERSION
 from pa_core.structures.input import structure_inputs_from_frames
-from pa_core.structures.pivots_v0_2 import PIVOT_SPEC, PIVOT_ST_SPEC, build_pivot_tier_frames
+from pa_core.structures.pivots_v0_2 import (
+    PIVOT_EVENT_PAYLOAD_SCHEMA,
+    PIVOT_SPEC,
+    PIVOT_ST_SPEC,
+    build_pivot_tier_frames,
+)
 
 
 class PivotV02StructureTests(unittest.TestCase):
@@ -44,6 +49,9 @@ class PivotV02StructureTests(unittest.TestCase):
             [(event["event_type"], event["event_bar_id"]) for event in events],
             [("created", 102), ("confirmed", 104)],
         )
+        self.assertEqual(events[0]["payload_after"]["left_window"], 2)
+        self.assertEqual(events[0]["payload_after"]["right_window"], 2)
+        self.assertEqual(events[1]["changed_fields"], ["confirm_bar_id"])
 
     def test_short_term_pivot_replaced_by_more_extreme_same_side(self) -> None:
         inputs = _make_structure_inputs(
@@ -122,6 +130,7 @@ class PivotV02StructureTests(unittest.TestCase):
                 input_ref=inputs.input_ref,
                 data_version=inputs.data_version,
                 feature_refs=inputs.feature_refs,
+                payload_schema=PIVOT_EVENT_PAYLOAD_SCHEMA,
             )
             object_writer.write_chunk(frames.object_frame.drop(["_anchor_index"]))
             event_writer.write_chunk(frames.event_frame.drop(["_anchor_index"]))

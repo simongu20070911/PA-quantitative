@@ -8,7 +8,7 @@ from typing import Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import list_bar_data_versions, load_canonical_bars
+from pa_core.artifacts.bars import load_canonical_bars
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structures import (
@@ -16,6 +16,7 @@ from pa_core.artifacts.structures import (
     StructureArtifactManifest,
     StructureArtifactWriter,
 )
+from pa_core.common import build_bar_lookup, resolve_latest_bar_data_version
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
 from pa_core.rulebooks.v0_1 import (
     LEG_KIND_GROUP,
@@ -84,7 +85,7 @@ def build_major_lh_structure_frame(
     if len(confirmed_legs) < 3:
         return empty
 
-    bar_lookup = _build_bar_lookup(bar_frame)
+    bar_lookup = build_bar_lookup(bar_frame, duplicate_error_context="Major lower-high build")
 
     rows: list[dict[str, object]] = []
     last_index = len(confirmed_legs) - 1
@@ -150,7 +151,7 @@ def build_major_lh_structure_frame(
 def materialize_major_lh(
     config: MajorLowerHighMaterializationConfig,
 ) -> StructureArtifactManifest:
-    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
     structure_inputs = load_structure_inputs(
         artifacts_root=config.artifacts_root,
         data_version=data_version,
@@ -335,24 +336,5 @@ def _build_major_lh_row(
         "rulebook_version": rulebook_version,
         "explanation_codes": tuple(explanation_codes),
     }
-
-
-def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
-    versions = list_bar_data_versions(artifacts_root)
-    if not versions:
-        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
-    return versions[-1]
-
-
-def _build_bar_lookup(bar_frame: pa.Table) -> dict[int, dict[str, object]]:
-    lookup: dict[int, dict[str, object]] = {}
-    for row in bar_frame.to_pylist():
-        bar_id = int(row["bar_id"])
-        if bar_id in lookup:
-            raise ValueError("Major lower-high build requires unique canonical bar_id values.")
-        lookup[bar_id] = row
-    return lookup
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

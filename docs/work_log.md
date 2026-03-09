@@ -16,6 +16,30 @@ Copy this shape for new entries:
 
 ## Entries
 
+### 2026-03-09
+- Summary: Removed the copy-pasted `latest data_version`, `bar lookup`, and `optional_int` helpers by centralizing them in `pa_core.common`, then rewired the feature, structure, overlay, artifact, and API call sites onto the shared implementations with strict duplicate-bar validation preserved.
+- Files: `packages/pa_core/src/pa_core/common.py`, `packages/pa_core/src/pa_core/features/edge_features.py`, `packages/pa_core/src/pa_core/structures/pivots.py`, `packages/pa_core/src/pa_core/structures/pivots_v0_2.py`, `packages/pa_core/src/pa_core/structures/legs.py`, `packages/pa_core/src/pa_core/structures/legs_v0_2.py`, `packages/pa_core/src/pa_core/structures/major_lh.py`, `packages/pa_core/src/pa_core/structures/breakout_starts.py`, `packages/pa_core/src/pa_core/overlays/projectors.py`, `packages/pa_core/src/pa_core/structures/lifecycle.py`, `packages/pa_core/src/pa_core/artifacts/structures.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_core/tests/test_common.py`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_common tests.test_lifecycle tests.test_pivots_v0_2 tests.test_legs tests.test_major_lh tests.test_breakout_starts tests.test_overlays tests.test_artifact_io -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: If we keep seeing this pattern, extract the next tier of duplicated artifact/structure utility code into small shared helpers early instead of letting one-off module-private copies regrow.
+
+### 2026-03-09
+- Summary: Hardened the shared lifecycle reducer so illegal first transitions now fail loudly by default, added an explicit born-confirmed opt-in for datasets that intentionally start with `confirmed`, and documented the stricter replay reducer contract in the lifecycle spec.
+- Files: `packages/pa_core/src/pa_core/structures/lifecycle.py`, `packages/pa_core/tests/test_lifecycle.py`, `docs/replay_lifecycle_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_lifecycle -v`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_pivots_v0_2 -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Use the same fail-fast posture on broader lifecycle validation once replay provenance and event-publication expansion work starts, especially around duplicate `created` events and other illegal non-initial transitions.
+
+### 2026-03-09
+- Summary: Added a dedicated technical debt audit workspace in `docs/tech_debt_audit.md`, mapped repo-specific review lanes, and seeded the first cross-package findings around API boundary drift, inspector cohesion, duplicated overlay semantics, duplicated client/server contracts, and current testing confidence gaps.
+- Files: `docs/tech_debt_audit.md`, `docs/work_log.md`
+- Verification: Reviewed `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/lib/overlayLayers.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/types.ts`, `packages/pa_api/tests/test_app.py`, `packages/pa_core/tests/test_runtime_structures.py`, and `packages/pa_core/tests/test_structure_contracts.py` against the current architecture and artifact docs.
+- Next: Run lane-specific reviewers against this document's template, then triage which high-severity items should be fixed before more replay/review expansion lands.
+
+### 2026-03-09
+- Summary: Added explicit typed lifecycle models in `pa_core` by introducing shared `StructureLifecycleEvent` and `ResolvedStructureState` dataclasses, refactoring the lifecycle reducer to resolve typed replay state internally while preserving the existing dict compatibility wrapper for API callers, and extending lifecycle tests to cover the typed path directly.
+- Files: `packages/pa_core/src/pa_core/schemas.py`, `packages/pa_core/src/pa_core/structures/lifecycle.py`, `packages/pa_core/src/pa_core/__init__.py`, `packages/pa_core/tests/test_lifecycle.py`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_lifecycle -v`; `cd packages/pa_core && PYTHONPATH=src python3 -c "from pa_core import StructureLifecycleEvent, ResolvedStructureState; from pa_core.structures.lifecycle import resolve_structure_states_from_lifecycle_events; print(StructureLifecycleEvent.__name__, ResolvedStructureState.__name__, callable(resolve_structure_states_from_lifecycle_events))"`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Extend event publication beyond pivots so legs and higher-order structures can emit the same shared lifecycle format and replay can stop falling back to snapshot-only `as_of` reads for downstream families.
+
 ### 2026-03-08
 - Summary: Made `runtime_v0_2` the default inspector rulebook path, renamed the version chooser around explicit rulebook semantics, and changed rulebook switching to clear stale chart/detail state and reload immediately so `v0.1` payloads cannot linger when the user moves onto `v0.2`.
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/status.md`, `docs/work_log.md`
@@ -723,3 +747,39 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: If we want even closer TradingView parity, let users drag the committed replay cursor directly on the chart instead of clearing and re-clicking to choose a new start bar.
+
+### 2026-03-09
+- Summary: Fixed short-term low pivot marker placement so the diamond badge renders below low wicks instead of overlapping the candle extremum, while high-side diamonds and major-LH markers keep their above-anchor placement.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If pivot markers still feel cramped on dense zoom levels, add a zoom-aware vertical badge offset so the spacing breathes a little more at very tight bar widths.
+
+### 2026-03-09
+- Summary: Restored modified overlay click handling by moving command/control-click detection into the surface pointer layer as well as the chart click callback, and suppressing the browser context menu on modified overlay clicks so Mac control-click can still toggle the confirmation guide.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: Add a small browser smoke test around modified overlay click if we want to guard this interaction against future chart-library event-shape regressions.
+
+### 2026-03-09
+- Summary: Upgraded the shared lifecycle-event contract so structure events can carry typed `payload_after` plus sparse `changed_fields`, added a generic lifecycle reducer in `pa_core`, rewired replay reads in `pa_api` to use that shared reducer instead of pivot-specific reconstruction, and taught the `v0.2` pivot emitter and API fixtures to round-trip the richer event rows.
+- Files: `packages/pa_core/src/pa_core/artifacts/structure_events.py`, `packages/pa_core/src/pa_core/structures/lifecycle.py`, `packages/pa_core/src/pa_core/structures/pivots_v0_2.py`, `packages/pa_core/tests/test_lifecycle.py`, `packages/pa_core/tests/test_pivots_v0_2.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/tests/test_app.py`, `docs/artifact_contract.md`, `docs/replay_lifecycle_spec.md`, `docs/status.md`, `docs/roadmap.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_lifecycle tests.test_pivots_v0_2 tests.test_runtime_structures -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Extend lifecycle publication beyond pivots so legs and higher-order structures can resolve through the same generic reducer instead of falling back to snapshot-only `as_of` behavior.
+
+### 2026-03-09
+- Summary: Added a coordinated technical debt audit document with repo-specific review lanes and an initial finding catalog focused on replay correctness, contract drift, duplicated structure-topology ownership, and growing orchestration hotspots.
+- Files: `docs/tech_debt_audit.md`, `docs/work_log.md`
+- Verification: Verified findings by reading the replay, artifact, API, and inspector contracts; also ran targeted local checks showing replay accepts an illegal first `confirmed` event and that replay `pivot_st` overlays currently return `rulebook_version = "None"` and `structure_version = "v2"` under the API path.
+- Next: Triage the new audit catalog, starting with replay provenance on lifecycle-resolved rows and moving structure-chain discovery out of `pa_api` before adding more lifecycle-backed kinds.
+
+### 2026-03-09
+- Summary: Moved chart-window and structure-detail orchestration out of `pa_api.service` into a new `pa_core.chart_reads` module so source resolution, artifact/runtime dataset loading, replay row resolution, and overlay projection now live in the backend computation layer instead of the API layer.
+- Files: `packages/pa_core/src/pa_core/chart_reads.py`, `packages/pa_api/src/pa_api/service.py`, `docs/status.md`, `docs/work_log.md`
+- Verification: `python3 -m py_compile packages/pa_core/src/pa_core/chart_reads.py packages/pa_api/src/pa_api/service.py packages/pa_api/src/pa_api/app.py`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_common tests.test_lifecycle tests.test_pivots_v0_2 -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Continue slimming the API contract by moving backend-owned replay provenance and structure-detail replay fallback decisions into `pa_core.chart_reads`, then add direct tests around that module so future API refactors can stay mostly transport-only.
+
+### 2026-03-09
+- Summary: Replaced handwritten structure-chain topology in chart reads and runtime assembly with a shared backend registry module, so source-profile versions, dataset order, dependency refs, and `input_ref` construction for `artifact_v0_1`, `artifact_v0_2`, and `runtime_v0_2` now come from one place.
+- Files: `packages/pa_core/src/pa_core/structures/registry.py`, `packages/pa_core/src/pa_core/chart_reads.py`, `packages/pa_core/src/pa_core/structures/runtime.py`, `packages/pa_core/tests/test_structure_registry.py`, `packages/pa_core/tests/test_runtime_structures.py`, `docs/status.md`, `docs/work_log.md`
+- Verification: `python3 -m py_compile packages/pa_core/src/pa_core/structures/registry.py packages/pa_core/src/pa_core/chart_reads.py packages/pa_core/src/pa_core/structures/runtime.py packages/pa_api/src/pa_api/service.py`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_structure_registry tests.test_runtime_structures tests.test_common tests.test_lifecycle tests.test_pivots_v0_2 -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Split `pa_core.chart_reads` by concern now that the shared registry exists, starting with a separate module for artifact-source loading and another for replay/detail resolution.

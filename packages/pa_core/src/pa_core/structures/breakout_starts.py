@@ -8,7 +8,7 @@ from typing import Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import list_bar_data_versions, load_canonical_bars
+from pa_core.artifacts.bars import load_canonical_bars
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structures import (
@@ -16,6 +16,7 @@ from pa_core.artifacts.structures import (
     StructureArtifactManifest,
     StructureArtifactWriter,
 )
+from pa_core.common import build_bar_lookup, optional_int, resolve_latest_bar_data_version
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
 from pa_core.rulebooks.v0_1 import (
     BREAKOUT_START_BAR_FINALIZATION,
@@ -90,13 +91,13 @@ def build_bearish_breakout_start_frame(
     if not confirmed_legs or not confirmed_major_lh:
         return empty
 
-    bar_lookup = _build_bar_lookup(bar_frame)
+    bar_lookup = build_bar_lookup(bar_frame, duplicate_error_context="Breakout-start build")
     bar_index_by_id = {
         bar_id: idx
         for idx, bar_id in enumerate(feature_bundle.bar_id.tolist())
     }
     leg_lookup = {
-        (int(row["start_bar_id"]), _optional_int(row["confirm_bar_id"])): row
+        (int(row["start_bar_id"]), optional_int(row["confirm_bar_id"])): row
         for row in confirmed_legs
         if str(row["kind"]) == "leg_down"
     }
@@ -104,7 +105,7 @@ def build_bearish_breakout_start_frame(
     rows: list[dict[str, object]] = []
     for major_lh in confirmed_major_lh:
         h1_bar_id, l1_bar_id, h2_bar_id = tuple(int(value) for value in major_lh["anchor_bar_ids"])
-        proving_key = (h2_bar_id, _optional_int(major_lh["confirm_bar_id"]))
+        proving_key = (h2_bar_id, optional_int(major_lh["confirm_bar_id"]))
         proving_leg = leg_lookup.get(proving_key)
         if proving_leg is None:
             continue
@@ -151,7 +152,7 @@ def build_bearish_breakout_start_frame(
 def materialize_bearish_breakout_starts(
     config: BreakoutStartMaterializationConfig,
 ) -> StructureArtifactManifest:
-    data_version = config.data_version or _resolve_latest_bar_data_version(config.artifacts_root)
+    data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
     structure_inputs = load_structure_inputs(
         artifacts_root=config.artifacts_root,
         data_version=data_version,
@@ -360,27 +361,5 @@ def _build_breakout_row(
         "rulebook_version": rulebook_version,
         "explanation_codes": tuple(explanation_codes),
     }
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None:
-        return None
-    return int(value)
-
-
-def _resolve_latest_bar_data_version(artifacts_root: Path) -> str:
-    versions = list_bar_data_versions(artifacts_root)
-    if not versions:
-        raise FileNotFoundError("No canonical bar data_version is available under artifacts/bars/.")
-    return versions[-1]
-
-
-def _build_bar_lookup(bar_frame: pa.Table) -> dict[int, dict[str, object]]:
-    return {
-        int(row["bar_id"]): row
-        for row in bar_frame.to_pylist()
-    }
-
-
 if __name__ == "__main__":
     raise SystemExit(main())
