@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type RefObject } from "react";
 
 import type { ChartAdapter } from "../lib/chartAdapter";
 import { defaultAnnotationStyle } from "../lib/annotationStyle";
-import { overlayKindToLayer } from "../lib/overlayLayers";
+import { filterOverlaysByEnabledLayers } from "../lib/overlayLayers";
 import {
   findOverlayAtPoint,
   hitTestAnnotation,
@@ -35,6 +35,8 @@ export interface OverlayCanvasProps {
   selectedOverlayId: string | null;
   selectedAnnotationId: string | null;
   confirmationGuide: ConfirmationGuide | null;
+  replayEnabled: boolean;
+  replayCursorBarId: number | null;
   onAnnotationCreate: (annotation: {
     kind: AnnotationKind;
     start: AnnotationAnchor;
@@ -52,6 +54,7 @@ export interface OverlayCanvasProps {
     anchorPoint: { x: number; y: number } | null,
   ) => void;
   onOverlayCommandSelect: (overlay: Overlay) => void;
+  onReplayCursorSelect: (barId: number) => void;
 }
 
 export function OverlayCanvas({
@@ -67,12 +70,15 @@ export function OverlayCanvas({
   selectedOverlayId,
   selectedAnnotationId,
   confirmationGuide,
+  replayEnabled,
+  replayCursorBarId,
   onAnnotationCreate,
   onAnnotationSelect,
   onAnnotationUpdate,
   onAnnotationDuplicate,
   onOverlaySelect,
   onOverlayCommandSelect,
+  onReplayCursorSelect,
 }: OverlayCanvasProps) {
   const activeDrawRef = useRef(false);
   const activeDragRef = useRef<AnnotationDragState | null>(null);
@@ -90,18 +96,19 @@ export function OverlayCanvas({
   const selectedAnnotationIdRef = useRef(selectedAnnotationId);
   const confirmationGuideRef = useRef(confirmationGuide);
   const annotationToolRef = useRef(annotationTool);
+  const replayEnabledRef = useRef(replayEnabled);
+  const replayCursorBarIdRef = useRef(replayCursorBarId);
+  const replayHoverBarIdRef = useRef<number | null>(null);
   const onAnnotationCreateRef = useRef(onAnnotationCreate);
   const onAnnotationSelectRef = useRef(onAnnotationSelect);
   const onAnnotationUpdateRef = useRef(onAnnotationUpdate);
   const onAnnotationDuplicateRef = useRef(onAnnotationDuplicate);
   const onOverlaySelectRef = useRef(onOverlaySelect);
   const onOverlayCommandSelectRef = useRef(onOverlayCommandSelect);
+  const onReplayCursorSelectRef = useRef(onReplayCursorSelect);
 
   const visibleOverlays = useMemo(() => {
-    return overlays.filter((overlay) => {
-      const layer = overlayKindToLayer(overlay.kind);
-      return layer !== null && enabledLayers[layer];
-    });
+    return filterOverlaysByEnabledLayers(overlays, enabledLayers);
   }, [enabledLayers, overlays]);
 
   const syncInspectorPrimitiveState = (nextAdapter: ChartAdapter | null = adapter) => {
@@ -119,6 +126,9 @@ export function OverlayCanvas({
         sessionProfile: sessionProfileRef.current,
         annotationTool: annotationToolRef.current,
         draftState: draftStateRef.current,
+        replayEnabled: replayEnabledRef.current,
+        replayCursorBarId: replayCursorBarIdRef.current,
+        replayHoverBarId: replayHoverBarIdRef.current,
       }),
     );
   };
@@ -148,6 +158,12 @@ export function OverlayCanvas({
     onAnnotationDuplicateRef.current = onAnnotationDuplicate;
     onOverlaySelectRef.current = onOverlaySelect;
     onOverlayCommandSelectRef.current = onOverlayCommandSelect;
+    replayEnabledRef.current = replayEnabled;
+    replayCursorBarIdRef.current = replayCursorBarId;
+    if (!replayEnabled || replayCursorBarId !== null) {
+      replayHoverBarIdRef.current = null;
+    }
+    onReplayCursorSelectRef.current = onReplayCursorSelect;
     if (!adapter) {
       return;
     }
@@ -161,6 +177,9 @@ export function OverlayCanvas({
     selectedOverlayId,
     sessionProfile,
     visibleOverlays,
+    replayEnabled,
+    replayCursorBarId,
+    onReplayCursorSelect,
   ]);
 
   useEffect(() => {
@@ -215,6 +234,12 @@ export function OverlayCanvas({
         point.y,
       );
       if (!overlayDrawable) {
+        if (replayEnabledRef.current) {
+          const replayBarId = resolveBarIdFromPoint(adapter, barsRef.current, point);
+          if (replayBarId !== null) {
+            onReplayCursorSelectRef.current(replayBarId);
+          }
+        }
         onAnnotationSelectRef.current(null);
         onOverlaySelectRef.current(null, null);
         return;
@@ -271,6 +296,14 @@ export function OverlayCanvas({
         point === undefined
           ? null
           : findOverlayAtPoint(renderData.overlayDrawables, point.x, point.y);
+      if (replayEnabledRef.current && replayCursorBarIdRef.current === null) {
+        const hoverBarId =
+          point === undefined ? null : resolveBarIdFromPoint(adapter, barsRef.current, point);
+        if (replayHoverBarIdRef.current !== hoverBarId) {
+          replayHoverBarIdRef.current = hoverBarId;
+          syncInspectorPrimitiveState(adapter);
+        }
+      }
       surface.style.cursor = overlayDrawable ? "pointer" : "default";
     });
 
@@ -544,6 +577,19 @@ export function OverlayCanvas({
   return null;
 }
 
+function resolveBarIdFromPoint(
+  adapter: ChartAdapter,
+  bars: ChartBar[],
+  point: { x: number; y: number },
+): number | null {
+  const logical = adapter.coordinateToLogical(point.x);
+  if (logical === null || bars.length === 0) {
+    return null;
+  }
+  const barIndex = Math.max(0, Math.min(bars.length - 1, Math.round(logical)));
+  return bars[barIndex]?.bar_id ?? null;
+}
+
 function buildInspectorPrimitiveState(args: {
   bars: ChartBar[];
   overlays: Overlay[];
@@ -554,6 +600,9 @@ function buildInspectorPrimitiveState(args: {
   sessionProfile: SessionProfile;
   annotationTool: AnnotationTool;
   draftState: { start: AnnotationAnchor; current: AnnotationAnchor } | null;
+  replayEnabled: boolean;
+  replayCursorBarId: number | null;
+  replayHoverBarId: number | null;
 }) {
   return {
     bars: args.bars,
@@ -564,6 +613,9 @@ function buildInspectorPrimitiveState(args: {
     confirmationGuide: args.confirmationGuide,
     sessionProfile: args.sessionProfile,
     draftAnnotation: buildDraftAnnotation(args.annotationTool, args.draftState),
+    replayMode: args.replayEnabled,
+    replayCursorBarId: args.replayCursorBarId,
+    replayHoverBarId: args.replayHoverBarId,
   };
 }
 

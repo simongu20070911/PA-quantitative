@@ -4,6 +4,9 @@ import type {
   StructureDetailResponse,
 } from "./types";
 
+const CHART_WINDOW_TIMEOUT_MS = 0;
+const STRUCTURE_DETAIL_TIMEOUT_MS = 10_000;
+
 function buildBaseUrl(apiBaseUrl: string): string {
   return apiBaseUrl.endsWith("/") ? apiBaseUrl.slice(0, -1) : apiBaseUrl;
 }
@@ -24,6 +27,35 @@ async function readJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function fetchJsonWithTimeout<T>(
+  url: string,
+  timeoutMs: number,
+): Promise<T> {
+  if (timeoutMs <= 0) {
+    const response = await fetch(url);
+    return readJson<T>(response);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+    });
+    return readJson<T>(response);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${Math.floor(timeoutMs / 1000)}s.`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 export async function fetchChartWindow(
   request: ChartWindowRequest,
 ): Promise<ChartWindowResponse> {
@@ -32,6 +64,7 @@ export async function fetchChartWindow(
     timeframe: request.timeframe,
     session_profile: request.sessionProfile,
     data_version: request.dataVersion,
+    structure_source: request.structureSource,
     left_bars: String(request.leftBars),
     right_bars: String(request.rightBars),
     buffer_bars: String(request.bufferBars),
@@ -45,6 +78,9 @@ export async function fetchChartWindow(
   }
   if (request.overlayVersion) {
     params.set("overlay_version", request.overlayVersion);
+  }
+  if (request.asOfBarId !== null && request.asOfBarId !== undefined) {
+    params.set("as_of_bar_id", String(request.asOfBarId));
   }
   for (const length of request.emaLengths ?? []) {
     params.append("ema_length", String(length));
@@ -67,10 +103,10 @@ export async function fetchChartWindow(
     params.append("overlay_layer", layer);
   }
 
-  const response = await fetch(
+  return fetchJsonWithTimeout<ChartWindowResponse>(
     `${buildBaseUrl(request.apiBaseUrl)}/chart-window?${params.toString()}`,
+    CHART_WINDOW_TIMEOUT_MS,
   );
-  return readJson<ChartWindowResponse>(response);
 }
 
 export async function fetchStructureDetail(args: {
@@ -80,15 +116,21 @@ export async function fetchStructureDetail(args: {
   timeframe: string;
   sessionProfile: string;
   dataVersion: string;
+  structureSource: string;
+  asOfBarId?: number | null;
 }): Promise<StructureDetailResponse> {
   const params = new URLSearchParams({
     symbol: args.symbol,
     timeframe: args.timeframe,
     session_profile: args.sessionProfile,
     data_version: args.dataVersion,
+    structure_source: args.structureSource,
   });
-  const response = await fetch(
+  if (args.asOfBarId !== null && args.asOfBarId !== undefined) {
+    params.set("as_of_bar_id", String(args.asOfBarId));
+  }
+  return fetchJsonWithTimeout<StructureDetailResponse>(
     `${buildBaseUrl(args.apiBaseUrl)}/structure/${args.structureId}?${params.toString()}`,
+    STRUCTURE_DETAIL_TIMEOUT_MS,
   );
-  return readJson<StructureDetailResponse>(response);
 }

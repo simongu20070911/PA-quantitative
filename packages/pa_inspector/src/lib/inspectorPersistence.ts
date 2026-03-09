@@ -5,22 +5,26 @@ import type {
   ConfirmationGuide,
   EmaStyle,
   FloatingPosition,
+  InspectorMode,
   InspectorToolbarPanel,
   OverlayLayer,
   ScreenPoint,
   SelectorMode,
   SessionProfile,
+  StructureSourceProfile,
 } from "./types";
 
 const STORAGE_KEY = "pa_inspector.workspace.v1";
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 5;
 
 export interface PersistedInspectorState {
   apiBaseUrl: string;
   dataVersion: string;
+  structureSource: StructureSourceProfile;
   symbol: string;
   timeframe: string;
   sessionProfile: SessionProfile;
+  inspectorMode: InspectorMode;
   selectorMode: SelectorMode;
   sessionDate: string;
   centerBarId: string;
@@ -43,6 +47,9 @@ export interface PersistedInspectorState {
   selectedOverlayId: string | null;
   detailAnchor: ScreenPoint | null;
   confirmationGuide: ConfirmationGuide | null;
+  replayCursorBarId: number | null;
+  replaySpeed: number;
+  toolbarHidden: boolean;
   toolbarOpenPanel: InspectorToolbarPanel;
   annotationRailPosition: FloatingPosition;
   annotationToolbarPosition: FloatingPosition | null;
@@ -72,9 +79,11 @@ export function buildDefaultInspectorState(args: {
   return {
     apiBaseUrl: args.apiBaseUrl,
     dataVersion: args.dataVersion,
+    structureSource: "runtime_v0_2",
     symbol: "ES",
     timeframe: "1m",
     sessionProfile: "eth_full",
+    inspectorMode: "explore",
     selectorMode: "session_date",
     sessionDate: "20251117",
     centerBarId: "29390399",
@@ -97,6 +106,9 @@ export function buildDefaultInspectorState(args: {
     selectedOverlayId: null,
     detailAnchor: null,
     confirmationGuide: null,
+    replayCursorBarId: null,
+    replaySpeed: 1,
+    toolbarHidden: false,
     toolbarOpenPanel: null,
     annotationRailPosition: args.annotationRailPosition,
     annotationToolbarPosition: null,
@@ -125,9 +137,14 @@ export function loadPersistedInspectorState(
     return {
       apiBaseUrl: parsed.apiBaseUrl,
       dataVersion: parsed.dataVersion,
+      structureSource:
+        parsed.structureSource === "auto" || parsed.structureSource === "artifact_v0_2"
+          ? "runtime_v0_2"
+          : parsed.structureSource,
       symbol: parsed.symbol,
       timeframe: parsed.timeframe,
       sessionProfile: parsed.sessionProfile,
+      inspectorMode: parsed.inspectorMode,
       selectorMode: parsed.selectorMode,
       sessionDate: parsed.sessionDate,
       centerBarId: parsed.centerBarId,
@@ -150,6 +167,9 @@ export function loadPersistedInspectorState(
       selectedOverlayId: parsed.selectedOverlayId,
       detailAnchor: parsed.detailAnchor,
       confirmationGuide: parsed.confirmationGuide,
+      replayCursorBarId: parsed.replayCursorBarId,
+      replaySpeed: parsed.replaySpeed,
+      toolbarHidden: parsed.toolbarHidden,
       toolbarOpenPanel: parsed.toolbarOpenPanel,
       annotationRailPosition: parsed.annotationRailPosition,
       annotationToolbarPosition: parsed.annotationToolbarPosition,
@@ -187,9 +207,11 @@ function isPersistedEnvelope(value: unknown): value is PersistedInspectorEnvelop
     value.version === STORAGE_VERSION &&
     typeof value.apiBaseUrl === "string" &&
     typeof value.dataVersion === "string" &&
+    isStructureSourceProfile(value.structureSource) &&
     typeof value.symbol === "string" &&
     typeof value.timeframe === "string" &&
     isSessionProfile(value.sessionProfile) &&
+    isInspectorMode(value.inspectorMode) &&
     isSelectorMode(value.selectorMode) &&
     typeof value.sessionDate === "string" &&
     typeof value.centerBarId === "string" &&
@@ -214,6 +236,9 @@ function isPersistedEnvelope(value: unknown): value is PersistedInspectorEnvelop
     isNullableString(value.selectedOverlayId) &&
     isNullableScreenPoint(value.detailAnchor) &&
     isNullableConfirmationGuide(value.confirmationGuide) &&
+    isNullableFiniteNumber(value.replayCursorBarId) &&
+    isReplaySpeed(value.replaySpeed) &&
+    typeof value.toolbarHidden === "boolean" &&
     isInspectorToolbarPanel(value.toolbarOpenPanel) &&
     isFloatingPosition(value.annotationRailPosition) &&
     isNullableFloatingPosition(value.annotationToolbarPosition) &&
@@ -231,10 +256,32 @@ function isOverlayLayerState(
     return false;
   }
   return (
+    typeof value.pivot_st === "boolean" &&
     typeof value.pivot === "boolean" &&
     typeof value.leg === "boolean" &&
     typeof value.major_lh === "boolean" &&
     typeof value.breakout_start === "boolean"
+  );
+}
+
+function isStructureSourceProfile(value: unknown): value is StructureSourceProfile {
+  return (
+    value === "auto" ||
+    value === "artifact_v0_1" ||
+    value === "artifact_v0_2" ||
+    value === "runtime_v0_2"
+  );
+}
+
+function isInspectorMode(value: unknown): value is InspectorMode {
+  return value === "explore" || value === "replay";
+}
+
+function isReplaySpeed(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    [0.5, 1, 2, 4].includes(value)
   );
 }
 

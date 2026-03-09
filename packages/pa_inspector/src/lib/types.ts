@@ -1,11 +1,28 @@
-export type OverlayLayer = "pivot" | "leg" | "major_lh" | "breakout_start";
+export type OverlayLayer =
+  | "pivot_st"
+  | "pivot"
+  | "leg"
+  | "major_lh"
+  | "breakout_start";
 export type SelectorMode = "session_date" | "center_bar_id" | "time_range";
 export type SessionProfile = "eth_full" | "rth";
+export type InspectorMode = "explore" | "replay";
+export type StructureSourceProfile =
+  | "auto"
+  | "artifact_v0_1"
+  | "artifact_v0_2"
+  | "runtime_v0_2";
 export type AnnotationTool = "none" | "line" | "box" | "fib50";
 export type AnnotationKind = Exclude<AnnotationTool, "none">;
 export type AnnotationLineStyle = "solid" | "dashed" | "dotted";
 export type EmaLineStyle = AnnotationLineStyle;
-export type InspectorToolbarPanel = "jump" | "display" | "layers" | "data" | null;
+export type InspectorToolbarPanel =
+  | "jump"
+  | "display"
+  | "layers"
+  | "versions"
+  | "data"
+  | null;
 export type AnnotationToolbarPopover =
   | "stroke"
   | "fill"
@@ -112,8 +129,12 @@ export interface ChartWindowMeta {
   feature_params_hash: string | null;
   rulebook_version: string | null;
   structure_version: string | null;
+  structure_source: StructureSourceProfile;
   overlay_version: string | null;
   ema_lengths: number[];
+  as_of_bar_id?: number | null;
+  replay_source?: string | null;
+  replay_completeness?: string | null;
 }
 
 export interface ChartWindowResponse {
@@ -149,11 +170,13 @@ export interface ChartWindowRequest {
   timeframe: string;
   sessionProfile: SessionProfile;
   dataVersion: string;
+  structureSource: StructureSourceProfile;
   featureVersion?: string;
   featureParamsHash?: string;
   overlayVersion?: string;
   emaLengths?: number[];
   selectorMode: SelectorMode;
+  asOfBarId?: number | null;
   centerBarId?: string;
   sessionDate?: string;
   startTime?: string;

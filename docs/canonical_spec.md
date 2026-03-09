@@ -1,7 +1,7 @@
 # PA Quantitative Canonical Spec
 
 Status: active source of truth
-Last updated: 2026-03-06
+Last updated: 2026-03-07
 Project root: `/Users/simongu/Projects/PA quantitative`
 
 ## Purpose
@@ -177,6 +177,18 @@ Where applicable, structures should support states such as:
 - `candidate`
 - `confirmed`
 - `invalidated`
+
+Detailed lifecycle and replay semantics are defined in:
+
+- `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+
+Cross-cutting lifecycle rules:
+
+- replay semantics must come from backend-defined structure state, not frontend inference
+- `structure_id` must remain stable across lifecycle transitions of one logical structure
+- replay visibility must be governed by explicit event timing on the selected bar family
+- latest-state structure objects and lifecycle event datasets both belong to the `structures` layer
+- lifecycle event publication should be sparse and change-driven rather than one-row-per-bar
 
 This project does not optimize for full real-time deployment first.
 It optimizes for a historically grounded, visually auditable system that can later be extended into live-compatible computation without semantic redefinition.
@@ -381,8 +393,19 @@ Rules:
 
 - structure legality is rule-based
 - structure confirmation timing must be explicit
+- structure lifecycle timing must be explicit when replay or live-compatible behavior matters
+- `structure_id` must identify the logical structure across its lifecycle, not one emitted row version
 - no hidden inference inside the UI
 - every structure must be explainable from bars, features, and rules
+
+Detailed lifecycle transition, replay-cursor, and event-emission semantics are defined in:
+
+- `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+
+Design preference:
+
+- latest-state structure objects remain the default read surface
+- replay-capable lifecycle events should carry a small common event envelope and only the structure fields required by that action
 
 ### Current Pivot Baseline
 

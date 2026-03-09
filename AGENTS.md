@@ -27,6 +27,7 @@ Before making changes, read these files in order:
 6. `docs/handoff_protocol.md`
 
 If the requested work touches rule semantics, also read the relevant rulebook document once it exists.
+If the requested work touches replay behavior, structure lifecycle states, or candidate/confirmed/invalidated emission semantics, also read `docs/replay_lifecycle_spec.md`.
 If the requested work touches the inspector or overlay rendering, also read `docs/inspector_spec.md`.
 If the requested work touches overlay projection or overlay artifacts, also read `docs/overlay_spec.md`.
 If the requested work touches session profiles, `RTH`/`ETH` behavior, or timeframe aggregation, also read `docs/session_timeframe_spec.md`.

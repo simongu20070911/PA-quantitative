@@ -62,11 +62,15 @@ export interface InspectorPrimitiveState {
   confirmationGuide: ConfirmationGuide | null;
   sessionProfile: SessionProfile;
   draftAnnotation: ChartAnnotation | null;
+  replayMode: boolean;
+  replayCursorBarId: number | null;
+  replayHoverBarId: number | null;
 }
 
 export interface InspectorRenderData {
   sessionBoundaries: number[];
   confirmationGuide: ConfirmationGuideRender | null;
+  replayCursor: ReplayCursorRender | null;
   overlayDrawables: Drawable[];
   annotationDrawables: AnnotationDrawable[];
   draftDrawable: AnnotationDrawable | null;
@@ -83,12 +87,17 @@ export interface InspectorGeometryCache {
 
 export interface InspectorPresentationState {
   confirmationGuide: ConfirmationGuideRender | null;
+  replayCursor: ReplayCursorRender | null;
   draftDrawable: AnnotationDrawable | null;
   selectedOverlayId: string | null;
   selectedAnnotationId: string | null;
 }
 
 export interface ConfirmationGuideRender {
+  x: number;
+}
+
+export interface ReplayCursorRender {
   x: number;
 }
 
@@ -143,7 +152,13 @@ export function buildInspectorGeometryCache(
 export function buildInspectorPresentationState(
   state: Pick<
     InspectorPrimitiveState,
-    "confirmationGuide" | "draftAnnotation" | "selectedOverlayId" | "selectedAnnotationId"
+    | "confirmationGuide"
+    | "draftAnnotation"
+    | "selectedOverlayId"
+    | "selectedAnnotationId"
+    | "replayMode"
+    | "replayCursorBarId"
+    | "replayHoverBarId"
   >,
   barTimeById: Map<number, number>,
   projector: CoordinateProjector,
@@ -151,6 +166,13 @@ export function buildInspectorPresentationState(
   return {
     confirmationGuide: resolveConfirmationGuide(
       state.confirmationGuide,
+      barTimeById,
+      projector,
+    ),
+    replayCursor: resolveReplayCursor(
+      state.replayMode,
+      state.replayCursorBarId,
+      state.replayHoverBarId,
       barTimeById,
       projector,
     ),
@@ -169,6 +191,7 @@ export function composeInspectorRenderData(
   return {
     sessionBoundaries: geometry.sessionBoundaries,
     confirmationGuide: presentation.confirmationGuide,
+    replayCursor: presentation.replayCursor,
     overlayDrawables: geometry.overlayDrawables,
     annotationDrawables: geometry.annotationDrawables,
     draftDrawable: presentation.draftDrawable,
@@ -205,6 +228,11 @@ export function drawInspectorScene(
 
     if (data.draftDrawable) {
       drawAnnotation(context, data.draftDrawable, false, true);
+    }
+
+    if (data.replayCursor) {
+      drawReplayFutureMask(context, data.replayCursor, mediaSize.width, mediaSize.height);
+      drawReplayCursor(context, data.replayCursor, mediaSize.height);
     }
   });
 }
@@ -395,7 +423,12 @@ export function resolveOverlayDrawables(
     overlayDrawables.push({
       overlay,
       points: points as Array<{ x: number; y: number }>,
-      radius: overlay.kind === "leg-line" ? 8 : 9,
+      radius:
+        overlay.kind === "leg-line"
+          ? 8
+          : isShortTermPivot(overlay.style_key)
+            ? 7
+            : 9,
     });
   }
   return overlayDrawables;
@@ -454,6 +487,31 @@ function resolveConfirmationGuide(
     return null;
   }
   const x = projector.timeToCoordinate(confirmTime);
+  if (x === null) {
+    return null;
+  }
+  return { x };
+}
+
+function resolveReplayCursor(
+  replayMode: boolean,
+  replayCursorBarId: number | null,
+  replayHoverBarId: number | null,
+  barTimeById: Map<number, number>,
+  projector: CoordinateProjector,
+): ReplayCursorRender | null {
+  if (!replayMode) {
+    return null;
+  }
+  const activeBarId = replayCursorBarId ?? replayHoverBarId;
+  if (activeBarId === null) {
+    return null;
+  }
+  const cursorTime = barTimeById.get(activeBarId);
+  if (cursorTime === undefined) {
+    return null;
+  }
+  const x = projector.timeToCoordinate(cursorTime);
   if (x === null) {
     return null;
   }
@@ -600,6 +658,34 @@ function drawConfirmationGuide(
   context.restore();
 }
 
+function drawReplayFutureMask(
+  context: CanvasRenderingContext2D,
+  cursor: ReplayCursorRender,
+  width: number,
+  height: number,
+) {
+  context.save();
+  context.fillStyle = "rgba(247, 248, 250, 0.6)";
+  context.fillRect(cursor.x, 0, Math.max(width - cursor.x, 0), height);
+  context.restore();
+}
+
+function drawReplayCursor(
+  context: CanvasRenderingContext2D,
+  cursor: ReplayCursorRender,
+  height: number,
+) {
+  context.save();
+  context.beginPath();
+  context.setLineDash([]);
+  context.strokeStyle = "rgba(37, 99, 235, 0.95)";
+  context.lineWidth = 1.5;
+  context.moveTo(Math.round(cursor.x) + 0.5, 0);
+  context.lineTo(Math.round(cursor.x) + 0.5, height);
+  context.stroke();
+  context.restore();
+}
+
 function drawOverlay(
   context: CanvasRenderingContext2D,
   drawable: Drawable,
@@ -629,7 +715,11 @@ function drawOverlay(
   } else if (drawable.overlay.kind === "pivot-marker") {
     const [point] = drawable.points;
     const isHigh = drawable.overlay.style_key.includes(".high.");
-    drawPivotBadge(context, point.x, point.y, 5, isHigh ? "down" : "up", style);
+    if (isShortTermPivot(drawable.overlay.style_key)) {
+      drawDiamondBadge(context, point.x, point.y, 4.5, style);
+    } else {
+      drawPivotBadge(context, point.x, point.y, 5, isHigh ? "down" : "up", style);
+    }
   } else if (drawable.overlay.kind === "major-lh-marker") {
     const [point] = drawable.points;
     drawDiamondBadge(context, point.x, point.y, 6, style);
@@ -794,6 +884,7 @@ function drawDiamond(
 
 function overlayStyle(styleKey: string, selected: boolean): OverlayPaint {
   const stateOpacity = styleKey.includes(".candidate") ? 0.52 : 0.92;
+  const pivotStOpacity = styleKey.includes(".candidate") ? 0.36 : 0.62;
   if (styleKey.startsWith("leg.up")) {
     return {
       stroke: `rgba(36, 92, 62, ${stateOpacity})`,
@@ -810,6 +901,24 @@ function overlayStyle(styleKey: string, selected: boolean): OverlayPaint {
       accent: "rgba(214, 125, 93, 0.97)",
       lineWidth: selected ? 2.9 : 1.65,
       dash: styleKey.includes(".candidate") ? [8, 6] : [],
+    };
+  }
+  if (styleKey.startsWith("pivot_st.high")) {
+    return {
+      stroke: `rgba(164, 99, 73, ${pivotStOpacity})`,
+      fill: "rgba(255, 247, 238, 0.82)",
+      accent: "rgba(196, 129, 103, 0.88)",
+      lineWidth: selected ? 1.9 : 1.1,
+      dash: [],
+    };
+  }
+  if (styleKey.startsWith("pivot_st.low")) {
+    return {
+      stroke: `rgba(52, 104, 80, ${pivotStOpacity})`,
+      fill: "rgba(246, 252, 248, 0.82)",
+      accent: "rgba(98, 148, 122, 0.88)",
+      lineWidth: selected ? 1.9 : 1.1,
+      dash: [],
     };
   }
   if (styleKey.startsWith("pivot.high")) {
@@ -846,6 +955,10 @@ function overlayStyle(styleKey: string, selected: boolean): OverlayPaint {
     lineWidth: selected ? 2.5 : 1.55,
     dash: [],
   };
+}
+
+function isShortTermPivot(styleKey: string): boolean {
+  return styleKey.startsWith("pivot_st.");
 }
 
 function pointInsideAnnotationBox(

@@ -1,14 +1,15 @@
 # Overlay Spec
 
 Status: active design spec
-Last updated: 2026-03-06
+Last updated: 2026-03-08
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependencies:
 
 - `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/artifact_contract.md`
 - `/Users/simongu/Projects/PA quantitative/docs/inspector_spec.md`
-- `/Users/simongu/Projects/PA quantitative/docs/rulebooks/pa_rulebook_v0_1.md`
+- `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+- `/Users/simongu/Projects/PA quantitative/docs/rulebooks/pa_rulebook_v0_2.md`
 
 ## Purpose
 
@@ -31,6 +32,8 @@ This document defines how structures become overlay objects.
 
 This spec currently covers the initial shipped structure chain:
 
+- `pivot_st_high`
+- `pivot_st_low`
 - `pivot_high`
 - `pivot_low`
 - `leg_up`
@@ -58,6 +61,7 @@ Projection rules:
 - overlays may use source features only when needed for explanation metadata
 - overlays must not invent new market-structure semantics
 - overlays may enrich geometry and display metadata, but they must preserve source provenance
+- overlays may be projected from latest-state structure objects or backend-resolved replay state, but never from frontend-inferred lifecycle guesses
 - renderers may draw overlay objects through chart-native primitives, chart-native series, or another presentation layer, but the backend overlay contract must remain unchanged
 
 ## Overlay Object Contract
@@ -109,6 +113,24 @@ Versioning rules:
 
 The following mapping is canonical for MVP.
 
+## Overlay Layer Families
+
+Overlay layers are the user-facing visibility families used by the API and inspector.
+They are not required to match overlay geometry kinds one-to-one.
+
+Current canonical layer mapping:
+
+- `pivot_st_high`, `pivot_st_low` -> layer `pivot_st`
+- `pivot_high`, `pivot_low` -> layer `pivot`
+- `leg_up`, `leg_down` -> layer `leg`
+- `major_lh` -> layer `major_lh`
+- `bearish_breakout_start` -> layer `breakout_start`
+
+Important rule:
+
+- `pivot_st_*` and `pivot_*` both project to `kind = pivot-marker`
+- layer identity must therefore be resolved from source-structure provenance such as `source_kind`, not from overlay geometry kind alone
+
 ### `pivot_high` -> `pivot-marker`
 
 Projection:
@@ -134,6 +156,32 @@ Style guidance:
 
 - `style_key = pivot.low.confirmed` for confirmed pivots
 - `style_key = pivot.low.candidate` for candidate pivots
+
+### `pivot_st_high` -> `pivot-marker`
+
+Projection:
+
+- emit one `pivot-marker`
+- anchor bar is `start_bar_id`
+- anchor price is `high[start_bar_id]`
+
+Style guidance:
+
+- `style_key = pivot_st.high.confirmed` for confirmed short-term pivots
+- `style_key = pivot_st.high.candidate` for candidate short-term pivots
+
+### `pivot_st_low` -> `pivot-marker`
+
+Projection:
+
+- emit one `pivot-marker`
+- anchor bar is `start_bar_id`
+- anchor price is `low[start_bar_id]`
+
+Style guidance:
+
+- `style_key = pivot_st.low.confirmed` for confirmed short-term pivots
+- `style_key = pivot_st.low.candidate` for candidate short-term pivots
 
 ### `leg_up` -> `leg-line`
 
@@ -205,11 +253,17 @@ Required state policy:
 - `candidate` overlays remain visible but visually subordinate
 - `confirmed` overlays use the primary style for that overlay family
 - `invalidated` overlays are not required for MVP and may be omitted until invalidated structures are materialized
+- replay-time overlay state must come from backend-resolved structure state at the active cursor, not from UI-local bar rescans
+- replay-time persistent overlays must show only the resolved post-cursor structure state, not every prior lifecycle shape that led to it
+- if a structure receives an `updated` lifecycle event, the persistent replay overlay must switch to the post-update geometry instead of rendering old and new persistent geometries together
+- `invalidated` and `replaced` structures must leave the persistent replay overlay set once that lifecycle event has been applied at the cursor
+- replay-specific transition emphasis, if shown, is an inspector concern derived from backend lifecycle payloads and is not itself a canonical overlay object
 
 Important rule:
 
 - visibility and style may differ by state
 - semantic state must still be recoverable from the source structure, not inferred only from color
+- raw lifecycle events do not define overlay geometry by themselves; overlays project from the resolved structure object state
 
 ## Geometry Contract
 
@@ -244,6 +298,12 @@ Canonical MVP z-order from back to front:
 3. `major-lh-marker`
 4. `breakout-marker`
 5. selected overlay highlight
+
+Within the shared `pivot-marker` geometry family:
+
+- `pivot_st_*` markers render below structural `pivot_*` markers
+- if a short-term and structural pivot coincide, the structural pivot should win hit testing
+- short-term pivots should remain visually subordinate through smaller size and lower opacity
 
 Hit-testing rules:
 

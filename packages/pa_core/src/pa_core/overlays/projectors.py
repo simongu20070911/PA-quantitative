@@ -23,9 +23,11 @@ from pa_core.structures.pivots import (
     PIVOT_RULEBOOK_VERSION,
     PIVOT_STRUCTURE_VERSION,
 )
+from pa_core.structures.pivots_v0_2 import PIVOT_ST_SPEC
 
 MVP_OVERLAY_VERSION = "v1"
 MVP_OVERLAY_DATASET_KINDS = (
+    PIVOT_ST_SPEC.kind_group,
     PIVOT_KIND_GROUP,
     LEG_KIND_GROUP,
     MAJOR_LH_KIND_GROUP,
@@ -71,6 +73,7 @@ def sort_overlay_objects_for_render(overlays: Sequence[OverlayObject]) -> list[O
         overlays,
         key=lambda overlay: (
             overlay_z_order(overlay.kind),
+            _overlay_tier_rank(overlay),
             overlay.anchor_bars[0] if overlay.anchor_bars else -1,
             overlay.overlay_id,
         ),
@@ -143,6 +146,30 @@ def _project_structure_row(
             anchor_bars=(anchor_bar_id,),
             anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "low"),),
             style_key=f"pivot.low.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == PIVOT_ST_SPEC.kind_high:
+        anchor_bar_id = int(row["start_bar_id"])
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "high"),),
+            style_key=f"pivot_st.high.{source_state}",
+            data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == PIVOT_ST_SPEC.kind_low:
+        anchor_bar_id = int(row["start_bar_id"])
+        return _build_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "low"),),
+            style_key=f"pivot_st.low.{source_state}",
             data_version=data_version,
             structure_version=structure_version,
             overlay_version=overlay_version,
@@ -254,6 +281,16 @@ def _build_overlay_meta(row: dict[str, object]) -> dict[str, object]:
     if confirm_bar_id is not None:
         meta["confirm_bar_id"] = int(confirm_bar_id)
     return meta
+
+
+def _overlay_tier_rank(overlay: OverlayObject) -> int:
+    if overlay.style_key.startswith("pivot_st."):
+        return 0
+    if overlay.style_key.startswith("pivot."):
+        return 1
+    return 0
+
+
 def _required_end_bar_id(row: dict[str, object], source_kind: str) -> int:
     end_bar_id = row["end_bar_id"]
     if end_bar_id is None:

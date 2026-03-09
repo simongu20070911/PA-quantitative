@@ -30,14 +30,35 @@ class RuntimeStructureChainTests(unittest.TestCase):
             self.assertEqual(chain.bar_frame.column("bar_id").to_pylist()[0], 1000)
             self.assertEqual(len(chain.bar_frame.column("bar_id").to_pylist()), 17)
 
-            pivot_frame, leg_frame, major_frame, breakout_frame = [dataset.frame for dataset in chain.datasets]
+            frames = {dataset.kind: dataset.frame for dataset in chain.datasets}
+            event_frames = {dataset.kind: dataset.frame for dataset in chain.event_datasets}
+            pivot_st_frame = frames["pivot_st"]
+            pivot_frame = frames["pivot"]
+            leg_frame = frames["leg"]
+            major_frame = frames["major_lh"]
+            breakout_frame = frames["breakout_start"]
+            self.assertIn("pivot_st", event_frames)
+            self.assertIn("pivot", event_frames)
+            self.assertGreater(event_frames["pivot_st"].num_rows, 0)
+            self.assertGreater(event_frames["pivot"].num_rows, 0)
+            self.assertGreaterEqual(pivot_st_frame.num_rows, pivot_frame.num_rows)
+            visible_pivots = [
+                row for row in pivot_frame.to_pylist() if row["state"] in {"candidate", "confirmed"}
+            ]
             self.assertEqual(
-                {(row["kind"], row["start_bar_id"]) for row in pivot_frame.to_pylist()},
-                {("pivot_low", 1025), ("pivot_high", 1055), ("pivot_low", 1080)},
+                {(row["kind"], row["start_bar_id"], row["state"]) for row in visible_pivots},
+                {
+                    ("pivot_low", 1025, "confirmed"),
+                    ("pivot_high", 1055, "confirmed"),
+                    ("pivot_low", 1080, "candidate"),
+                },
             )
+            visible_legs = [
+                row for row in leg_frame.to_pylist() if row["state"] in {"candidate", "confirmed"}
+            ]
             self.assertEqual(
-                {(row["kind"], row["start_bar_id"], row["end_bar_id"]) for row in leg_frame.to_pylist()},
-                {("leg_up", 1025, 1055), ("leg_down", 1055, 1080)},
+                {(row["kind"], row["start_bar_id"], row["end_bar_id"], row["state"]) for row in visible_legs},
+                {("leg_up", 1025, 1055, "confirmed"), ("leg_down", 1055, 1080, "candidate")},
             )
             self.assertEqual(major_frame.num_rows, 0)
             self.assertEqual(breakout_frame.num_rows, 0)

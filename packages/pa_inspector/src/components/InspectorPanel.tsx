@@ -1,6 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { FloatingPosition, Overlay, StructureDetailResponse } from "../lib/types";
+import type {
+  ChartBar,
+  FloatingPosition,
+  InspectorMode,
+  Overlay,
+  StructureDetailResponse,
+} from "../lib/types";
 
 export interface InspectorPanelProps {
   overlay: Overlay | null;
@@ -9,6 +15,9 @@ export interface InspectorPanelProps {
   initialManualPosition: boolean;
   onPositionChange: (position: FloatingPosition) => void;
   onManualPositionChange: (manual: boolean) => void;
+  inspectorMode: InspectorMode;
+  replayCursorBar: ChartBar | null;
+  replayBackendResolved: boolean;
   detail: StructureDetailResponse | null;
   loading: boolean;
   error: string | null;
@@ -22,6 +31,9 @@ export function InspectorPanel({
   initialManualPosition,
   onPositionChange,
   onManualPositionChange,
+  inspectorMode,
+  replayCursorBar,
+  replayBackendResolved,
   detail,
   loading,
   error,
@@ -30,17 +42,27 @@ export function InspectorPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const dragHandleRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedOverlayRef = useRef(false);
+  const onPositionChangeRef = useRef(onPositionChange);
+  const onManualPositionChangeRef = useRef(onManualPositionChange);
   const [position, setPosition] = useState(initialPosition);
   const [manualPosition, setManualPosition] = useState(initialManualPosition);
   const overlayKey = overlay?.overlay_id ?? null;
 
   useEffect(() => {
-    onPositionChange(position);
-  }, [onPositionChange, position]);
+    onPositionChangeRef.current = onPositionChange;
+  }, [onPositionChange]);
 
   useEffect(() => {
-    onManualPositionChange(manualPosition);
-  }, [manualPosition, onManualPositionChange]);
+    onManualPositionChangeRef.current = onManualPositionChange;
+  }, [onManualPositionChange]);
+
+  useEffect(() => {
+    onPositionChangeRef.current(position);
+  }, [position]);
+
+  useEffect(() => {
+    onManualPositionChangeRef.current(manualPosition);
+  }, [manualPosition]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -207,6 +229,37 @@ export function InspectorPanel({
               </div>
             </dl>
           </div>
+
+          {inspectorMode === "replay" ? (
+            <div className="detail-block">
+              <h3>Replay Context</h3>
+              <dl className="detail-list">
+                <div>
+                  <dt>Cursor Bar</dt>
+                  <dd>{replayCursorBar?.bar_id ?? "None"}</dd>
+                </div>
+                <div>
+                  <dt>Cursor Time</dt>
+                  <dd>
+                    {replayCursorBar
+                      ? new Date(replayCursorBar.time * 1000).toLocaleString("en-US", {
+                          month: "short",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                          timeZone: "UTC",
+                        })
+                      : "None"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Replay State</dt>
+                  <dd>{replayBackendResolved ? "Backend-resolved" : "UI transport preview"}</dd>
+                </div>
+              </dl>
+            </div>
+          ) : null}
 
           <div className="detail-block">
             <h3>Explanation Codes</h3>

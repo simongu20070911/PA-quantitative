@@ -16,6 +16,90 @@ Copy this shape for new entries:
 
 ## Entries
 
+### 2026-03-08
+- Summary: Made `runtime_v0_2` the default inspector rulebook path, renamed the version chooser around explicit rulebook semantics, and changed rulebook switching to clear stale chart/detail state and reload immediately so `v0.1` payloads cannot linger when the user moves onto `v0.2`.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If desired, add a stronger visual badge on overlay/detail surfaces that spells out the active rulebook directly on selection so there is never any ambiguity about whether a given marker came from `v0.1` or `v0.2`.
+
+### 2026-03-08
+- Summary: Removed the frontend 15-second abort on `GET /chart-window` so the inspector now waits for slow backend reads instead of timing out and dropping into the restore/load warning path during normal long-running structure loads.
+- Files: `packages/pa_inspector/src/lib/api.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If needed, make request timeout behavior env-configurable so local heavy-data sessions can run unbounded while hosted deployments can still enforce service-level limits.
+
+### 2026-03-08
+- Summary: Removed the oversized chart-level timeout banner by routing restore/load status into the compact toolbar dock, softening restore failures into a non-blocking status message, and reusing the empty chart state for no-data feedback instead of pushing a full-width error strip into the workspace.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`; Playwright smoke check before and after the 15s restore timeout.
+- Next: Once the local API/dev server flow is standardized, consider replacing the restore-timeout sentence with a shorter environment-aware hint that can distinguish “API offline” from “runtime compute still busy.”
+
+### 2026-03-08
+- Summary: Reworked the inspector header from a bulky status panel into a compact control dock, and added a persisted hide/show toggle so the top bar can get completely out of the way while keeping a small reveal strip for returning to controls.
+- Files: `docs/status.md`, `docs/work_log.md`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`
+- Verification: `cd packages/pa_inspector && npm run build`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`; browser smoke check via Playwright CLI for both expanded and hidden toolbar states.
+- Next: Tighten the remaining toolbar copy once the live API port situation is standardized locally, so the compact dock can show resolved source/version data without transient timeout placeholders during development.
+
+### 2026-03-08
+- Summary: Added explicit structure-source selection across `pa_api` and `pa_inspector`, so chart-window and structure-detail reads can request `auto`, `artifact_v0_1`, `artifact_v0_2`, or `runtime_v0_2`, and redesigned the inspector top bar into a cleaner control deck with a dedicated version/source panel that surfaces the backend-resolved source instead of silently collapsing to empty overlays.
+- Files: `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`, `packages/pa_api/src/pa_api/app.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `packages/pa_inspector/src/lib/api.ts`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/types.ts`
+- Verification: `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`; `cd packages/pa_inspector && npm run build`; browser smoke check via Playwright CLI against the local inspector header and version panel.
+- Next: Materialize canonical `eth_full 1m` `v0.2` structure artifacts so `artifact_v0_2` stops being a documented-but-unavailable selector on the live dataset, then decide whether replay should default to artifact-backed or runtime-backed `v0.2` when both are present.
+
+### 2026-03-08
+- Summary: Split the v0.2 pivot presentation path end to end by defining separate `pivot_st` and `pivot` overlay layers in the specs, API, and inspector, adding source-kind-aware layer filtering for shared `pivot-marker` geometry, and giving short-term pivots a subordinate default presentation with their own toggle.
+- Files: `docs/overlay_spec.md`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`, `packages/pa_core/src/pa_core/overlays/projectors.py`, `packages/pa_core/tests/test_overlays.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/tests/test_app.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/overlayLayers.ts`, `packages/pa_inspector/src/lib/types.ts`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_overlays -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`; `cd packages/pa_inspector && npm run build`
+- Next: Decide whether chart-window structure summaries should also gain a first-class layer field for inspector grouping, or whether source-kind-aware overlay-only classification is sufficient once replay expands beyond pivots.
+
+### 2026-03-08
+- Summary: Added the first `v0.2` structure slice by introducing short-term and structural pivot tiers with sparse lifecycle-event publication, wiring structural legs onto the slower `v0.2` pivot tier, and upgrading the replay backend so chart-window/detail reads can resolve pivots from canonical and runtime-family lifecycle events while non-pivot structures still use conservative snapshot-object `as_of` reads.
+- Files: `docs/rulebooks/pa_rulebook_v0_2.md`, `docs/status.md`, `docs/roadmap.md`, `docs/work_log.md`, `packages/pa_core/src/pa_core/rulebooks/v0_2.py`, `packages/pa_core/src/pa_core/artifacts/layout.py`, `packages/pa_core/src/pa_core/artifacts/structures.py`, `packages/pa_core/src/pa_core/artifacts/structure_events.py`, `packages/pa_core/src/pa_core/structures/pivots_v0_2.py`, `packages/pa_core/src/pa_core/structures/legs_v0_2.py`, `packages/pa_core/src/pa_core/structures/runtime.py`, `packages/pa_core/src/pa_core/overlays/projectors.py`, `packages/pa_core/tests/test_pivots_v0_2.py`, `packages/pa_core/tests/test_runtime_structures.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/tests/test_app.py`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_pivots_v0_2 tests.test_runtime_structures -v`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Extend lifecycle-event publication from pivots into legs and higher-order structures, then let replay consume those events directly instead of mixing pivot events with snapshot-only downstream state.
+
+### 2026-03-07
+- Summary: Added backend replay-oriented `as_of` support to `pa_api` by resolving structure summaries and overlays against a requested bar-family cursor, exposing replay metadata in chart-window/detail responses, and conservatively hiding future confirmed structures while still documenting that the current source remains snapshot-object based rather than lifecycle-event complete.
+- Files: `packages/pa_api/src/pa_api/app.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/tests/test_app.py`, `docs/replay_lifecycle_spec.md`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`
+- Next: Add a canonical lifecycle-event dataset or equivalent backend event surface so replay can show historical candidate creation, invalidation, and replacement rather than only conservative `as_of` object state.
+
+### 2026-03-07
+- Summary: Built the first replay-mode inspector shell with an explicit `Explore | Replay` toggle, persisted replay cursor and speed, a bottom transport bar, click-to-set-cursor behavior on empty chart space, and chart-side replay visuals including a vertical cursor plus future-bar dimming, while keeping semantics honest by leaving overlays/detail reads on latest-state payloads until backend replay APIs exist.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/InspectorPanel.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/ReplayTransport.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/types.ts`, `packages/pa_inspector/src/index.css`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: Wire replay transport to backend-resolved `as_of` structure/detail reads and lifecycle event stepping so replay overlays stop showing latest-state payloads.
+
+### 2026-03-07
+- Summary: Tightened the replay UI contract by specifying what the inspector must show for created, updated, awaiting-confirm, confirmed, invalidated, and replaced structures, and clarified that replay displays resolved post-cursor overlay state while lifecycle transitions appear through a separate replay event readout.
+- Files: `docs/inspector_spec.md`, `docs/overlay_spec.md`, `docs/work_log.md`
+- Verification: Re-read the replay sections in the inspector and overlay specs together with `docs/replay_lifecycle_spec.md` to confirm the ownership split now matches: backend resolves lifecycle state, overlays project resolved geometry, and the inspector owns transition presentation rather than semantic inference.
+- Next: When replay API design starts, define the concrete replay read shape so the cursor-aware detail panel and event readout can be implemented without overloading latest-state `GET /structure/{structure_id}` responses.
+
+### 2026-03-07
+- Summary: Applied the stricter rulebook cleanup by removing publication-status content, trimming the lifecycle section back to an ownership pointer, deleting per-rule overlay/review template fields, and adding a top-level scope statement so `pa_rulebook_v0_1.md` stays focused on semantic legality, timing, lifecycle conditions, and conflict resolution only.
+- Files: `docs/rulebooks/pa_rulebook_v0_1.md`, `docs/work_log.md`
+- Verification: Re-read the rulebook template, lifecycle section, and closing sections to confirm inspector, review, testing, and publication concerns are now referenced out to their owning specs instead of being specified locally.
+- Next: If desired, do one more pass on `Versioning Rules` to decide whether the remaining inspector/review-facing bullets there should also move out of the rulebook for a fully semantic-only document.
+
+### 2026-03-07
+- Summary: Cleaned up `pa_rulebook_v0_1.md` so it reads as a structure-semantics document rather than a mixed rulebook-plus-inspector-plus-testing memo, replacing the old inspector/review/testing sections with a short cross-document ownership boundary.
+- Files: `docs/rulebooks/pa_rulebook_v0_1.md`, `docs/work_log.md`
+- Verification: Re-read the bottom of the rulebook to confirm it now keeps semantic responsibilities local while pointing inspector, artifact, lifecycle, and architecture concerns to their owning specs.
+- Next: If we keep expanding the structure library, consider splitting future rulebooks into smaller family-focused files once `pivot`, `leg`, and higher-order structures stop fitting comfortably in one document.
+
+### 2026-03-07
+- Summary: Refined the replay/lifecycle contract to use sparse action-shaped event rows rather than mandatory full-structure snapshots, with a small common event envelope on every event, fuller shape payload on `created`, lighter `confirmed` / `invalidated` / `replaced` rows, and Parquet-plus-manifest storage as the canonical persistence model.
+- Files: `docs/replay_lifecycle_spec.md`, `docs/artifact_contract.md`, `docs/canonical_spec.md`, `docs/rulebooks/pa_rulebook_v0_1.md`, `docs/status.md`, `docs/roadmap.md`, `docs/work_log.md`
+- Verification: Re-read the replay, artifact, canonical, rulebook, status, and roadmap docs together to confirm they now agree on sparse lifecycle emission, manifest-level shared provenance, and the preferred `objects + events` storage pattern.
+- Next: When implementation starts, define the exact event schema per structure family and decide whether the first replay-capable backend slice ships raw sparse events, backend-resolved `as_of` snapshots, or both.
+
+### 2026-03-07
+- Summary: Added a dedicated replay and structure lifecycle spec, then updated the canonical, artifact, rulebook, inspector, overlay, session/timeframe, status, and roadmap docs so replay semantics, structure identity, and lifecycle publication now have a clear single source of truth instead of being implied by snapshot artifacts.
+- Files: `AGENTS.md`, `docs/replay_lifecycle_spec.md`, `docs/canonical_spec.md`, `docs/artifact_contract.md`, `docs/rulebooks/pa_rulebook_v0_1.md`, `docs/inspector_spec.md`, `docs/overlay_spec.md`, `docs/session_timeframe_spec.md`, `docs/status.md`, `docs/roadmap.md`, `docs/work_log.md`
+- Verification: Reviewed the updated doc set together to confirm that lifecycle ownership, replay boundaries, current snapshot-only limitations, and future replay-capable artifact expectations now agree across the architecture, artifact, rulebook, inspector, overlay, and timeframe specs.
+- Next: Implement canonical structure lifecycle event publication or semantically equivalent backend `as_of` replay reads before shipping replay mode in the inspector.
+
 ### 2026-03-07
 - Summary: Upgraded EMA from a simple on/off indicator into a selectable chart object in the inspector, with persisted per-length style controls for color, width, line style, opacity, and visibility exposed through a floating toolbar modeled after the annotation workflow.
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/EmaToolbar.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/annotationStyle.ts`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/types.ts`, `packages/pa_inspector/src/index.css`, `docs/status.md`, `docs/work_log.md`
@@ -609,3 +693,33 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/EmaToolbar.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/components/toolbarShared.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/overlayLayers.ts`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: Continue the state cleanup by pulling the remaining `App` event handlers and chart-selection actions into a dedicated inspector workspace/controller hook so `App` becomes orchestration instead of a large command surface.
+
+### 2026-03-07
+- Summary: Debugged the blank inspector load in a live browser, fixed the React callback-sync render loop in the floating panel/rail plumbing, and added fetch timeouts so a stuck `/chart-window` or structure-detail request cannot leave the inspector pinned on `Loading...` forever within one browser session.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/InspectorPanel.tsx`, `packages/pa_inspector/src/components/toolbarShared.tsx`, `packages/pa_inspector/src/lib/api.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; fresh Playwright session on `http://127.0.0.1:4173` showed only the expected favicon 404 and successful chart load after the fixes
+- Next: If we want even stronger resilience, add request cancellation or stale-request eviction around `inFlightRef` so a superseded window request is actively aborted instead of merely timing out.
+
+### 2026-03-08
+- Summary: Wired replay mode to real backend `as_of_bar_id` reads in the inspector so replay cursor changes now refetch replay-resolved chart windows and structure detail instead of only moving a local cursor overlay, and made the replay status badge reflect backend replay metadata instead of a hardcoded `false`.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/lib/api.ts`, `packages/pa_inspector/src/lib/types.ts`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: Add a lighter-weight replay fetch strategy or request cancellation for `runtime_v0_2`, because full replay refetches on the canonical family can still feel slow in local interactive use.
+
+### 2026-03-08
+- Summary: Restored usable v0.2 chart loading by making canonical-family `runtime_v0_2` reads compute the runtime structure chain on the requested candidate window instead of the full family, coerced stale `artifact_v0_2` inspector state back onto live `runtime_v0_2`, removed the non-working `artifact_v0_2` option from the main version picker, and changed replay so future bars stay visible only while choosing the replay cursor and disappear once a cursor is selected.
+- Files: `packages/pa_api/src/pa_api/service.py`, `packages/pa_core/src/pa_core/structures/runtime.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ReplayTransport.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m unittest tests.test_app -v`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_runtime_structures -v`; `cd packages/pa_inspector && npm run build`; live `curl` against `GET /chart-window` for canonical `runtime_v0_2` returned in ~0.5s with bars and overlays again
+- Next: If replay still feels heavy while stepping quickly, add cancellation or a smaller replay-specific request window so repeated `as_of_bar_id` loads do less work per cursor move.
+
+### 2026-03-08
+- Summary: Plugged an inspector memory-growth path by bounding the normal chart-window cache and making replay `as_of_bar_id` snapshots non-cacheable and non-prefetchable, which stops replay stepping from stockpiling large window payloads in the browser.
+- Files: `packages/pa_inspector/src/App.tsx`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If Safari still shows abnormal memory growth after this, profile the chart primitive/update path next, because the remaining suspect would be render-layer object retention rather than request caching.
+
+### 2026-03-08
+- Summary: Changed replay start selection to use a hover-preview cursor like TradingView: in replay mode before commit, the blue replay line now follows the mouse on hover and only locks the replay start bar on click, while pan/zoom remains available during hover preview.
+- Files: `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want even closer TradingView parity, let users drag the committed replay cursor directly on the chart instead of clearing and re-clicking to choose a new start bar.

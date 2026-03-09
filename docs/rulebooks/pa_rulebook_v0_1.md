@@ -1,7 +1,7 @@
 # PA Rulebook v0.1
 
 Status: draft
-Last updated: 2026-03-06
+Last updated: 2026-03-07
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependency: `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 
@@ -15,6 +15,10 @@ Human review must evaluate implementation against this document.
 
 This rulebook is intentionally narrow.
 It exists to lock down one structure slice before expanding the library.
+
+This document defines structure legality, timing, state-transition conditions, and conflict resolution.
+It does not define inspector behavior, overlay projection, review workflow, testing policy, or publication status.
+Those concerns are owned by their respective spec documents.
 
 ## v0.1 Scope
 
@@ -92,6 +96,14 @@ If a label is applied to an earlier anchor bar but only known later, document bo
 - `anchor_bar`
 - `confirm_bar`
 
+## Lifecycle And Replay Reference
+
+Cross-structure lifecycle and replay semantics are defined in:
+
+- `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+
+This rulebook remains the owner of structure-specific transition conditions.
+
 ## Alignment Semantics
 
 Rules must declare whether they operate on:
@@ -135,6 +147,13 @@ Anchor and timing:
 - confirm bar definition
 - availability timing
 
+Lifecycle semantics:
+
+- first visible state and the bar that makes it publishable
+- update and replacement behavior before terminal state
+- invalidation rule
+- whether direct confirmed emission is allowed
+
 Conditions:
 
 1. explicit ordered condition
@@ -156,13 +175,10 @@ Explanation codes:
 
 - list the codes that implementation should emit when this rule triggers or fails
 
-Required overlays:
+Cross-references:
 
-- which overlay objects the inspector should render for this rule
-
-Review expectations:
-
-- what a human reviewer should verify visually
+- overlay projection behavior is defined in `/Users/simongu/Projects/PA quantitative/docs/overlay_spec.md`
+- review workflow behavior is defined by cross-project review specs and invariants, not by this rulebook
 
 ## v0.1 Concrete Sections To Fill
 
@@ -456,47 +472,24 @@ Explanation codes:
 - `down_leg_break_prior_low`
 - `cross_session_sequence`
 
-## Inspector Contract For Rulebook Work
+## Cross-Document References
 
-For each implemented rule slice, the inspector should support:
+This rulebook is the source of truth for structure semantics only.
 
-- continuous chart rendering
-- toggling related overlays
-- selecting the structure and seeing rule evidence
-- showing anchor bar and confirm bar
-- showing the rulebook version
+Related responsibilities live elsewhere:
 
-The inspector is a validation surface, not the semantic source of truth.
+- inspector product and interaction behavior: `/Users/simongu/Projects/PA quantitative/docs/inspector_spec.md`
+- artifact schema and storage behavior: `/Users/simongu/Projects/PA quantitative/docs/artifact_contract.md`
+- lifecycle event and replay behavior: `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+- cross-project architecture and review invariants: `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 
-## Review Contract For Rulebook Work
+Within this rulebook, keep only:
 
-For each implemented rule slice, review should capture:
-
-- whether the label exists
-- whether the anchor bar is correct
-- whether the confirm bar is correct
-- whether the label type is correct
-- whether the rulebook itself is ambiguous
-
-## Testing Guidance For Rulebook Iteration
-
-Rulebook semantics in early versions are expected to change quickly.
-Testing should support iteration, not freeze immature semantics too early.
-
-Required testing approach for `v0.1`:
-
-- test infrastructure and alignment contracts strongly
-- test concrete rule slices with a small number of hand-checked fixtures
-- add regression tests for real bugs once discovered
-- rely on inspector-based visual review for most early semantic refinement
-
-Avoid:
-
-- large brittle test inventories for unstable early labels
-- treating visual review as a substitute for alignment or kernel-parity tests
-- allowing implementation to drift without updating the rulebook
-
-As rule slices stabilize across versions, semantic regression coverage should grow with them.
+- structure legality
+- state-transition conditions
+- timing
+- conflict resolution
+- explanation codes
 
 ## Implementation Readiness Checklist
 
@@ -508,14 +501,13 @@ Do not implement a rule until all of the following are true:
 - conditions are ordered
 - edge cases are listed
 - conflict resolution is stated
-- expected overlays are listed
 - explanation codes are listed
 
-## Open Questions
+## Open Semantic Questions
 
-Track unresolved semantic questions here before changing implementation.
+Track unresolved structure-definition questions here before changing implementation.
 
-- none yet
+- none currently recorded
 
 ## Change Log
 

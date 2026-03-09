@@ -45,9 +45,19 @@ export function useFloatingToolbar({
 }: UseFloatingToolbarArgs) {
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const onPositionChangeRef = useRef(onPositionChange);
+  const onOpenPopoverChangeRef = useRef(onOpenPopoverChange);
   const [position, setPosition] = useState<FloatingPosition | null>(initialPosition);
   const [openPopover, setOpenPopover] =
     useState<AnnotationToolbarPopover>(initialOpenPopover);
+
+  useEffect(() => {
+    onPositionChangeRef.current = onPositionChange;
+  }, [onPositionChange]);
+
+  useEffect(() => {
+    onOpenPopoverChangeRef.current = onOpenPopoverChange;
+  }, [onOpenPopoverChange]);
 
   useEffect(() => {
     if (!active) {
@@ -56,12 +66,12 @@ export function useFloatingToolbar({
   }, [active]);
 
   useEffect(() => {
-    onPositionChange(position);
-  }, [onPositionChange, position]);
+    onPositionChangeRef.current(position);
+  }, [position]);
 
   useEffect(() => {
-    onOpenPopoverChange(openPopover);
-  }, [onOpenPopoverChange, openPopover]);
+    onOpenPopoverChangeRef.current(openPopover);
+  }, [openPopover]);
 
   useEffect(() => {
     const host = hostRef.current;

@@ -4,8 +4,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-OverlayLayer = Literal["pivot", "leg", "major_lh", "breakout_start"]
+OverlayLayer = Literal["pivot_st", "pivot", "leg", "major_lh", "breakout_start"]
 SessionProfile = Literal["eth_full", "rth"]
+StructureSourceProfile = Literal["auto", "artifact_v0_1", "artifact_v0_2", "runtime_v0_2"]
 
 
 class ChartBarModel(BaseModel):
@@ -44,6 +45,33 @@ class OverlayModel(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)
 
 
+class StructureSummaryModel(BaseModel):
+    structure_id: str
+    kind: str
+    state: str
+    start_bar_id: int
+    end_bar_id: int | None
+    confirm_bar_id: int | None
+    anchor_bar_ids: list[int]
+    explanation_codes: list[str]
+
+
+class StructureEventModel(BaseModel):
+    event_id: str
+    structure_id: str
+    kind: str
+    event_type: str
+    event_bar_id: int
+    event_order: int
+    state_after_event: str
+    reason_codes: list[str]
+    start_bar_id: int
+    end_bar_id: int | None
+    confirm_bar_id: int | None
+    anchor_bar_ids: list[int]
+    successor_structure_id: str | None = None
+
+
 class ChartWindowMetaModel(BaseModel):
     data_version: str
     source_data_version: str
@@ -54,26 +82,21 @@ class ChartWindowMetaModel(BaseModel):
     feature_params_hash: str | None
     rulebook_version: str | None
     structure_version: str | None
+    structure_source: StructureSourceProfile
     overlay_version: str | None
     ema_lengths: list[int] = Field(default_factory=list)
+    as_of_bar_id: int | None = None
+    replay_source: str | None = None
+    replay_completeness: str | None = None
 
 
 class ChartWindowResponse(BaseModel):
     bars: list[ChartBarModel]
     ema_lines: list[EmaLineModel] = Field(default_factory=list)
+    structures: list[StructureSummaryModel] = Field(default_factory=list)
+    events: list[StructureEventModel] = Field(default_factory=list)
     overlays: list[OverlayModel]
     meta: ChartWindowMetaModel
-
-
-class StructureSummaryModel(BaseModel):
-    structure_id: str
-    kind: str
-    state: str
-    start_bar_id: int
-    end_bar_id: int | None
-    confirm_bar_id: int | None
-    anchor_bar_ids: list[int]
-    explanation_codes: list[str]
 
 
 class StructureDetailResponse(BaseModel):

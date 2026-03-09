@@ -1,14 +1,15 @@
 # Inspector Spec
 
 Status: active design spec
-Last updated: 2026-03-06
+Last updated: 2026-03-08
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependencies:
 
 - `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/artifact_contract.md`
 - `/Users/simongu/Projects/PA quantitative/docs/session_timeframe_spec.md`
-- `/Users/simongu/Projects/PA quantitative/docs/rulebooks/pa_rulebook_v0_1.md`
+- `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+- `/Users/simongu/Projects/PA quantitative/docs/rulebooks/pa_rulebook_v0_2.md`
 
 ## Purpose
 
@@ -55,6 +56,7 @@ The MVP must support:
 
 The initial overlay family is restricted to the current shipped backend artifact chain:
 
+- `pivot_st`
 - `pivot`
 - `leg`
 - `major_lh`
@@ -74,9 +76,10 @@ The inspector must not:
 
 ## Product Modes
 
-The inspector will eventually support three modes:
+The inspector will eventually support four modes:
 
 - `Explore`
+- `Replay`
 - `Review`
 - `Diff`
 
@@ -85,6 +88,7 @@ Only `Explore` is required for the initial MVP.
 Mode definitions:
 
 - `Explore`: free navigation and visual inspection of candles plus overlays
+- `Replay`: step through bars and inspect backend-owned structure state as of each replay cursor
 - `Review`: structured verdict capture on selected structures or chart spans
 - `Diff`: compare outputs from multiple rulebook or structure versions on the same visible span
 
@@ -103,6 +107,19 @@ Responsibilities:
 Critical rule:
 
 - `pa_inspector` must not become the owner of structure semantics
+
+## Replay Semantics Boundary
+
+Replay lifecycle semantics are defined in:
+
+- `/Users/simongu/Projects/PA quantitative/docs/replay_lifecycle_spec.md`
+
+Required replay rules:
+
+- the inspector must not infer `candidate`, `confirmed`, `invalidated`, or replacement behavior by rescanning visible bars
+- replay views must be driven by backend lifecycle events or backend-resolved `as_of` structure state
+- if replay is served as an `as_of` snapshot instead of raw events, it must be semantically equivalent to applying lifecycle events through the replay cursor
+- replay uses the selected bar family and its finalization rules, not raw wall-clock time alone
 
 ## Frontend Stack
 
@@ -283,6 +300,33 @@ Inspector-specific overlay requirements:
 - overlays must render smoothly inside the chart viewport
 - overlays must preserve provenance needed by the side panel
 
+## Layer Controls And Defaults
+
+The `v0.2` pivot split introduces two distinct pivot visibility families:
+
+- `pivot_st`: short-term pivots for early-turn and replay-formation inspection
+- `pivot`: slower structural pivots that feed the larger downstream chain
+
+Required UI policy:
+
+- `pivot_st` and `pivot` must appear as separate layer pills
+- layer identity must be resolved from backend provenance, not from overlay geometry kind alone, because both tiers project to `pivot-marker`
+- layer toggles remain view-state only; they do not change backend semantics
+
+Default visibility policy:
+
+- `pivot` is on by default
+- `pivot_st` is off by default
+- `leg`, `major_lh`, and `breakout_start` remain on by default
+- replay keeps the same default as explore: structural pivots on, short-term pivots opt-in
+
+Presentation policy:
+
+- structural pivots keep the primary pivot marker treatment
+- short-term pivots use a visibly subordinate treatment
+- short-term pivots should be smaller, lighter, and rendered beneath structural pivots when both tiers overlap
+- the inspector may vary shape between the two tiers, but it must preserve the backend `style_key` meaning rather than inventing new semantic states
+
 Indicator-series note:
 
 - backend-derived indicator lines such as `EMA` are not structure overlays
@@ -301,9 +345,12 @@ Canonical window selectors:
 
 The canonical navigation coordinate remains `bar_id`.
 
+Replay-capable reads may pin an explicit cursor such as `as_of_bar_id`, and replay semantics must still remain backend-owned and versioned.
+
 Required backend behavior:
 
 - return bars for the requested visible span plus a configurable fetch buffer
+- return structure summaries visible in that span, resolved as of the replay cursor when one is provided
 - return overlays intersecting the same buffered span
 - preserve ordering by canonical bar order
 - return enough metadata to reconstruct provenance in the side panel
@@ -322,18 +369,20 @@ Deferred endpoints:
 
 - `POST /review`
 - `GET /diff-window`
+- dedicated lifecycle-event reads such as `GET /replay-window`
 
 ### `GET /chart-window`
 
 Purpose:
 
-- fetch candles plus overlay projections for a visible span
+- fetch candles, structure summaries, and overlay projections for a visible span, optionally resolved as of a replay cursor
 
 Required request parameters:
 
 - `symbol`
 - `timeframe`
 - one of `center_bar_id`, `session_date`, or explicit `start_time` / `end_time`
+- optional `as_of_bar_id` replay cursor on the selected bar family
 - visible-span sizing controls such as `left_bars` and `right_bars`
 - requested overlay layers such as repeated `overlay_layer=pivot`
 
@@ -351,6 +400,18 @@ Required response shape:
       "close": 5329.25,
       "session_id": 20251117,
       "session_date": 20251117
+    }
+  ],
+  "structures": [
+    {
+      "structure_id": "leg-123",
+      "kind": "leg_up",
+      "state": "confirmed",
+      "start_bar_id": 120,
+      "end_bar_id": 123,
+      "confirm_bar_id": 125,
+      "anchor_bar_ids": [120, 123],
+      "explanation_codes": ["pivot_chain_v1"]
     }
   ],
   "overlays": [
@@ -374,7 +435,10 @@ Required response shape:
     "feature_params_hash": "44136fa355b3678a",
     "rulebook_version": "v0_1",
     "structure_version": "v1",
-    "overlay_version": "v1"
+    "overlay_version": "v1",
+    "as_of_bar_id": 125,
+    "replay_source": "as_of_objects",
+    "replay_completeness": "snapshot_objects_only"
   }
 }
 ```
@@ -422,6 +486,76 @@ The side panel should show at minimum:
 - source versions
 - explanation codes
 
+## Replay Mode UI
+
+Replay mode is a cursor-driven inspection mode over backend-owned structure lifecycle state.
+
+Required replay controls:
+
+- set or move a replay cursor by bar
+- step one closed bar backward or forward
+- step to the previous or next lifecycle event
+- play and pause forward replay over closed bars
+- adjust playback speed through a small fixed set of discrete values
+- jump to a date, session, or `bar_id` and begin replay from there
+
+Replay interaction rules:
+
+- replay must operate on the selected bar family and its own finalization rules
+- the replay cursor must be visually explicit on the chart
+- replay stepping must update chart state only after the backend-resolved replay state for that cursor is known
+- replay controls must not force the browser to reconstruct lifecycle semantics from visible bars
+- users may pan and zoom while paused in replay mode without changing replay semantics
+
+Context visibility guidance:
+
+- bars after the replay cursor may remain visible for orientation, but they must be visually subordinate to bars at or before the cursor
+- future bars must not be styled in a way that could be mistaken for already-known replay state
+
+## Replay Visual State Policy
+
+Replay mode shows the resolved structure state after all legal lifecycle events through the active cursor.
+
+Persistent chart overlays in replay:
+
+- show only structures whose resolved post-cursor state is `candidate` or `confirmed`
+- use the same canonical overlay families as ordinary exploration
+- preserve backend provenance and `structure_id` continuity across lifecycle transitions
+
+Required replay visual behavior by transition:
+
+- `created -> candidate`: the structure becomes visible on its `event_bar` in candidate style and remains visible while it stays a candidate
+- `created -> confirmed`: the structure becomes visible on its `event_bar` in confirmed style without an intermediate candidate rendering
+- `updated`: the chart must show only the latest resolved geometry for that structure after the update; replay must not keep stale and updated geometry simultaneously as persistent overlays
+- `candidate awaiting confirm`: this is the ordinary persistent candidate state between creation and later confirmation, invalidation, or replacement
+- `confirmed`: the same logical structure must switch to confirmed styling on the publishable confirmation bar
+- `invalidated`: the structure must not remain in the persistent replay overlay set after the invalidation event has been applied
+- `replaced`: the replaced structure must leave the persistent replay overlay set after the replacement event, and the successor structure must appear according to its own lifecycle events
+
+Transition readout versus persistent overlay rules:
+
+- the persistent chart layer shows resolved current replay state, not the full event history
+- lifecycle transitions on the active cursor bar should be shown through a dedicated replay event readout, not by leaving old geometry permanently visible
+- if the UI adds transient visual emphasis for the active event bar, that emphasis must be derived from backend lifecycle payloads rather than UI-local inference
+
+## Replay Inspection Detail
+
+Replay detail must be cursor-aware.
+
+Required replay detail behavior:
+
+- selecting an overlay in replay mode must show the structure state resolved at the active cursor, not only the latest-state object from ordinary exploration
+- the replay detail surface should show the active structure state, anchor bars, confirm bar if known, and the most recent lifecycle transition at or before the cursor
+- when the active cursor lands on a lifecycle transition bar, the replay detail surface should show the transition type and event timing alongside the resolved structure state
+
+Replay event readout should display when available:
+
+- `event_type`
+- `event_bar_id`
+- `state_after_event`
+- `reason_codes`
+- predecessor or successor relationship ids where relevant
+
 ## Performance Contract
 
 The inspector should feel TradingView-like in ordinary use, even if it does not match TradingView polish on day one.
@@ -452,11 +586,12 @@ MVP cache rules:
 - cache the current window
 - cache immediate neighboring windows
 - reuse cached bars and overlays while background refresh occurs
-- invalidate cached windows when requested artifact versions change
+- invalidate cached windows when requested structure source or artifact versions change
 
 Version sensitivity is mandatory.
 Cache keys must include:
 
+- requested `structure_source`
 - `data_version`
 - `feature_version` where relevant
 - `rulebook_version`
@@ -477,7 +612,7 @@ Suggested `pa_inspector` component layout:
 Responsibilities:
 
 - `AppShell`: top-level app orchestration
-- `Toolbar`: jump controls, overlay toggles, version display
+- `Toolbar`: jump controls, display controls, overlay toggles, explicit structure-source selection, and resolved version display
 - `ChartPane`: owns the `Lightweight Charts` instance
 - `OverlayCanvas`: draws visible overlays and performs hit testing
 - `InspectorPanel`: shows selected object evidence and provenance
@@ -488,6 +623,7 @@ Recommended frontend state categories:
 
 - viewport state
 - requested layers
+- requested structure source
 - selected overlay or structure
 - cached chart windows
 - active artifact versions
@@ -516,6 +652,7 @@ Required usability goals:
 
 - keyboard-accessible date and bar jump controls
 - clear layer toggle labeling
+- a visible structure-source selector that makes `auto` resolution and explicit version requests legible
 - stable selection highlight
 - readable side-panel metadata
 - visible version badges for artifact provenance

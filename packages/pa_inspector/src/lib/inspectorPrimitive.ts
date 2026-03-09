@@ -32,6 +32,9 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
     confirmationGuide: null,
     sessionProfile: "eth_full",
     draftAnnotation: null,
+    replayMode: false,
+    replayCursorBarId: null,
+    replayHoverBarId: null,
   };
   private renderData = buildInspectorRenderData(this.state, {
     timeToCoordinate: () => null,
@@ -45,6 +48,7 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
   };
   private presentationState: InspectorPresentationState = {
     confirmationGuide: null,
+    replayCursor: null,
     draftDrawable: null,
     selectedOverlayId: null,
     selectedAnnotationId: null,
@@ -97,7 +101,10 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
       previousState.confirmationGuide !== nextState.confirmationGuide ||
       previousState.draftAnnotation !== nextState.draftAnnotation ||
       previousState.selectedOverlayId !== nextState.selectedOverlayId ||
-      previousState.selectedAnnotationId !== nextState.selectedAnnotationId;
+      previousState.selectedAnnotationId !== nextState.selectedAnnotationId ||
+      previousState.replayMode !== nextState.replayMode ||
+      previousState.replayCursorBarId !== nextState.replayCursorBarId ||
+      previousState.replayHoverBarId !== nextState.replayHoverBarId;
 
     if (barsChanged) {
       this.dirtyBarIndex = true;

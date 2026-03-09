@@ -64,6 +64,7 @@ class StructureArtifactManifest:
     row_count: int
     candidate_count: int
     confirmed_count: int
+    invalidated_count: int
     min_start_bar_id: int
     max_start_bar_id: int
     min_session_date: int
@@ -89,6 +90,7 @@ class StructureArtifactManifest:
             row_count=int(payload["row_count"]),
             candidate_count=int(payload["candidate_count"]),
             confirmed_count=int(payload["confirmed_count"]),
+            invalidated_count=int(payload.get("invalidated_count", 0)),
             min_start_bar_id=int(payload["min_start_bar_id"]),
             max_start_bar_id=int(payload["max_start_bar_id"]),
             min_session_date=int(payload["min_session_date"]),
@@ -112,6 +114,7 @@ class StructureArtifactWriter:
         data_version: str,
         feature_refs: Sequence[str],
         structure_refs: Sequence[str] = (),
+        dataset_class: str = "objects",
         parquet_engine: str = "pyarrow",
     ) -> None:
         self.artifacts_root = artifacts_root
@@ -124,6 +127,7 @@ class StructureArtifactWriter:
         self.data_version = data_version
         self.feature_refs = tuple(feature_refs)
         self.structure_refs = tuple(structure_refs)
+        self.dataset_class = dataset_class
         self.parquet_engine = parquet_engine
         self.dataset_root = structure_dataset_root(
             artifacts_root=artifacts_root,
@@ -131,10 +135,12 @@ class StructureArtifactWriter:
             structure_version=structure_version,
             input_ref=input_ref,
             kind=kind,
+            dataset=dataset_class,
         )
         self._row_count = 0
         self._candidate_count = 0
         self._confirmed_count = 0
+        self._invalidated_count = 0
         self._years: set[int] = set()
         self._part_paths: list[str] = []
         self._part_index_by_year: dict[int, int] = {}
@@ -176,6 +182,7 @@ class StructureArtifactWriter:
                 kind=self.kind,
                 year=int(year),
                 part_index=part_index,
+                dataset=self.dataset_class,
             )
             year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
             write_table(year_chunk, part_path)
@@ -186,6 +193,7 @@ class StructureArtifactWriter:
         self._row_count += ordered.num_rows
         self._candidate_count += sum(1 for value in state_values if value == "candidate")
         self._confirmed_count += sum(1 for value in state_values if value == "confirmed")
+        self._invalidated_count += sum(1 for value in state_values if value == "invalidated")
         chunk_min_start_bar_id = int(start_bar_ids.min())
         chunk_max_start_bar_id = int(start_bar_ids.max())
         chunk_min_session_date = int(session_dates.min())
@@ -228,6 +236,7 @@ class StructureArtifactWriter:
             row_count=self._row_count,
             candidate_count=self._candidate_count,
             confirmed_count=self._confirmed_count,
+            invalidated_count=self._invalidated_count,
             min_start_bar_id=int(self._min_start_bar_id),
             max_start_bar_id=int(self._max_start_bar_id),
             min_session_date=int(self._min_session_date),
@@ -241,6 +250,7 @@ class StructureArtifactWriter:
             structure_version=self.structure_version,
             input_ref=self.input_ref,
             kind=self.kind,
+            dataset=self.dataset_class,
         )
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(
@@ -262,6 +272,7 @@ def load_structure_manifest(
     structure_version: str,
     input_ref: str,
     kind: str,
+    dataset_class: str = "objects",
 ) -> StructureArtifactManifest:
     manifest = structure_manifest_path(
         artifacts_root=artifacts_root,
@@ -269,7 +280,17 @@ def load_structure_manifest(
         structure_version=structure_version,
         input_ref=input_ref,
         kind=kind,
+        dataset=dataset_class,
     )
+    if not manifest.exists() and dataset_class == "objects":
+        manifest = structure_manifest_path(
+            artifacts_root=artifacts_root,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            input_ref=input_ref,
+            kind=kind,
+            dataset=None,
+        )
     if not manifest.exists():
         raise FileNotFoundError(f"Structure manifest not found: {manifest}")
     payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -282,14 +303,25 @@ def list_structure_kinds(
     rulebook_version: str,
     structure_version: str,
     input_ref: str,
+    dataset_class: str = "objects",
 ) -> list[str]:
-    root = (
-        artifacts_root
-        / "structures"
-        / f"rulebook={rulebook_version}"
-        / f"structure_version={structure_version}"
-        / f"input_ref={input_ref}"
-    )
+    root = structure_dataset_root(
+        artifacts_root=artifacts_root,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        input_ref=input_ref,
+        kind="placeholder",
+        dataset=dataset_class,
+    ).parent
+    if not root.exists() and dataset_class == "objects":
+        root = structure_dataset_root(
+            artifacts_root=artifacts_root,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            input_ref=input_ref,
+            kind="placeholder",
+            dataset=None,
+        ).parent
     if not root.exists():
         return []
     return sorted(
@@ -306,6 +338,7 @@ def load_structure_artifact(
     structure_version: str,
     input_ref: str,
     kind: str,
+    dataset_class: str = "objects",
     years: Iterable[int] | None = None,
     columns: Sequence[str] | None = None,
     parquet_engine: str = "pyarrow",
@@ -317,6 +350,7 @@ def load_structure_artifact(
         structure_version=structure_version,
         input_ref=input_ref,
         kind=kind,
+        dataset_class=dataset_class,
     )
     selected_years = None if years is None else {int(value) for value in years}
     dataset_root = structure_dataset_root(
@@ -325,7 +359,17 @@ def load_structure_artifact(
         structure_version=structure_version,
         input_ref=input_ref,
         kind=kind,
+        dataset=dataset_class,
     )
+    if not dataset_root.exists() and dataset_class == "objects":
+        dataset_root = structure_dataset_root(
+            artifacts_root=artifacts_root,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            input_ref=input_ref,
+            kind=kind,
+            dataset=None,
+        )
     selected_parts = []
     for part in manifest.parts:
         if selected_years is not None:
@@ -354,6 +398,7 @@ def load_structure_bundle(
     structure_version: str,
     input_ref: str,
     kinds: Sequence[str],
+    dataset_class: str = "objects",
     years: Iterable[int] | None = None,
     parquet_engine: str = "pyarrow",
 ) -> pa.Table:
@@ -364,6 +409,7 @@ def load_structure_bundle(
             structure_version=structure_version,
             input_ref=input_ref,
             kind=kind,
+            dataset_class=dataset_class,
             years=years,
             parquet_engine=parquet_engine,
         )
@@ -405,6 +451,7 @@ def load_structure_objects(
     structure_version: str,
     input_ref: str,
     kind: str,
+    dataset_class: str = "objects",
     years: Iterable[int] | None = None,
     parquet_engine: str = "pyarrow",
 ) -> list[StructureObject]:
@@ -414,6 +461,7 @@ def load_structure_objects(
         structure_version=structure_version,
         input_ref=input_ref,
         kind=kind,
+        dataset_class=dataset_class,
         years=years,
         parquet_engine=parquet_engine,
     )

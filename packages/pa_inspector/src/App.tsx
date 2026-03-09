@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChartPane } from "./components/ChartPane";
 import { InspectorPanel } from "./components/InspectorPanel";
+import { ReplayTransport } from "./components/ReplayTransport";
 import { Toolbar } from "./components/Toolbar";
 import { fetchChartWindow, fetchStructureDetail } from "./lib/api";
 import { defaultAnnotationStyle, getEmaStyle } from "./lib/annotationStyle";
@@ -10,7 +11,7 @@ import {
   EMPTY_OVERLAY_LAYER_COUNTS,
   filterOverlaysByEnabledLayers,
   INITIAL_OVERLAY_LAYERS,
-  overlayKindToLayer,
+  overlayToLayer,
   OVERLAY_LAYER_ORDER,
 } from "./lib/overlayLayers";
 import {
@@ -29,6 +30,7 @@ import type {
   ChartWindowResponse,
   EmaStyle,
   FloatingPosition,
+  InspectorMode,
   InspectorToolbarPanel,
   Overlay,
   OverlayLayer,
@@ -37,6 +39,7 @@ import type {
   SelectorMode,
   SessionProfile,
   StructureDetailResponse,
+  StructureSourceProfile,
 } from "./lib/types";
 
 const DEFAULT_API_BASE =
@@ -47,6 +50,7 @@ const DEFAULT_DATA_VERSION =
 
 const DEFAULT_RAIL_POSITION: FloatingPosition = { left: 12, top: 12 };
 const DEFAULT_PANEL_POSITION: FloatingPosition = { left: 24, top: 24 };
+const MAX_WINDOW_CACHE_ENTRIES = 12;
 
 export default function App() {
   const windowCacheRef = useRef<Map<string, ChartWindowResponse>>(new Map());
@@ -68,16 +72,20 @@ export default function App() {
   const [windowData, setWindowData] = useState<ChartWindowResponse | null>(null);
   const [windowLoading, setWindowLoading] = useState(false);
   const [windowError, setWindowError] = useState<string | null>(null);
+  const [windowNotice, setWindowNotice] = useState<string | null>(null);
   const [detailData, setDetailData] = useState<StructureDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [replayPlaying, setReplayPlaying] = useState(false);
   const [viewportPersistRevision, setViewportPersistRevision] = useState(0);
   const {
     apiBaseUrl,
     dataVersion,
+    structureSource,
     symbol,
     timeframe,
     sessionProfile,
+    inspectorMode,
     selectorMode,
     sessionDate,
     centerBarId,
@@ -100,6 +108,9 @@ export default function App() {
     selectedOverlayId,
     detailAnchor,
     confirmationGuide,
+    replayCursorBarId,
+    replaySpeed,
+    toolbarHidden,
     toolbarOpenPanel,
     annotationRailPosition,
     annotationToolbarPosition,
@@ -158,6 +169,7 @@ export default function App() {
     () => annotations.filter((annotation) => annotation.familyKey === activeFamilyKey),
     [activeFamilyKey, annotations],
   );
+  const allChartBars = windowData?.bars ?? [];
   const selectedAnnotation = useMemo(
     () =>
       visibleAnnotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
@@ -168,22 +180,120 @@ export default function App() {
       windowData?.overlays.find((overlay) => overlay.overlay_id === selectedOverlayId) ?? null,
     [selectedOverlayId, windowData],
   );
+  const replayCursorIndex = useMemo(() => {
+    if (!allChartBars.length || replayCursorBarId === null) {
+      return null;
+    }
+    const index = allChartBars.findIndex((bar) => bar.bar_id === replayCursorBarId);
+    return index >= 0 ? index : null;
+  }, [allChartBars, replayCursorBarId]);
+  const replayCursorBar =
+    replayCursorIndex === null ? null : allChartBars[replayCursorIndex] ?? null;
+  const chartBars = useMemo(() => {
+    if (inspectorMode !== "replay" || replayCursorIndex === null) {
+      return allChartBars;
+    }
+    return allChartBars.slice(0, replayCursorIndex + 1);
+  }, [allChartBars, inspectorMode, replayCursorIndex]);
+  const activeAsOfBarId = inspectorMode === "replay" ? replayCursorBarId : null;
+  const replayBackendResolved =
+    inspectorMode === "replay" &&
+    activeAsOfBarId !== null &&
+    windowData?.meta.as_of_bar_id === activeAsOfBarId &&
+    windowData.meta.replay_source !== null &&
+    windowData.meta.replay_source !== undefined;
+  const resolvedStructureSource = windowData?.meta.structure_source ?? null;
+  const resolvedRulebookVersion = windowData?.meta.rulebook_version ?? null;
+  const resolvedStructureVersion = windowData?.meta.structure_version ?? null;
 
   function patchWorkspace(patch: Partial<PersistedInspectorState>) {
-    setWorkspace((current) => ({ ...current, ...patch }));
+    setWorkspace((current) => {
+      const entries = Object.entries(patch) as Array<
+        [keyof PersistedInspectorState, PersistedInspectorState[keyof PersistedInspectorState]]
+      >;
+      if (entries.every(([key, value]) => Object.is(current[key], value))) {
+        return current;
+      }
+      return { ...current, ...patch };
+    });
   }
 
   function setWorkspaceField<Key extends keyof PersistedInspectorState>(
     key: Key,
     value: PersistedInspectorState[Key],
   ) {
-    setWorkspace((current) => ({ ...current, [key]: value }));
+    setWorkspace((current) =>
+      Object.is(current[key], value)
+        ? current
+        : { ...current, [key]: value },
+    );
   }
 
   useEffect(() => {
     void loadWindow("restore");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (inspectorMode !== "replay") {
+      setReplayPlaying(false);
+      return;
+    }
+    if (replayCursorBarId === null) {
+      return;
+    }
+    if (allChartBars.some((bar) => bar.bar_id === replayCursorBarId)) {
+      return;
+    }
+    setWorkspaceField("replayCursorBarId", null);
+  }, [allChartBars, inspectorMode, replayCursorBarId]);
+
+  useEffect(() => {
+    if (inspectorMode !== "replay" || !replayPlaying) {
+      return;
+    }
+    if (!allChartBars.length || replayCursorIndex === null) {
+      setReplayPlaying(false);
+      return;
+    }
+    if (replayCursorIndex >= allChartBars.length - 1) {
+      setReplayPlaying(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      const nextBar = allChartBars[replayCursorIndex + 1];
+      if (!nextBar) {
+        setReplayPlaying(false);
+        return;
+      }
+      setWorkspaceField("replayCursorBarId", nextBar.bar_id);
+    }, replayDelayMs(replaySpeed));
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [allChartBars, inspectorMode, replayCursorIndex, replayPlaying, replaySpeed]);
+
+  useEffect(() => {
+    if (inspectorMode !== "replay") {
+      if (windowData?.meta.as_of_bar_id !== null && windowData?.meta.as_of_bar_id !== undefined) {
+        void requestWindow({ source: "replay" });
+      }
+      return;
+    }
+    if (replayCursorBarId === null) {
+      if (windowData?.meta.as_of_bar_id !== null && windowData?.meta.as_of_bar_id !== undefined) {
+        void requestWindow({ source: "replay" });
+      }
+      return;
+    }
+    if (
+      windowData?.meta.as_of_bar_id === replayCursorBarId &&
+      windowData.meta.structure_source === structureSource
+    ) {
+      return;
+    }
+    void requestWindow({ source: "replay" });
+  }, [inspectorMode, replayCursorBarId, structureSource, windowData?.meta.as_of_bar_id, windowData?.meta.structure_source]);
 
   useEffect(() => {
     lastAutoCenterRef.current = null;
@@ -281,6 +391,8 @@ export default function App() {
       timeframe,
       sessionProfile,
       dataVersion,
+      structureSource,
+      asOfBarId: activeAsOfBarId,
     })
       .then((detail) => {
         if (!active) {
@@ -302,9 +414,9 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [apiBaseUrl, dataVersion, selectedOverlay, sessionProfile, symbol, timeframe]);
+  }, [activeAsOfBarId, apiBaseUrl, dataVersion, selectedOverlay, sessionProfile, structureSource, symbol, timeframe]);
 
-  async function loadWindow(source: "manual" | "restore" = "manual") {
+  async function loadWindow(source: "manual" | "restore" | "replay" = "manual") {
     if (
       source === "restore" &&
       viewportStateRef.current?.familyKey === activeFamilyKey
@@ -320,7 +432,8 @@ export default function App() {
   }
 
   async function requestWindow(args?: {
-    source?: "manual" | "viewport" | "restore";
+    source?: "manual" | "viewport" | "restore" | "replay";
+    structureSource?: StructureSourceProfile;
     selectorMode?: SelectorMode;
     centerBarId?: string;
     sessionDate?: string;
@@ -339,12 +452,14 @@ export default function App() {
     const cacheKey = buildWindowCacheKey(request);
     setWindowLoading(true);
     setWindowError(null);
+    setWindowNotice(null);
     try {
       const response = await getOrFetchWindow(cacheKey, request);
       startTransition(() => {
         setWindowData(response);
         setWindowLoading(false);
-        if (args?.source !== "restore") {
+        setWindowNotice(null);
+        if (args?.source !== "restore" && args?.source !== "replay") {
           patchWorkspace({
             selectedOverlayId: null,
             detailAnchor: null,
@@ -378,16 +493,42 @@ export default function App() {
           });
         }
       });
-      void prefetchAdjacentWindows(response);
+      void prefetchAdjacentWindows(response, request.structureSource);
     } catch (error) {
       setWindowLoading(false);
-      setWindowError(
-        error instanceof Error ? error.message : "Failed to load chart window.",
-      );
+      const rawMessage =
+        error instanceof Error ? error.message : "Failed to load chart window.";
+      const fallbackSource = resolveUnavailableStructureSourceFallback({
+        requestedSource: request.structureSource,
+        message: rawMessage,
+      });
+      if (fallbackSource !== null) {
+        setWindowNotice("Canonical v0.2 artifacts are not materialized yet. Switched to runtime v0.2.");
+        patchWorkspace({
+          structureSource: fallbackSource,
+          toolbarOpenPanel: null,
+          selectedOverlayId: null,
+          detailAnchor: null,
+          confirmationGuide: null,
+        });
+        void requestWindow({
+          ...(args ?? {}),
+          source: "manual",
+          structureSource: fallbackSource,
+        });
+        return;
+      }
+      const message = formatWindowLoadMessage(rawMessage, args?.source ?? "manual");
+      if ((args?.source ?? "manual") === "restore") {
+        setWindowNotice(message);
+        return;
+      }
+      setWindowError(message);
     }
   }
 
   function buildWindowRequest(args?: {
+    structureSource?: StructureSourceProfile;
     selectorMode?: SelectorMode;
     centerBarId?: string;
     sessionDate?: string;
@@ -400,8 +541,10 @@ export default function App() {
       timeframe,
       sessionProfile,
       dataVersion,
+      structureSource: args?.structureSource ?? structureSource,
       emaLengths: emaEnabled ? configuredEmaLengths : [],
       selectorMode: args?.selectorMode ?? selectorMode,
+      asOfBarId: activeAsOfBarId,
       sessionDate: args?.sessionDate ?? sessionDate,
       centerBarId: args?.centerBarId ?? centerBarId,
       startTime: args?.startTime ?? startTime,
@@ -417,9 +560,15 @@ export default function App() {
     cacheKey: string,
     request: Parameters<typeof fetchChartWindow>[0],
   ) {
-    const cached = windowCacheRef.current.get(cacheKey);
-    if (cached) {
-      return cached;
+    const cacheable = shouldCacheWindowRequest(request);
+    if (cacheable) {
+      const cached = windowCacheRef.current.get(cacheKey);
+      if (cached) {
+        // Refresh insertion order to keep the cache LRU-like.
+        windowCacheRef.current.delete(cacheKey);
+        windowCacheRef.current.set(cacheKey, cached);
+        return cached;
+      }
     }
     const inFlight = inFlightRef.current.get(cacheKey);
     if (inFlight) {
@@ -427,7 +576,9 @@ export default function App() {
     }
     const fetchPromise = fetchChartWindow(request)
       .then((response) => {
-        windowCacheRef.current.set(cacheKey, response);
+        if (cacheable) {
+          rememberWindowCacheEntry(windowCacheRef.current, cacheKey, response);
+        }
         inFlightRef.current.delete(cacheKey);
         return response;
       })
@@ -439,7 +590,13 @@ export default function App() {
     return fetchPromise;
   }
 
-  async function prefetchAdjacentWindows(response: ChartWindowResponse) {
+  async function prefetchAdjacentWindows(
+    response: ChartWindowResponse,
+    requestStructureSource: StructureSourceProfile,
+  ) {
+    if (response.meta.as_of_bar_id !== null && response.meta.as_of_bar_id !== undefined) {
+      return;
+    }
     if (response.bars.length < 2) {
       return;
     }
@@ -452,6 +609,7 @@ export default function App() {
       .filter((value, index, array) => array.indexOf(value) === index)
       .map((value) =>
         buildWindowRequest({
+          structureSource: requestStructureSource,
           selectorMode: "center_bar_id",
           centerBarId: value,
         }),
@@ -590,12 +748,14 @@ export default function App() {
     try {
       const detail = await fetchStructureDetail({
         apiBaseUrl,
-        structureId: overlay.source_structure_id,
-        symbol,
-        timeframe,
-        sessionProfile,
-        dataVersion,
-      });
+      structureId: overlay.source_structure_id,
+      symbol,
+      timeframe,
+      sessionProfile,
+      dataVersion,
+      structureSource,
+      asOfBarId: activeAsOfBarId,
+    });
       if (!detail.confirm_bar) {
         setWorkspaceField("confirmationGuide", null);
         return;
@@ -611,6 +771,78 @@ export default function App() {
     }
   }
 
+  function handleInspectorModeChange(mode: InspectorMode) {
+    if (mode !== "replay") {
+      setWorkspaceField("inspectorMode", mode);
+      setReplayPlaying(false);
+      if (windowData?.meta.as_of_bar_id !== null && windowData?.meta.as_of_bar_id !== undefined) {
+        void requestWindow({ source: "replay" });
+      }
+      return;
+    }
+    setReplayPlaying(false);
+    patchWorkspace({
+      inspectorMode: mode,
+      replayCursorBarId: null,
+      selectedOverlayId: null,
+      detailAnchor: null,
+      confirmationGuide: null,
+    });
+  }
+
+  function handleReplayCursorSelect(barId: number) {
+    setReplayPlaying(false);
+    setWorkspaceField("replayCursorBarId", barId);
+  }
+
+  function handleReplayStepBar(direction: -1 | 1) {
+    if (!allChartBars.length) {
+      return;
+    }
+    const currentIndex =
+      replayCursorIndex ?? (direction < 0 ? allChartBars.length - 1 : 0);
+    const nextIndex = Math.max(
+      0,
+      Math.min(allChartBars.length - 1, currentIndex + direction),
+    );
+    setReplayPlaying(false);
+    setWorkspaceField("replayCursorBarId", allChartBars[nextIndex]?.bar_id ?? null);
+  }
+
+  function handleReplayJumpToLatest() {
+    if (!allChartBars.length) {
+      return;
+    }
+    setReplayPlaying(false);
+    setWorkspaceField("replayCursorBarId", allChartBars[allChartBars.length - 1]?.bar_id ?? null);
+  }
+
+  function handleStructureSourceChange(nextSource: StructureSourceProfile) {
+    if (nextSource === structureSource) {
+      return;
+    }
+    windowCacheRef.current.clear();
+    inFlightRef.current.clear();
+    setWindowData(null);
+    setWindowError(null);
+    setWindowNotice(null);
+    setDetailData(null);
+    setDetailError(null);
+    setDetailLoading(false);
+    patchWorkspace({
+      structureSource: nextSource,
+      selectedAnnotationId: null,
+      selectedOverlayId: null,
+      detailAnchor: null,
+      confirmationGuide: null,
+      toolbarOpenPanel: null,
+    });
+    void requestWindow({
+      source: "manual",
+      structureSource: nextSource,
+    });
+  }
+
   return (
     <div className="app-shell">
       <Toolbar
@@ -618,12 +850,26 @@ export default function App() {
         onApiBaseUrlChange={(value) => setWorkspaceField("apiBaseUrl", value)}
         dataVersion={dataVersion}
         onDataVersionChange={(value) => setWorkspaceField("dataVersion", value)}
+        hidden={toolbarHidden}
+        onHiddenChange={(hidden) =>
+          patchWorkspace({
+            toolbarHidden: hidden,
+            toolbarOpenPanel: hidden ? null : toolbarOpenPanel,
+          })
+        }
+        structureSource={structureSource}
+        resolvedStructureSource={resolvedStructureSource}
+        resolvedRulebookVersion={resolvedRulebookVersion}
+        resolvedStructureVersion={resolvedStructureVersion}
+        onStructureSourceChange={handleStructureSourceChange}
         symbol={symbol}
         timeframe={timeframe}
         sessionProfile={sessionProfile}
+        inspectorMode={inspectorMode}
         onSymbolChange={(value) => setWorkspaceField("symbol", value)}
         onTimeframeChange={(value) => setWorkspaceField("timeframe", value)}
         onSessionProfileChange={(value) => setWorkspaceField("sessionProfile", value)}
+        onInspectorModeChange={handleInspectorModeChange}
         selectorMode={selectorMode}
         onSelectorModeChange={(value) => setWorkspaceField("selectorMode", value)}
         sessionDate={sessionDate}
@@ -682,23 +928,29 @@ export default function App() {
             },
           }));
           if (selectedOverlay) {
-            const selectedLayer = overlayKindToLayer(selectedOverlay.kind);
+            const selectedLayer = overlayToLayer(selectedOverlay);
             if (selectedLayer === layer && !enabled) {
               clearOverlaySelection();
             }
           }
         }}
         loading={windowLoading}
+        requestStatusMessage={
+          windowLoading ? "Loading chart..." : windowError ?? windowNotice
+        }
+        requestStatusTone={
+          windowLoading ? "loading" : windowError ? "error" : "neutral"
+        }
         onLoad={() => {
           void loadWindow();
         }}
       />
 
       <div className="workspace-main">
-        {windowError ? <p className="panel-error floating-error">{windowError}</p> : null}
         <div className="chart-stage">
           <ChartPane
-            bars={windowData?.bars ?? []}
+            bars={chartBars}
+            emptyMessage={windowError ?? windowNotice ?? undefined}
             emaLines={renderedEmaLines}
             overlays={visibleOverlays}
             annotations={visibleAnnotations}
@@ -709,6 +961,8 @@ export default function App() {
             selectedAnnotation={selectedAnnotation}
             selectedAnnotationId={selectedAnnotationId}
             confirmationGuide={confirmationGuide}
+            replayEnabled={inspectorMode === "replay"}
+            replayCursorBarId={replayCursorBarId}
             annotationCount={visibleAnnotations.length}
             annotationRailPosition={annotationRailPosition}
             onAnnotationRailPositionChange={(position) =>
@@ -811,7 +1065,28 @@ export default function App() {
             onOverlayCommandSelect={(overlay) => {
               void handleOverlayCommandSelect(overlay);
             }}
+            onReplayCursorSelect={handleReplayCursorSelect}
             onViewportBoundaryApproach={handleViewportBoundaryApproach}
+          />
+          <ReplayTransport
+            visible={inspectorMode === "replay"}
+            hasBars={allChartBars.length > 0}
+            cursorBar={replayCursorBar}
+            playing={replayPlaying}
+            speed={replaySpeed}
+            backendResolved={replayBackendResolved}
+            onTogglePlaying={() => {
+              if (!replayCursorBar) {
+                return;
+              }
+              setReplayPlaying((current) => !current);
+            }}
+            onStepBar={handleReplayStepBar}
+            onStepEvent={() => {
+              setReplayPlaying(false);
+            }}
+            onSpeedChange={(speed) => setWorkspaceField("replaySpeed", speed)}
+            onJumpToLatest={handleReplayJumpToLatest}
           />
           <InspectorPanel
             overlay={selectedOverlay}
@@ -824,6 +1099,9 @@ export default function App() {
             onManualPositionChange={(manual) =>
               setWorkspaceField("inspectorPanelManualPosition", manual)
             }
+            inspectorMode={inspectorMode}
+            replayCursorBar={replayCursorBar}
+            replayBackendResolved={replayBackendResolved}
             detail={detailData}
             loading={detailLoading}
             error={detailError}
@@ -841,6 +1119,8 @@ function buildWindowCacheKey(request: Parameters<typeof fetchChartWindow>[0]) {
     symbol: request.symbol,
     timeframe: request.timeframe,
     dataVersion: request.dataVersion,
+    structureSource: request.structureSource,
+    asOfBarId: request.asOfBarId ?? null,
     selectorMode: request.selectorMode,
     centerBarId: request.centerBarId,
     sessionDate: request.sessionDate,
@@ -853,6 +1133,25 @@ function buildWindowCacheKey(request: Parameters<typeof fetchChartWindow>[0]) {
     emaLengths: request.emaLengths,
     overlayLayers: request.overlayLayers,
   });
+}
+
+function shouldCacheWindowRequest(request: Parameters<typeof fetchChartWindow>[0]) {
+  return request.asOfBarId === null || request.asOfBarId === undefined;
+}
+
+function rememberWindowCacheEntry(
+  cache: Map<string, ChartWindowResponse>,
+  key: string,
+  response: ChartWindowResponse,
+) {
+  cache.set(key, response);
+  while (cache.size > MAX_WINDOW_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (typeof oldestKey !== "string") {
+      break;
+    }
+    cache.delete(oldestKey);
+  }
 }
 
 function parseEmaLengthsInput(value: string): number[] {
@@ -895,4 +1194,38 @@ function buildAnnotationFamilyKey(args: {
 
 function buildAnnotationId(kind: AnnotationKind, startBarId: number, endBarId: number) {
   return `${kind}:${startBarId}:${endBarId}:${crypto.randomUUID()}`;
+}
+
+function replayDelayMs(speed: number) {
+  const baseDelayMs = 680;
+  return Math.max(120, Math.round(baseDelayMs / speed));
+}
+
+function formatWindowLoadMessage(
+  message: string,
+  source: "manual" | "viewport" | "restore" | "replay",
+) {
+  if (source === "restore") {
+    if (message.startsWith("Request timed out")) {
+      return "Restore skipped because the backend did not respond in time. Press Load when the API is ready.";
+    }
+    return `Restore skipped: ${message}`;
+  }
+  if (source === "replay") {
+    return `Replay load failed: ${message}`;
+  }
+  return message;
+}
+
+function resolveUnavailableStructureSourceFallback(args: {
+  requestedSource: StructureSourceProfile;
+  message: string;
+}): StructureSourceProfile | null {
+  if (
+    args.requestedSource === "artifact_v0_2" &&
+    args.message.includes("structure_source=artifact_v0_2 is not materialized")
+  ) {
+    return "runtime_v0_2";
+  }
+  return null;
 }

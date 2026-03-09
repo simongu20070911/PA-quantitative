@@ -1,6 +1,6 @@
 # Roadmap
 
-Status date: 2026-03-06
+Status date: 2026-03-08
 
 ## Phase 0: Foundations
 
@@ -135,7 +135,7 @@ Goal:
 
 Status:
 
-- active priority
+- active, with replay backend work now started through the `v0.2` pivot slice
 
 Required capabilities:
 
@@ -149,18 +149,26 @@ Exit criteria:
 - a human can browse the ES timeline and inspect pivots, legs, `major_lh`, and breakout markers in context
 - overlays are projected from backend artifacts instead of being defined in the UI
 
-## Phase 5: Review and Diff
+## Phase 5: Replay, Review, and Diff
 
 Goal:
 
-- add structured human review and rulebook comparison
+- add replay-capable structure inspection, structured human review, and rulebook comparison
 
 Required capabilities:
 
+- backend sparse lifecycle publication or semantically equivalent `as_of` replay reads
+- replay mode over backend-owned structure state
 - review verdict capture
 - reason codes
 - version-aware comparisons
 - diff mode between rulebook outputs
+
+Current progress:
+
+- `v0.2` pivots now publish latest-state `objects` plus sparse lifecycle `events`
+- replay-capable API reads now resolve pivots from those lifecycle events in both canonical and runtime family reads while the rest of the chain still falls back to snapshot-object `as_of` reads
+- the next replay step is extending lifecycle publication beyond pivots
 
 ## Phase 6: Expanded Rulebooks
 

@@ -27,6 +27,20 @@ class OverlayProjectionTests(unittest.TestCase):
         structure_frame = pa.Table.from_pylist(
             [
                 {
+                    "structure_id": "pivot-st-high-100",
+                    "kind": "pivot_st_high",
+                    "state": "candidate",
+                    "start_bar_id": 100,
+                    "end_bar_id": 100,
+                    "confirm_bar_id": None,
+                    "session_id": 20240102,
+                    "session_date": 20240102,
+                    "anchor_bar_ids": (100,),
+                    "feature_refs": ("feature=hl_gap",),
+                    "rulebook_version": "v0_2",
+                    "explanation_codes": ("left_window_2",),
+                },
+                {
                     "structure_id": "pivot-high-110",
                     "kind": "pivot_high",
                     "state": "confirmed",
@@ -94,6 +108,13 @@ class OverlayProjectionTests(unittest.TestCase):
         )
         overlay_by_source = {overlay.source_structure_id: overlay for overlay in overlays}
 
+        pivot_st_overlay = overlay_by_source["pivot-st-high-100"]
+        self.assertEqual(pivot_st_overlay.kind, "pivot-marker")
+        self.assertEqual(pivot_st_overlay.anchor_bars, (100,))
+        self.assertEqual(pivot_st_overlay.anchor_prices, (11.0,))
+        self.assertEqual(pivot_st_overlay.style_key, "pivot_st.high.candidate")
+        self.assertEqual(pivot_st_overlay.meta["source_state"], "candidate")
+
         pivot_overlay = overlay_by_source["pivot-high-110"]
         self.assertEqual(pivot_overlay.kind, "pivot-marker")
         self.assertEqual(pivot_overlay.anchor_bars, (110,))
@@ -147,6 +168,13 @@ class OverlayProjectionTests(unittest.TestCase):
                 overlay_id="pivot",
                 kind="pivot-marker",
                 anchor_bars=(110,),
+                style_key="pivot.high.confirmed",
+            ),
+            pa_core_overlay(
+                overlay_id="pivot-st",
+                kind="pivot-marker",
+                anchor_bars=(110,),
+                style_key="pivot_st.high.confirmed",
             ),
             pa_core_overlay(
                 overlay_id="leg",
@@ -163,12 +191,18 @@ class OverlayProjectionTests(unittest.TestCase):
         ordered = sort_overlay_objects_for_render(overlays)
 
         self.assertEqual(
-            [overlay.kind for overlay in ordered],
-            ["leg-line", "pivot-marker", "major-lh-marker", "breakout-marker"],
+            [overlay.overlay_id for overlay in ordered],
+            ["leg", "pivot-st", "pivot", "major", "breakout"],
         )
 
 
-def pa_core_overlay(*, overlay_id: str, kind: str, anchor_bars: tuple[int, ...]):
+def pa_core_overlay(
+    *,
+    overlay_id: str,
+    kind: str,
+    anchor_bars: tuple[int, ...],
+    style_key: str = "style",
+):
     from pa_core.schemas import OverlayObject
 
     return OverlayObject(
@@ -177,7 +211,7 @@ def pa_core_overlay(*, overlay_id: str, kind: str, anchor_bars: tuple[int, ...])
         source_structure_id=overlay_id,
         anchor_bars=anchor_bars,
         anchor_prices=tuple(float(index) for index in range(len(anchor_bars))),
-        style_key="style",
+        style_key=style_key,
         data_version="es_test_v1",
         rulebook_version="v0_1",
         structure_version="v1",

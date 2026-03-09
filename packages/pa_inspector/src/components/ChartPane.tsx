@@ -24,6 +24,7 @@ import { OverlayCanvas } from "./OverlayCanvas";
 
 export interface ChartPaneProps {
   bars: ChartBar[];
+  emptyMessage?: string;
   emaLines: RenderedEmaLine[];
   overlays: Overlay[];
   annotations: ChartAnnotation[];
@@ -34,6 +35,8 @@ export interface ChartPaneProps {
   selectedAnnotation: ChartAnnotation | null;
   selectedAnnotationId: string | null;
   confirmationGuide: ConfirmationGuide | null;
+  replayEnabled: boolean;
+  replayCursorBarId: number | null;
   annotationCount: number;
   annotationRailPosition: FloatingPosition;
   onAnnotationRailPositionChange: (position: FloatingPosition) => void;
@@ -78,11 +81,13 @@ export interface ChartPaneProps {
     anchorPoint: { x: number; y: number } | null,
   ) => void;
   onOverlayCommandSelect: (overlay: Overlay) => void;
+  onReplayCursorSelect: (barId: number) => void;
   onViewportBoundaryApproach: (centerBarId: number) => void;
 }
 
 export function ChartPane({
   bars,
+  emptyMessage,
   emaLines,
   overlays,
   annotations,
@@ -93,6 +98,8 @@ export function ChartPane({
   selectedAnnotation,
   selectedAnnotationId,
   confirmationGuide,
+  replayEnabled,
+  replayCursorBarId,
   annotationCount,
   annotationRailPosition,
   onAnnotationRailPositionChange,
@@ -119,6 +126,7 @@ export function ChartPane({
   onClearAnnotations,
   onOverlaySelect,
   onOverlayCommandSelect,
+  onReplayCursorSelect,
   onViewportBoundaryApproach,
 }: ChartPaneProps) {
   const shellRef = useRef<HTMLElement | null>(null);
@@ -273,7 +281,7 @@ export function ChartPane({
         />
         {empty ? (
           <div className="chart-empty">
-            <p>Load a chart window to start inspecting bars and overlays.</p>
+            <p>{emptyMessage ?? "Load a chart window to start inspecting bars and overlays."}</p>
           </div>
         ) : null}
       </div>
@@ -312,12 +320,15 @@ export function ChartPane({
         selectedOverlayId={selectedOverlayId}
         selectedAnnotationId={selectedAnnotationId}
         confirmationGuide={confirmationGuide}
+        replayEnabled={replayEnabled}
+        replayCursorBarId={replayCursorBarId}
         onAnnotationCreate={onAnnotationCreate}
         onAnnotationSelect={onAnnotationSelect}
         onAnnotationUpdate={onAnnotationUpdate}
         onAnnotationDuplicate={onAnnotationDuplicate}
         onOverlaySelect={onOverlaySelect}
         onOverlayCommandSelect={onOverlayCommandSelect}
+        onReplayCursorSelect={onReplayCursorSelect}
       />
     </section>
   );

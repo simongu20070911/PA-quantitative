@@ -125,15 +125,18 @@ def structure_dataset_root(
     structure_version: str,
     input_ref: str,
     kind: str,
+    dataset: str | None = None,
 ) -> Path:
-    return (
+    base = (
         artifacts_root
         / "structures"
         / f"rulebook={rulebook_version}"
         / f"structure_version={structure_version}"
         / f"input_ref={input_ref}"
-        / f"kind={kind}"
     )
+    if dataset is None:
+        return base / f"kind={kind}"
+    return base / f"dataset={dataset}" / f"kind={kind}"
 
 
 def structure_manifest_path(
@@ -143,6 +146,7 @@ def structure_manifest_path(
     structure_version: str,
     input_ref: str,
     kind: str,
+    dataset: str | None = None,
 ) -> Path:
     return structure_dataset_root(
         artifacts_root=artifacts_root,
@@ -150,6 +154,7 @@ def structure_manifest_path(
         structure_version=structure_version,
         input_ref=input_ref,
         kind=kind,
+        dataset=dataset,
     ) / "manifest.json"
 
 
@@ -162,6 +167,7 @@ def structure_part_path(
     kind: str,
     year: int,
     part_index: int,
+    dataset: str | None = None,
 ) -> Path:
     return (
         structure_dataset_root(
@@ -170,6 +176,7 @@ def structure_part_path(
             structure_version=structure_version,
             input_ref=input_ref,
             kind=kind,
+            dataset=dataset,
         )
         / f"year={year}"
         / f"part-{part_index:05d}.parquet"

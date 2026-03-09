@@ -1,7 +1,7 @@
 # Session And Timeframe Spec
 
 Status: active design spec
-Last updated: 2026-03-06
+Last updated: 2026-03-07
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependencies:
 
@@ -184,6 +184,19 @@ For profile-aware derived datasets, the effective edge-validity rule is:
 
 - `edge_valid` should be `False` at the first included bar of each active interval
 - `edge_valid` should also be `False` whenever the previous canonical `1m` bar is outside the active interval or missing
+
+## Replay Cursor Timing
+
+Replay semantics are evaluated on the selected `session_profile x timeframe` bar family, not on hidden lower-timeframe bars.
+
+Required rules:
+
+- replay advances over closed bars of the selected bar family
+- a structure lifecycle event becomes visible only when its `event_bar` is closed in that same bar family
+- derived-timeframe replay must not surface a candidate, confirmation, or invalidation earlier than the close of the derived bar that legally carries that transition
+- no replay event may appear inside filtered-out inactive intervals
+- crossing an inactive interval advances replay to the next actual included bar; no synthetic gap-filler bars or events are inserted
+- if a rule on a derived family uses `k` bars of confirmation, `k` is counted in bars of that family unless the rulebook explicitly states otherwise
 
 ## Holidays, Early Closes, And Missing Data
 

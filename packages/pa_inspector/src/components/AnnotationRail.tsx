@@ -25,11 +25,16 @@ export function AnnotationRail({
 }: AnnotationRailProps) {
   const railRef = useRef<HTMLElement | null>(null);
   const gripRef = useRef<HTMLButtonElement | null>(null);
+  const onPositionChangeRef = useRef(onPositionChange);
   const [position, setPosition] = useState(initialPosition);
 
   useEffect(() => {
-    onPositionChange(position);
-  }, [onPositionChange, position]);
+    onPositionChangeRef.current = onPositionChange;
+  }, [onPositionChange]);
+
+  useEffect(() => {
+    onPositionChangeRef.current(position);
+  }, [position]);
 
   useEffect(() => {
     const grip = gripRef.current;
