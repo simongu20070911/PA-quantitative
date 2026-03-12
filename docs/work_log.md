@@ -934,6 +934,12 @@ Copy this shape for new entries:
 - Next: add a small checked-in browser interaction smoke test for selection/deselection and draw/create/delete flows so these canvas-path regressions are caught automatically.
 
 ### 2026-03-12
+- Summary: Upgraded annotation selection from a single selected id to a real multi-selection set, migrated persisted workspace state forward, and wired the annotation toolbar to batch-apply shared edits across all selected drawings.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; pushed `591f3fe`, pulled on `homebox`, restarted `pa-inspector.service`; live Playwright check at `http://192.168.110.42:2000` created two line annotations, selected both with click plus ctrl-click, then verified via persisted workspace state that both selected ids were present and that toolbar actions changed both lines to `4px` and `dashed`
+- Next: if we want selection ergonomics to go further, add marquee selection and group drag/move semantics for already-multi-selected drawings.
+
+### 2026-03-12
 - Summary: Removed on-chart structure text badges from the inspector canvas, replaced annotation ID generation with a secure-context-safe client UUID helper so drawing works on the LAN-served `http://192.168.110.42:2000` app, and tightened overlay click handling so modifier-command behavior is owned only by the DOM pointer path instead of the chart library click callback.
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/lib/clientIds.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`; pushed `8ab04d4`, pulled on `homebox`, restarted `pa-inspector.service`; browser checks at `http://192.168.110.42:2000` confirmed the overlay labels were gone and line/box/fib50 creation plus delete/clear persisted correctly through local workspace state on the live app
