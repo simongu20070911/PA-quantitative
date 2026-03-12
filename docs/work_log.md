@@ -962,3 +962,9 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: if the control chrome still feels heavy in daily use, the next refinement should tighten the remaining metadata chips and explore menu-bar keyboard affordances before adding any new visible controls.
+
+### 2026-03-12
+- Summary: Clipped replay-mode EMA rendering to the replay `as_of_bar_id` so future EMA points no longer remain visible while the replay cursor is behind the loaded window, including during lower-family playback steps for higher-timeframe bars.
+- Files: `packages/pa_inspector/src/App.tsx`, `docs/inspector_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: if we later move replay-aware indicator state fully backend-side, extend the playback payload contract so indicator series can arrive already step-resolved instead of being clipped in the inspector view model.

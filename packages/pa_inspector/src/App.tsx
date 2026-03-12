@@ -158,11 +158,6 @@ export default function App() {
     });
   }, [emaStyles, selectedEmaLength, windowData]);
 
-  const selectedEmaLine = useMemo(
-    () => renderedEmaLines.find((line) => line.length === selectedEmaLength) ?? null,
-    [renderedEmaLines, selectedEmaLength],
-  );
-
   const replaySequence = windowData?.replay_sequence ?? null;
   const playbackSequence = windowData?.playback_sequence ?? null;
   const replayActiveAsOfBarId = inspectorMode === "replay" ? replayCursorBarId : null;
@@ -182,6 +177,25 @@ export default function App() {
         replayCursorStepId,
       }),
     [playbackSequence, replayCursorStepId],
+  );
+  const replayVisibleEmaBarId =
+    inspectorMode === "replay"
+      ? playbackFrameState?.asOfBarId ?? replayActiveAsOfBarId
+      : null;
+  const displayEmaLines = useMemo<RenderedEmaLine[]>(() => {
+    if (replayVisibleEmaBarId === null) {
+      return renderedEmaLines;
+    }
+    return renderedEmaLines
+      .map((line) => ({
+        ...line,
+        points: line.points.filter((point) => point.bar_id <= replayVisibleEmaBarId),
+      }))
+      .filter((line) => line.points.length > 0);
+  }, [renderedEmaLines, replayVisibleEmaBarId]);
+  const selectedEmaLine = useMemo(
+    () => displayEmaLines.find((line) => line.length === selectedEmaLength) ?? null,
+    [displayEmaLines, selectedEmaLength],
   );
   const displayOverlays =
     inspectorMode === "replay" && replayActiveAsOfBarId !== null && replayFrameState !== null
@@ -1176,7 +1190,7 @@ export default function App() {
           <ChartPane
             bars={chartBars}
             emptyMessage={windowError ?? windowNotice ?? undefined}
-            emaLines={renderedEmaLines}
+            emaLines={displayEmaLines}
             overlays={visibleOverlays}
             annotations={visibleAnnotations}
             annotationTool={annotationTool}
