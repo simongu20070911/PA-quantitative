@@ -25,6 +25,7 @@ import type {
   AnnotationKind,
   AnnotationStyle,
   AnnotationToolbarPopover,
+  ChartBar,
   AnnotationTool,
   ChartAnnotation,
   ConfirmationGuide,
@@ -35,6 +36,8 @@ import type {
   InspectorToolbarPanel,
   Overlay,
   OverlayLayer,
+  PlaybackSequence,
+  PlaybackStep,
   ReplayDelta,
   ReplaySequence,
   RenderedEmaLine,
@@ -116,6 +119,7 @@ export default function App() {
     detailAnchor,
     confirmationGuide,
     replayCursorBarId,
+    replayCursorStepId,
     replayCursorEventId,
     replaySpeed,
     toolbarHidden,
@@ -160,17 +164,27 @@ export default function App() {
   );
 
   const replaySequence = windowData?.replay_sequence ?? null;
+  const playbackSequence = windowData?.playback_sequence ?? null;
+  const replayActiveAsOfBarId = inspectorMode === "replay" ? replayCursorBarId : null;
   const replayFrameState = useMemo(
     () =>
       resolveReplayFrameState({
         replaySequence,
-        replayCursorBarId,
+        replayCursorBarId: replayActiveAsOfBarId,
         replayCursorEventId,
       }),
-    [replayCursorBarId, replayCursorEventId, replaySequence],
+    [replayActiveAsOfBarId, replayCursorEventId, replaySequence],
+  );
+  const playbackFrameState = useMemo(
+    () =>
+      resolvePlaybackFrameState({
+        playbackSequence,
+        replayCursorStepId,
+      }),
+    [playbackSequence, replayCursorStepId],
   );
   const displayOverlays =
-    inspectorMode === "replay" && replayCursorBarId !== null && replayFrameState !== null
+    inspectorMode === "replay" && replayActiveAsOfBarId !== null && replayFrameState !== null
       ? replayFrameState.overlays
       : (windowData?.overlays ?? []);
   const filteredDisplayOverlays = useMemo(
@@ -216,22 +230,35 @@ export default function App() {
       filteredDisplayOverlays.find((overlay) => overlay.overlay_id === selectedOverlayId) ?? null,
     [filteredDisplayOverlays, selectedOverlayId],
   );
+  const replayDisplayCursorBarId =
+    inspectorMode === "replay"
+      ? playbackFrameState?.displayCursorBarId ?? replayActiveAsOfBarId
+      : null;
   const replayCursorIndex = useMemo(() => {
-    if (!allChartBars.length || replayCursorBarId === null) {
+    if (!allChartBars.length || replayDisplayCursorBarId === null) {
       return null;
     }
-    const index = allChartBars.findIndex((bar) => bar.bar_id === replayCursorBarId);
+    const index = allChartBars.findIndex((bar) => bar.bar_id === replayDisplayCursorBarId);
     return index >= 0 ? index : null;
-  }, [allChartBars, replayCursorBarId]);
+  }, [allChartBars, replayDisplayCursorBarId]);
   const replayCursorBar =
-    replayCursorIndex === null ? null : allChartBars[replayCursorIndex] ?? null;
+    inspectorMode === "replay"
+      ? playbackFrameState?.cursorBar ??
+        (replayCursorIndex === null ? null : allChartBars[replayCursorIndex] ?? null)
+      : null;
   const chartBars = useMemo(() => {
-    if (inspectorMode !== "replay" || replayCursorIndex === null) {
+    if (inspectorMode !== "replay") {
+      return allChartBars;
+    }
+    if (playbackFrameState !== null) {
+      return playbackFrameState.displayBars;
+    }
+    if (replayCursorIndex === null) {
       return allChartBars;
     }
     return allChartBars.slice(0, replayCursorIndex + 1);
-  }, [allChartBars, inspectorMode, replayCursorIndex]);
-  const activeAsOfBarId = inspectorMode === "replay" ? replayCursorBarId : null;
+  }, [allChartBars, inspectorMode, playbackFrameState, replayCursorIndex]);
+  const activeAsOfBarId = replayActiveAsOfBarId;
   const activeAsOfEventId = inspectorMode === "replay" ? replayCursorEventId : null;
   const replayBackendResolved =
     inspectorMode === "replay" &&
@@ -275,17 +302,32 @@ export default function App() {
       setReplayPlaying(false);
       return;
     }
-    if (replayCursorBarId === null) {
+    if (replayActiveAsOfBarId === null) {
       return;
     }
-    if (allChartBars.some((bar) => bar.bar_id === replayCursorBarId)) {
+    if (allChartBars.some((bar) => bar.bar_id === replayActiveAsOfBarId)) {
       return;
     }
     patchWorkspace({
       replayCursorBarId: null,
+      replayCursorStepId: null,
       replayCursorEventId: null,
     });
-  }, [allChartBars, inspectorMode, replayCursorBarId]);
+  }, [allChartBars, inspectorMode, replayActiveAsOfBarId]);
+
+  useEffect(() => {
+    if (inspectorMode !== "replay") {
+      return;
+    }
+    if (!playbackSequence?.steps.length || replayCursorStepId !== null || replayCursorBarId === null) {
+      return;
+    }
+    const alignedStepId = resolveClosingPlaybackStepId(playbackSequence, replayCursorBarId);
+    if (alignedStepId === null) {
+      return;
+    }
+    setWorkspaceField("replayCursorStepId", alignedStepId);
+  }, [inspectorMode, playbackSequence, replayCursorBarId, replayCursorStepId]);
 
   useEffect(() => {
     if (inspectorMode !== "replay" || !replayPlaying) {
@@ -294,22 +336,24 @@ export default function App() {
     if (!replayBackendResolved) {
       return;
     }
-    if (!allChartBars.length || replayCursorIndex === null) {
+    if (!playbackSequence?.steps.length) {
       setReplayPlaying(false);
       return;
     }
-    if (replayCursorIndex >= allChartBars.length - 1) {
+    const currentIndex = resolvePlaybackStepIndex(playbackSequence, replayCursorStepId);
+    if (currentIndex >= playbackSequence.steps.length - 1) {
       setReplayPlaying(false);
       return;
     }
     const timeout = window.setTimeout(() => {
-      const nextBar = allChartBars[replayCursorIndex + 1];
-      if (!nextBar) {
+      const nextStep = playbackSequence.steps[currentIndex + 1];
+      if (!nextStep) {
         setReplayPlaying(false);
         return;
       }
       patchWorkspace({
-        replayCursorBarId: nextBar.bar_id,
+        replayCursorBarId: nextStep.as_of_bar_id ?? null,
+        replayCursorStepId: nextStep.step_id,
         replayCursorEventId: null,
       });
     }, replayDelayMs(replaySpeed));
@@ -317,10 +361,10 @@ export default function App() {
       window.clearTimeout(timeout);
     };
   }, [
-    allChartBars,
     inspectorMode,
+    playbackSequence,
     replayBackendResolved,
-    replayCursorIndex,
+    replayCursorStepId,
     replayPlaying,
     replaySpeed,
   ]);
@@ -498,6 +542,7 @@ export default function App() {
             detailAnchor: null,
             selectedAnnotationIds: [],
             confirmationGuide: null,
+            replayCursorStepId: null,
           });
           setDetailData(null);
           setDetailError(null);
@@ -547,6 +592,7 @@ export default function App() {
           detailAnchor: null,
           selectedAnnotationIds: [],
           confirmationGuide: null,
+          replayCursorStepId: null,
         });
         void requestWindow({
           ...(args ?? {}),
@@ -819,6 +865,7 @@ export default function App() {
     if (mode !== "replay") {
       patchWorkspace({
         inspectorMode: mode,
+        replayCursorStepId: null,
         replayCursorEventId: null,
       });
       setReplayPlaying(false);
@@ -831,6 +878,7 @@ export default function App() {
     patchWorkspace({
       inspectorMode: mode,
       replayCursorBarId: null,
+      replayCursorStepId: null,
       replayCursorEventId: null,
       selectedOverlayId: null,
       detailAnchor: null,
@@ -934,8 +982,10 @@ export default function App() {
       return;
     }
     setReplayPlaying(false);
+    const nextStepId = resolveClosingPlaybackStepId(playbackSequence, nextEvent.event_bar_id);
     patchWorkspace({
       replayCursorBarId: nextEvent.event_bar_id,
+      replayCursorStepId: nextStepId,
       replayCursorEventId: nextEvent.event_id,
     });
   }
@@ -944,34 +994,44 @@ export default function App() {
     setReplayPlaying(false);
     patchWorkspace({
       replayCursorBarId: barId,
+      replayCursorStepId: resolveClosingPlaybackStepId(playbackSequence, barId),
       replayCursorEventId: null,
     });
   }
 
   function handleReplayStepBar(direction: -1 | 1) {
-    if (!allChartBars.length) {
+    if (!playbackSequence?.steps.length) {
       return;
     }
-    const currentIndex =
-      replayCursorIndex ?? (direction < 0 ? allChartBars.length - 1 : 0);
+    const currentIndex = resolvePlaybackStepIndex(playbackSequence, replayCursorStepId);
     const nextIndex = Math.max(
       0,
-      Math.min(allChartBars.length - 1, currentIndex + direction),
+      Math.min(playbackSequence.steps.length - 1, currentIndex + direction),
     );
+    const nextStep = playbackSequence.steps[nextIndex];
+    if (!nextStep) {
+      return;
+    }
     setReplayPlaying(false);
     patchWorkspace({
-      replayCursorBarId: allChartBars[nextIndex]?.bar_id ?? null,
+      replayCursorBarId: nextStep.as_of_bar_id ?? null,
+      replayCursorStepId: nextStep.step_id,
       replayCursorEventId: null,
     });
   }
 
   function handleReplayJumpToLatest() {
-    if (!allChartBars.length) {
+    if (!playbackSequence?.steps.length) {
+      return;
+    }
+    const latestStep = playbackSequence.steps[playbackSequence.steps.length - 1];
+    if (!latestStep) {
       return;
     }
     setReplayPlaying(false);
     patchWorkspace({
-      replayCursorBarId: allChartBars[allChartBars.length - 1]?.bar_id ?? null,
+      replayCursorBarId: latestStep.as_of_bar_id ?? null,
+      replayCursorStepId: latestStep.step_id,
       replayCursorEventId: null,
     });
   }
@@ -994,6 +1054,7 @@ export default function App() {
       selectedOverlayId: null,
       detailAnchor: null,
       confirmationGuide: null,
+      replayCursorStepId: null,
       replayCursorEventId: null,
       toolbarOpenPanel: null,
     });
@@ -1126,7 +1187,7 @@ export default function App() {
             selectedAnnotationIds={selectedAnnotationIds}
             confirmationGuide={confirmationGuide}
             replayEnabled={inspectorMode === "replay"}
-            replayCursorBarId={replayCursorBarId}
+            replayCursorBarId={replayDisplayCursorBarId}
             annotationCount={visibleAnnotations.length}
             annotationRailPosition={annotationRailPosition}
             onAnnotationRailPositionChange={(position) =>
@@ -1240,6 +1301,8 @@ export default function App() {
             playing={replayPlaying}
             speed={replaySpeed}
             backendResolved={replayBackendResolved}
+            playbackMode={playbackSequence?.mode ?? null}
+            playbackStepTimeframe={playbackSequence?.step_timeframe ?? null}
             onTogglePlaying={() => {
               if (!replayCursorBar) {
                 return;
@@ -1274,6 +1337,75 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function resolvePlaybackFrameState(args: {
+  playbackSequence: PlaybackSequence | null;
+  replayCursorStepId: string | null;
+}): {
+  displayBars: ChartBar[];
+  cursorBar: ChartBar | null;
+  displayCursorBarId: number | null;
+  asOfBarId: number | null;
+} | null {
+  if (!args.playbackSequence?.steps.length || args.replayCursorStepId === null) {
+    return null;
+  }
+  const targetIndex = args.playbackSequence.steps.findIndex(
+    (step) => step.step_id === args.replayCursorStepId,
+  );
+  if (targetIndex < 0) {
+    return null;
+  }
+  const displayBarsById = new Map(
+    args.playbackSequence.base.display_bars.map((bar) => [bar.bar_id, bar]),
+  );
+  let lastAppliedStep: PlaybackStep | null = null;
+  for (let index = 0; index <= targetIndex; index += 1) {
+    const step = args.playbackSequence.steps[index];
+    displayBarsById.set(step.display_bar.bar_id, step.display_bar);
+    lastAppliedStep = step;
+  }
+  if (lastAppliedStep === null) {
+    return null;
+  }
+  const displayBars = Array.from(displayBarsById.values()).sort((left, right) => left.bar_id - right.bar_id);
+  return {
+    displayBars,
+    cursorBar: lastAppliedStep.display_bar,
+    displayCursorBarId: lastAppliedStep.display_bar.bar_id,
+    asOfBarId: lastAppliedStep.as_of_bar_id ?? null,
+  };
+}
+
+function resolvePlaybackStepIndex(
+  playbackSequence: PlaybackSequence,
+  replayCursorStepId: string | null,
+) {
+  if (!playbackSequence.steps.length) {
+    return -1;
+  }
+  if (replayCursorStepId === null) {
+    return -1;
+  }
+  const index = playbackSequence.steps.findIndex((step) => step.step_id === replayCursorStepId);
+  return index >= 0 ? index : -1;
+}
+
+function resolveClosingPlaybackStepId(
+  playbackSequence: PlaybackSequence | null,
+  barId: number,
+) {
+  if (!playbackSequence?.steps.length) {
+    return null;
+  }
+  for (let index = playbackSequence.steps.length - 1; index >= 0; index -= 1) {
+    const step = playbackSequence.steps[index];
+    if (step.display_bar.bar_id === barId && step.closes_display_bar) {
+      return step.step_id;
+    }
+  }
+  return null;
 }
 
 function resolveReplayFrameState(args: {

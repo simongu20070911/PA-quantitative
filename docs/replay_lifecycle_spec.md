@@ -43,6 +43,7 @@ Ownership is split as follows:
 4. `anchor_bar` answers what the structure is about; `event_bar` answers when the system knew the transition.
 5. Batch, incremental, and live-compatible execution must agree on lifecycle semantics.
 6. If replay is served as an `as_of` snapshot instead of a raw event stream, it must be semantically equivalent to applying the lifecycle events through the cursor.
+7. Visual playback progression is distinct from structure lifecycle progression and must not redefine structure visibility timing.
 
 ## Terminology
 
@@ -206,6 +207,25 @@ Rules:
 - if a backend serves replay via `as_of` object snapshots, the snapshot at cursor `C` must equal the state produced by applying all lifecycle events with `event_bar_id <= C`
 - a backend may also serve replay as one base window snapshot plus ordered replay ops keyed by `event_id`, but those ops must be backend-authored and semantically equivalent to applying the lifecycle events through the same cursor
 - replay must not depend on frontend-visible zoom level, viewport width, or screen coordinates
+
+## Playback Progression Stream
+
+Replay may also expose a backend-authored playback progression stream for visual transport.
+
+Purpose:
+
+- let higher-timeframe replay feel live by updating the currently forming display bar from lower-granularity source data
+- leave a clean contract path for future tick-driven playback without changing structure legality semantics
+
+Rules:
+
+- playback progression is not itself a lifecycle event stream
+- playback steps may update the visible candle set between selected-family closes
+- playback steps must carry the backend-authored post-step display-bar snapshot
+- the active structure replay state after a playback step must still equal the state legally visible at that step's `as_of_bar_id`
+- if a playback step occurs before the selected-family bar closes, structure visibility must remain at the prior selected-family close
+- when a playback step closes the selected-family bar, the backend may advance both the playback transport and the legal replay cursor on that step
+- the frontend may apply playback steps, but it must not reconstruct partial higher-timeframe bars or infer structure advancement from lower-timeframe raw bars
 
 ## Relationship To Structure Object Datasets
 

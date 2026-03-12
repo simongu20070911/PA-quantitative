@@ -471,6 +471,40 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(visible.status_code, 200)
             self.assertEqual(visible.json()["versions"]["as_of_bar_id"], 130)
 
+    def test_chart_window_1m_replay_sequence_includes_selected_family_playback_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = _build_client(Path(tmpdir))
+
+            response = client.get(
+                "/chart-window",
+                params=[
+                    ("symbol", "ES"),
+                    ("timeframe", "1m"),
+                    ("session_profile", "eth_full"),
+                    ("data_version", "es_test_v1"),
+                    ("center_bar_id", "120"),
+                    ("left_bars", "1"),
+                    ("right_bars", "1"),
+                    ("buffer_bars", "0"),
+                    ("include_replay_sequence", "true"),
+                ],
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            playback_sequence = payload["playback_sequence"]
+            self.assertIsNotNone(playback_sequence)
+            self.assertEqual(playback_sequence["mode"], "selected_family_steps")
+            self.assertEqual(playback_sequence["display_timeframe"], "1m")
+            self.assertEqual(playback_sequence["step_timeframe"], "1m")
+            self.assertEqual(
+                [step["display_bar"]["bar_id"] for step in playback_sequence["steps"]],
+                [bar["bar_id"] for bar in payload["bars"]],
+            )
+            self.assertTrue(all(step["closes_display_bar"] for step in playback_sequence["steps"]))
+            self.assertEqual(payload["meta"]["playback_mode"], "selected_family_steps")
+            self.assertEqual(payload["meta"]["playback_step_timeframe"], "1m")
+
     def test_chart_window_requires_exactly_one_selector(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             client = _build_client(Path(tmpdir))
@@ -676,6 +710,18 @@ class ApiAppTests(unittest.TestCase):
                     for delta in replay_sequence["deltas"]
                 )
             )
+            playback_sequence = payload["playback_sequence"]
+            self.assertIsNotNone(playback_sequence)
+            self.assertEqual(playback_sequence["mode"], "lower_family_steps")
+            self.assertEqual(playback_sequence["display_timeframe"], "5m")
+            self.assertEqual(playback_sequence["step_timeframe"], "1m")
+            self.assertEqual(len(playback_sequence["steps"]), len(payload["bars"]) * 5)
+            self.assertEqual(playback_sequence["steps"][0]["display_bar"]["bar_id"], 1045)
+            self.assertFalse(playback_sequence["steps"][0]["closes_display_bar"])
+            self.assertTrue(playback_sequence["steps"][4]["closes_display_bar"])
+            self.assertEqual(playback_sequence["steps"][4]["as_of_bar_id"], 1045)
+            self.assertEqual(payload["meta"]["playback_mode"], "lower_family_steps")
+            self.assertEqual(payload["meta"]["playback_step_timeframe"], "1m")
 
     def test_structure_detail_runtime_5m_replay_hides_not_yet_visible_future_pivot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

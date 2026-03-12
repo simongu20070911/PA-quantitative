@@ -197,6 +197,9 @@ Required rules:
 - no replay event may appear inside filtered-out inactive intervals
 - crossing an inactive interval advances replay to the next actual included bar; no synthetic gap-filler bars or events are inserted
 - if a rule on a derived family uses `k` bars of confirmation, `k` is counted in bars of that family unless the rulebook explicitly states otherwise
+- replay may additionally expose backend-authored lower-granularity playback steps for visual transport
+- lower-granularity playback steps may update the currently forming selected-family candle, but they must not advance structure legality before the selected-family close
+- the lower-granularity playback contract should support `1m` source bars now and later `tick` source steps without changing the selected-family replay timing rules
 
 ## Holidays, Early Closes, And Missing Data
 

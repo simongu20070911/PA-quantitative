@@ -13,7 +13,9 @@ from pa_core.chart_reads import (
     ChartContext,
     ChartReadConfig,
     ChartWindowSelectionError,
+    PlaybackWindowSequence,
     ReplayWindowSequence,
+    build_playback_window_sequence,
     build_replay_window_sequence,
     load_chart_context,
     project_structure_event_rows_to_overlays,
@@ -37,6 +39,9 @@ from .models import (
     EmaPointModel,
     OverlayLayer,
     OverlayModel,
+    PlaybackBaseModel,
+    PlaybackSequenceModel,
+    PlaybackStepModel,
     ReplayBaseModel,
     ReplayDeltaModel,
     ReplaySequenceModel,
@@ -201,6 +206,17 @@ class ChartApiService:
             if include_replay_sequence and as_of_bar_id is None and as_of_event_id is None
             else None
         )
+        playback_sequence = (
+            _playback_sequence_to_model(
+                build_playback_window_sequence(
+                    context=context,
+                    min_bar_id=bars[0].bar_id if bars else None,
+                    max_bar_id=bars[-1].bar_id if bars else None,
+                )
+            )
+            if include_replay_sequence and as_of_bar_id is None and as_of_event_id is None
+            else None
+        )
         return ChartWindowResponse(
             bars=bars,
             ema_lines=ema_lines,
@@ -208,11 +224,13 @@ class ChartApiService:
             events=[_structure_event_row_to_model(row) for row in events],
             overlays=[_overlay_to_model(overlay) for overlay in overlays],
             replay_sequence=replay_sequence,
+            playback_sequence=playback_sequence,
             meta=_context_meta(
                 context,
                 as_of_bar_id=as_of_bar_id,
                 as_of_event_id=as_of_event_id,
                 has_lifecycle_events=bool(context.structure_event_records),
+                playback_sequence=playback_sequence,
             ),
         )
 
@@ -292,6 +310,7 @@ class ChartApiService:
                 as_of_bar_id=as_of_bar_id,
                 as_of_event_id=as_of_event_id,
                 has_lifecycle_events=bool(context.structure_event_records),
+                playback_sequence=None,
             ),
         )
 
@@ -558,6 +577,35 @@ def _replay_sequence_to_model(sequence: ReplayWindowSequence | None) -> ReplaySe
     )
 
 
+def _playback_sequence_to_model(
+    sequence: PlaybackWindowSequence | None,
+) -> PlaybackSequenceModel | None:
+    if sequence is None:
+        return None
+    return PlaybackSequenceModel(
+        mode=sequence.mode,
+        display_timeframe=sequence.display_timeframe,
+        step_timeframe=sequence.step_timeframe,
+        base=PlaybackBaseModel(
+            as_of_bar_id=sequence.base.as_of_bar_id,
+            display_bars=[_bar_row_to_model(row) for row in sequence.base.display_bars],
+        ),
+        steps=[
+            PlaybackStepModel(
+                step_id=step.step_id,
+                source_kind=step.source_kind,
+                source_timeframe=step.source_timeframe,
+                source_bar_id=step.source_bar_id,
+                source_time_ns=step.source_time_ns,
+                display_bar=_bar_row_to_model(step.display_bar),
+                as_of_bar_id=step.as_of_bar_id,
+                closes_display_bar=step.closes_display_bar,
+            )
+            for step in sequence.steps
+        ],
+    )
+
+
 def _build_ema_lines(
     *,
     bar_frame: pa.Table,
@@ -613,6 +661,7 @@ def _context_meta(
     as_of_bar_id: int | None,
     as_of_event_id: str | None,
     has_lifecycle_events: bool,
+    playback_sequence: PlaybackSequenceModel | None,
 ) -> ChartWindowMetaModel:
     return ChartWindowMetaModel(
         data_version=context.data_version,
@@ -646,5 +695,9 @@ def _context_meta(
                     else "snapshot_objects_only"
                 )
             )
+        ),
+        playback_mode=None if playback_sequence is None else playback_sequence.mode,
+        playback_step_timeframe=(
+            None if playback_sequence is None else playback_sequence.step_timeframe
         ),
     )

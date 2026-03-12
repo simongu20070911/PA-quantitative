@@ -33,6 +33,7 @@ Implemented:
 - runtime `v0.2` chart reads that resolve pivots, legs, and `major_lh` from backend artifacts or runtime builds
 - overlay projection for `pivot_st`, `pivot`, `leg`, and `major_lh`
 - inspector explore/replay workflow backed by backend lifecycle semantics
+- backend-authored replay playback progression across the active timeframe families, using selected-family closes for legality and lower-family steps for candle transport
 
 Removed on 2026-03-10 pending redesign:
 
@@ -56,6 +57,7 @@ That means:
 - breakout is intentionally absent until the redesign is defined
 - `artifact_v0_2` still needs broader live materialization coverage outside the current active families
 - review write paths are still not implemented
+- tick-level playback data is not yet available, so the current playback stream falls back to lower bar-family steps such as `1m`
 
 ## Recommended Next Step
 

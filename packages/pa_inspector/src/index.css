@@ -80,8 +80,8 @@ code {
 
 .toolbar-card {
   flex: 0 0 auto;
-  padding: 10px 12px;
-  border-radius: 16px;
+  padding: 6px 10px;
+  border-radius: 14px;
   background:
     linear-gradient(180deg, rgba(248, 245, 239, 0.96), rgba(239, 243, 245, 0.94)),
     var(--toolbar-tint);
@@ -91,7 +91,7 @@ code {
 }
 
 .toolbar-card-collapsed {
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 
 .toolbar-head,
@@ -176,6 +176,10 @@ code {
   flex-wrap: wrap;
 }
 
+.toolbar-inline-meta-compact {
+  gap: 4px;
+}
+
 .toolbar-tag,
 .toolbar-pill {
   display: inline-flex;
@@ -186,6 +190,11 @@ code {
   color: var(--ink-soft);
   font-size: 0.74rem;
   border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.toolbar-chip-tight {
+  padding: 3px 8px;
+  font-size: 0.72rem;
 }
 
 .toolbar-tag-strong,
@@ -273,11 +282,20 @@ code {
 .load-button {
   padding: 8px 14px;
   min-width: 84px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: #1d2733;
   color: #ffffff;
   border-color: #1d2733;
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+.load-button-compact {
+  min-width: 0;
+  padding: 9px 12px;
 }
 
 .load-button:disabled {
@@ -313,6 +331,123 @@ code {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   margin-right: 2px;
+}
+
+.toolbar-menubar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+}
+
+.toolbar-menubar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.toolbar-menubar-group-left {
+  flex: 1 1 auto;
+}
+
+.toolbar-menubar-group-right {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.toolbar-menubar-title {
+  font-size: 0.94rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+}
+
+.toolbar-menubar-mode {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(29, 39, 51, 0.08);
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.toolbar-menu-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-menu-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(125, 141, 160, 0.2);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.toolbar-menu-button:hover {
+  border-color: rgba(83, 100, 120, 0.34);
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.toolbar-menu-button.active {
+  background: #eef3f6;
+  border-color: rgba(83, 100, 120, 0.42);
+}
+
+.toolbar-menu-button-ghost {
+  background: transparent;
+}
+
+.toolbar-menu-button svg,
+.load-button svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.toolbar-menu-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #1d2733;
+  color: #ffffff;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.toolbar-statusline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .toolbar-collapsed {
@@ -420,6 +555,11 @@ code {
 
 .toolbar-segmented-mode {
   margin-right: 4px;
+}
+
+.toolbar-segmented-mode-compact .segment {
+  padding: 8px 11px;
+  font-size: 0.82rem;
 }
 
 .segment.active {
@@ -1210,8 +1350,20 @@ code {
   .toolbar-controls,
   .toolbar-collapsed,
   .toolbar-collapsed-brand,
-  .source-grid {
+  .source-grid,
+  .toolbar-menubar,
+  .toolbar-menubar-group,
+  .toolbar-statusline {
     width: 100%;
+  }
+
+  .toolbar-menubar,
+  .toolbar-menubar-group {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-menubar-group-right {
+    justify-content: flex-start;
   }
 
   .toolbar-popover-grid,
@@ -1226,12 +1378,14 @@ code {
   }
 
   .toolbar-mainline,
-  .toolbar-collapsed {
+  .toolbar-collapsed,
+  .toolbar-menubar {
     gap: 10px;
   }
 
   .toolbar-inline-meta,
-  .toolbar-strip {
+  .toolbar-strip,
+  .toolbar-menu-actions {
     width: 100%;
   }
 

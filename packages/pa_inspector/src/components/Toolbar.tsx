@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { OVERLAY_LAYER_LABELS } from "../lib/overlayLayers";
 import type {
@@ -144,15 +144,19 @@ export function Toolbar(props: ToolbarProps) {
       <section className="toolbar-card toolbar-card-collapsed">
         <div className="toolbar-collapsed">
           <div className="toolbar-collapsed-brand">
-            <p className="eyebrow">{props.inspectorMode === "replay" ? "Replay" : "Explore"}</p>
-            <strong>Continuous Structure View</strong>
+            <span className="toolbar-menubar-mode">
+              {props.inspectorMode === "replay" ? "Replay" : "Explore"}
+            </span>
+            <strong className="toolbar-menubar-title">Continuous Structure View</strong>
             <div className="toolbar-inline-meta">
-              <span className="toolbar-tag toolbar-tag-strong">
+              <span className="toolbar-tag toolbar-tag-strong toolbar-chip-tight">
                 {props.symbol} {props.timeframe}
               </span>
-              <span className="toolbar-tag">{STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}</span>
+              <span className="toolbar-tag toolbar-chip-tight">{props.sessionProfile}</span>
               {props.requestStatusMessage ? (
-                <span className={collapsedStatusClass}>{props.requestStatusMessage}</span>
+                <span className={`${collapsedStatusClass} toolbar-chip-tight`}>
+                  {props.requestStatusMessage}
+                </span>
               ) : null}
             </div>
           </div>
@@ -170,25 +174,25 @@ export function Toolbar(props: ToolbarProps) {
 
   return (
     <section className="toolbar-card">
-      <div className="toolbar-shell">
-        <div className="toolbar-mainline">
-          <div className="toolbar-brandline">
-            <div className="toolbar-title-block">
-              <p className="eyebrow">{props.inspectorMode === "replay" ? "Replay" : "Explore"}</p>
-              <h1>Continuous Structure View</h1>
-            </div>
-            <div className="toolbar-inline-meta">
-              <span className="toolbar-tag toolbar-tag-strong">
-                {props.symbol} {props.timeframe}
-              </span>
-              <span className="toolbar-tag">{props.sessionProfile}</span>
-              <span className="toolbar-tag">{selectorSummary}</span>
-              <span className="toolbar-tag">Window {windowSummary}</span>
-              <span className="toolbar-tag">{structureVersionLabel}</span>
-            </div>
+      <div className="toolbar-menubar">
+        <div className="toolbar-menubar-group toolbar-menubar-group-left">
+          <span className="toolbar-menubar-mode">
+            {props.inspectorMode === "replay" ? "Replay" : "Explore"}
+          </span>
+          <strong className="toolbar-menubar-title">Continuous Structure View</strong>
+          <div className="toolbar-inline-meta toolbar-inline-meta-compact">
+            <span className="toolbar-tag toolbar-tag-strong toolbar-chip-tight">
+              {props.symbol} {props.timeframe}
+            </span>
+            <span className="toolbar-tag toolbar-chip-tight">{props.sessionProfile}</span>
+            <span className="toolbar-tag toolbar-chip-tight">{selectorSummary}</span>
+            <span className="toolbar-tag toolbar-chip-tight">Window {windowSummary}</span>
+            <span className="toolbar-tag toolbar-chip-tight">{structureVersionLabel}</span>
           </div>
-          <div className="toolbar-controls">
-          <div className="segmented toolbar-segmented-mode">
+        </div>
+
+        <div className="toolbar-menubar-group toolbar-menubar-group-right">
+          <div className="segmented toolbar-segmented-mode toolbar-segmented-mode-compact">
             {(["explore", "replay"] as InspectorMode[]).map((mode) => (
               <button
                 className={mode === props.inspectorMode ? "segment active" : "segment"}
@@ -200,94 +204,71 @@ export function Toolbar(props: ToolbarProps) {
               </button>
             ))}
           </div>
-          <div className="toolbar-actions">
-            <button
-              className={props.openPanel === "jump" ? "toolbar-action active" : "toolbar-action"}
+
+          <div className="toolbar-menu-actions" role="toolbar" aria-label="Inspector menus">
+            <ToolbarMenuButton
+              active={props.openPanel === "jump"}
+              badge={props.selectorMode === "session_date" ? "S" : props.selectorMode === "center_bar_id" ? "#" : "T"}
+              icon={<JumpIcon />}
+              label="Jump"
               onClick={() => togglePanel("jump")}
-              type="button"
-            >
-              Jump
-            </button>
-            <button
-              className={
-                props.openPanel === "display" ? "toolbar-action active" : "toolbar-action"
-              }
+            />
+            <ToolbarMenuButton
+              active={props.openPanel === "display"}
+              badge={props.emaEnabled ? "EMA" : undefined}
+              icon={<DisplayIcon />}
+              label="Display"
               onClick={() => togglePanel("display")}
-              type="button"
-            >
-              Display
-            </button>
-            <button
-              className={
-                props.openPanel === "versions" ? "toolbar-action active" : "toolbar-action"
-              }
+            />
+            <ToolbarMenuButton
+              active={props.openPanel === "versions"}
+              badge={structureSourceChanged ? "Auto" : undefined}
+              icon={<VersionIcon />}
+              label="Version"
               onClick={() => togglePanel("versions")}
-              type="button"
-            >
-              Version
-            </button>
-            <button
-              className={
-                props.openPanel === "layers" ? "toolbar-action active" : "toolbar-action"
-              }
+            />
+            <ToolbarMenuButton
+              active={props.openPanel === "layers"}
+              badge={String(activeLayerCount)}
+              icon={<LayersMenuIcon />}
+              label="Layers"
               onClick={() => togglePanel("layers")}
-              type="button"
-            >
-              Layers
-              <code>{activeLayerCount}</code>
-            </button>
-            <button
-              className={props.openPanel === "data" ? "toolbar-action active" : "toolbar-action"}
+            />
+            <ToolbarMenuButton
+              active={props.openPanel === "data"}
+              icon={<DataIcon />}
+              label="Data"
               onClick={() => togglePanel("data")}
-              type="button"
-            >
-              Data
-            </button>
+            />
             <button
-              className="toolbar-action toolbar-action-ghost"
+              className="toolbar-menu-button toolbar-menu-button-ghost"
               onClick={() => props.onHiddenChange(true)}
               type="button"
+              title="Hide controls"
             >
-              Hide
+              <EyeOffIcon />
             </button>
             <button
-              className="load-button"
+              className="load-button load-button-compact"
               disabled={props.loading}
               onClick={props.onLoad}
               type="button"
             >
-              {props.loading ? "Loading..." : "Load"}
+              <LoadIcon />
+              <span>{props.loading ? "Loading" : "Load"}</span>
             </button>
           </div>
-        </div>
-        </div>
-        <div className="toolbar-strip">
-          <div className="toolbar-strip-group">
-            <span className="toolbar-strip-label">Source</span>
-            <span className="toolbar-pill toolbar-pill-strong">
+
+          <div className="toolbar-statusline">
+            <span className="toolbar-pill toolbar-chip-tight toolbar-pill-strong">
               {STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}
             </span>
-            <span className="toolbar-pill">Requested {STRUCTURE_SOURCE_LABELS[props.structureSource]}</span>
             {structureSourceChanged ? (
-              <span className="toolbar-pill toolbar-pill-accent">Auto fallback</span>
-            ) : null}
-          </div>
-          <div className="toolbar-strip-group">
-            <span className="toolbar-strip-label">Display</span>
-            <span className="toolbar-pill">{activeLayerCount} layers on</span>
-            <span className="toolbar-pill">
-              {props.emaEnabled ? props.emaLengths.trim() || "EMA On" : "EMA Off"}
-            </span>
-            <span className="toolbar-pill">Auto Fetch {props.autoViewportFetch ? "On" : "Off"}</span>
-            {props.inspectorMode === "replay" ? (
-              <span className="toolbar-pill">
-                Cancelled Pivots {props.showReplayRetiredOverlays ? "On" : "Off"}
+              <span className="toolbar-pill toolbar-chip-tight toolbar-pill-accent">
+                Requested {STRUCTURE_SOURCE_LABELS[props.structureSource]}
               </span>
             ) : null}
-          </div>
-          <div className="toolbar-strip-group">
-            <span className="toolbar-strip-label">Status</span>
-            <span className={requestStatusClass}>
+            <span className={`${requestStatusClass} toolbar-chip-tight`}>
               {props.requestStatusMessage ?? sourceSummary}
             </span>
           </div>
@@ -596,5 +577,154 @@ export function Toolbar(props: ToolbarProps) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+interface ToolbarMenuButtonProps {
+  active: boolean;
+  badge?: string;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}
+
+function ToolbarMenuButton(props: ToolbarMenuButtonProps) {
+  return (
+    <button
+      aria-label={props.label}
+      className={props.active ? "toolbar-menu-button active" : "toolbar-menu-button"}
+      onClick={props.onClick}
+      title={props.label}
+      type="button"
+    >
+      {props.icon}
+      {props.badge ? <span className="toolbar-menu-badge">{props.badge}</span> : null}
+    </button>
+  );
+}
+
+function JumpIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="M4 13.5 13.5 4m0 0H7m6.5 0V11"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  );
+}
+
+function DisplayIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="M4 5.5h10M6 9h8m-6 3.5h6"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.8"
+      />
+      <circle cx="6" cy="5.5" r="1.5" fill="currentColor" />
+      <circle cx="8" cy="9" r="1.5" fill="currentColor" />
+      <circle cx="10" cy="12.5" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function VersionIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="m4 11 3-4 2.25 2.5L14 5"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M4 14h10"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.4"
+      />
+    </svg>
+  );
+}
+
+function LayersMenuIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="m9 3 5 2.8L9 8.6 4 5.8 9 3Zm0 5.4 5 2.8L9 14 4 11.2 9 8.4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+function DataIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <ellipse cx="9" cy="4.5" rx="4.75" ry="2.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M4.25 4.5v5c0 1.25 2.13 2.25 4.75 2.25s4.75-1 4.75-2.25v-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M4.25 9.5v4c0 1.25 2.13 2.25 4.75 2.25s4.75-1 4.75-2.25v-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="M3.5 3.5 14.5 14.5M6.2 6.2A6.8 6.8 0 0 1 9 5.6c3.1 0 5.6 2.1 6.75 3.4a.85.85 0 0 1 0 1.04 13.6 13.6 0 0 1-2.86 2.48M8 8a1.6 1.6 0 0 0 2 2"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M5.1 12.1A13.2 13.2 0 0 1 2.25 10.04a.85.85 0 0 1 0-1.04c.58-.66 1.5-1.49 2.68-2.18"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+function LoadIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="M9 3.5v7m0 0 2.8-2.8M9 10.5 6.2 7.7M4 13.8h10"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
   );
 }

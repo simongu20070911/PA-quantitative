@@ -15,7 +15,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "pa_inspector.workspace.v1";
-const STORAGE_VERSION = 8;
+const STORAGE_VERSION = 9;
 
 export interface PersistedInspectorState {
   apiBaseUrl: string;
@@ -49,6 +49,7 @@ export interface PersistedInspectorState {
   detailAnchor: ScreenPoint | null;
   confirmationGuide: ConfirmationGuide | null;
   replayCursorBarId: number | null;
+  replayCursorStepId: string | null;
   replayCursorEventId: string | null;
   replaySpeed: number;
   toolbarHidden: boolean;
@@ -69,6 +70,11 @@ export interface PersistedViewportState {
 
 interface PersistedInspectorEnvelope extends PersistedInspectorState {
   version: number;
+}
+
+interface PersistedInspectorEnvelopeV8
+  extends Omit<PersistedInspectorState, "replayCursorStepId"> {
+  version: 8;
 }
 
 interface PersistedInspectorEnvelopeV7
@@ -256,6 +262,11 @@ const PERSISTED_INSPECTOR_FIELD_SPECS = [
     validate: isNullableFiniteNumber,
   }),
   field({
+    key: "replayCursorStepId",
+    defaultValue: () => null,
+    validate: isNullableString,
+  }),
+  field({
     key: "replayCursorEventId",
     defaultValue: () => null,
     validate: isNullableString,
@@ -337,6 +348,9 @@ export function loadPersistedInspectorState(
     if (isPersistedEnvelope(parsed)) {
       return restorePersistedInspectorState(parsed, defaults);
     }
+    if (isPersistedEnvelopeV8(parsed)) {
+      return restorePersistedInspectorStateV8(parsed, defaults);
+    }
     if (isPersistedEnvelopeV7(parsed)) {
       return restorePersistedInspectorStateV7(parsed, defaults);
     }
@@ -373,6 +387,18 @@ function isPersistedEnvelope(value: unknown): value is PersistedInspectorEnvelop
   );
 }
 
+function isPersistedEnvelopeV8(value: unknown): value is PersistedInspectorEnvelopeV8 {
+  if (!isRecord(value) || value.version !== 8) {
+    return false;
+  }
+  return PERSISTED_INSPECTOR_FIELD_SPECS.every((spec) => {
+    if (spec.key === "replayCursorStepId") {
+      return true;
+    }
+    return spec.validate(value[spec.key]);
+  });
+}
+
 function isPersistedEnvelopeV7(value: unknown): value is PersistedInspectorEnvelopeV7 {
   if (!isRecord(value) || value.version !== 7) {
     return false;
@@ -398,6 +424,27 @@ function restorePersistedInspectorState(
       PersistedInspectorState[keyof PersistedInspectorState]
     >;
   for (const spec of listFieldSpecs()) {
+    const value = envelope[spec.key];
+    writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
+  }
+  return restored;
+}
+
+function restorePersistedInspectorStateV8(
+  envelope: PersistedInspectorEnvelopeV8,
+  defaults: PersistedInspectorState,
+): PersistedInspectorState {
+  const restored = { ...defaults };
+  const writableRestored =
+    restored as Record<
+      keyof PersistedInspectorState,
+      PersistedInspectorState[keyof PersistedInspectorState]
+    >;
+  for (const spec of listFieldSpecs()) {
+    if (spec.key === "replayCursorStepId") {
+      writableRestored.replayCursorStepId = null;
+      continue;
+    }
     const value = envelope[spec.key];
     writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
   }

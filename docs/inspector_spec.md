@@ -120,6 +120,9 @@ Required replay rules:
 - when replay is served as backend replay frames, the inspector may only apply backend-authored add/remove ops; it must not reconstruct lifecycle legality itself
 - if replay is served as an `as_of` snapshot instead of raw events, it must be semantically equivalent to applying lifecycle events through the replay cursor
 - replay uses the selected bar family and its finalization rules, not raw wall-clock time alone
+- replay may also carry a separate backend-authored playback progression stream that updates the visible candle set between selected-family closes
+- playback progression must never cause the inspector to advance structure legality ahead of the selected bar family's actual close
+- the inspector may animate backend-authored playback steps, but it must not synthesize higher-timeframe partial candles from lower-timeframe data on its own
 
 ## Frontend Stack
 

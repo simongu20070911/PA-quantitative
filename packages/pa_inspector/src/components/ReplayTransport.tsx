@@ -10,6 +10,8 @@ export interface ReplayTransportProps {
   playing: boolean;
   speed: number;
   backendResolved: boolean;
+  playbackMode: string | null;
+  playbackStepTimeframe: string | null;
   onTogglePlaying: () => void;
   onStepBar: (direction: -1 | 1) => void;
   onStepEvent: (direction: -1 | 1) => void;
@@ -35,6 +37,16 @@ export function ReplayTransport(props: ReplayTransportProps) {
         timeZone: "UTC",
       })
     : "Awaiting bars";
+  const stepLabel =
+    props.playbackStepTimeframe && props.playbackStepTimeframe !== "1m"
+      ? props.playbackStepTimeframe
+      : props.playbackStepTimeframe ?? "step";
+  const stepDescription =
+    props.playbackMode === "lower_family_steps" && props.playbackStepTimeframe
+      ? `${props.playbackStepTimeframe} playback`
+      : props.playbackMode === "selected_family_steps"
+        ? "bar-close playback"
+        : "playback";
 
   return (
     <div className="replay-transport">
@@ -54,7 +66,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
             type="button"
             onClick={() => props.onStepBar(-1)}
           >
-            Prev Bar
+            Prev {stepLabel}
           </button>
           <button
             className="transport-button transport-button-primary"
@@ -70,7 +82,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
             type="button"
             onClick={() => props.onStepBar(1)}
           >
-            Next Bar
+            Next {stepLabel}
           </button>
           <button
             className="transport-button"
@@ -95,6 +107,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
             Cursor <strong>{cursorLabel}</strong>
           </span>
           <span className="transport-chip">{cursorDate}</span>
+          <span className="transport-chip">{stepDescription}</span>
           <label className="transport-speed">
             <span>Speed</span>
             <select
@@ -115,7 +128,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
         {!props.cursorBar
           ? "Click empty chart space to choose a replay start point. Future bars stay visible only while you are choosing the cursor."
           : props.backendResolved
-            ? "Replay is showing backend-authored event frames, and future bars are hidden after the active cursor."
+            ? "Replay is showing backend-authored playback steps plus backend-resolved structure state. Future bars stay hidden after the active cursor."
             : "Replay is waiting for backend replay frames for this window. Future bars will stay hidden once the replay view is ready."}
       </p>
     </div>

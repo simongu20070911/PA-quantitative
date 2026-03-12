@@ -135,6 +135,8 @@ export interface ChartWindowMeta {
   as_of_event_id?: string | null;
   replay_source?: string | null;
   replay_completeness?: string | null;
+  playback_mode?: string | null;
+  playback_step_timeframe?: string | null;
 }
 
 export interface StructureEvent {
@@ -179,6 +181,30 @@ export interface ReplaySequence {
   deltas: ReplayDelta[];
 }
 
+export interface PlaybackBase {
+  as_of_bar_id?: number | null;
+  display_bars: ChartBar[];
+}
+
+export interface PlaybackStep {
+  step_id: string;
+  source_kind: string;
+  source_timeframe?: string | null;
+  source_bar_id?: number | null;
+  source_time_ns?: number | null;
+  display_bar: ChartBar;
+  as_of_bar_id?: number | null;
+  closes_display_bar: boolean;
+}
+
+export interface PlaybackSequence {
+  mode: string;
+  display_timeframe: string;
+  step_timeframe?: string | null;
+  base: PlaybackBase;
+  steps: PlaybackStep[];
+}
+
 export interface ChartWindowResponse {
   bars: ChartBar[];
   ema_lines: EmaLine[];
@@ -186,6 +212,7 @@ export interface ChartWindowResponse {
   events: StructureEvent[];
   overlays: Overlay[];
   replay_sequence?: ReplaySequence | null;
+  playback_sequence?: PlaybackSequence | null;
   meta: ChartWindowMeta;
 }
 

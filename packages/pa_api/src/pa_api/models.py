@@ -99,6 +99,30 @@ class ReplaySequenceModel(BaseModel):
     deltas: list[ReplayDeltaModel] = Field(default_factory=list)
 
 
+class PlaybackBaseModel(BaseModel):
+    as_of_bar_id: int | None = None
+    display_bars: list[ChartBarModel] = Field(default_factory=list)
+
+
+class PlaybackStepModel(BaseModel):
+    step_id: str
+    source_kind: str
+    source_timeframe: str | None = None
+    source_bar_id: int | None = None
+    source_time_ns: int | None = None
+    display_bar: ChartBarModel
+    as_of_bar_id: int | None = None
+    closes_display_bar: bool
+
+
+class PlaybackSequenceModel(BaseModel):
+    mode: str
+    display_timeframe: str
+    step_timeframe: str | None = None
+    base: PlaybackBaseModel
+    steps: list[PlaybackStepModel] = Field(default_factory=list)
+
+
 class ChartWindowMetaModel(BaseModel):
     data_version: str
     source_data_version: str
@@ -116,6 +140,8 @@ class ChartWindowMetaModel(BaseModel):
     as_of_event_id: str | None = None
     replay_source: str | None = None
     replay_completeness: str | None = None
+    playback_mode: str | None = None
+    playback_step_timeframe: str | None = None
 
 
 class ChartWindowResponse(BaseModel):
@@ -125,6 +151,7 @@ class ChartWindowResponse(BaseModel):
     events: list[StructureEventModel] = Field(default_factory=list)
     overlays: list[OverlayModel]
     replay_sequence: ReplaySequenceModel | None = None
+    playback_sequence: PlaybackSequenceModel | None = None
     meta: ChartWindowMetaModel
 
 

@@ -18,6 +18,7 @@ from pa_core.common import resolve_latest_bar_data_version
 from pa_core.data.bar_families import (
     is_canonical_base_family,
     load_bar_family_candidate_table,
+    parse_timeframe_minutes,
 )
 from pa_core.features import EDGE_FEATURE_VERSION
 from pa_core.features.ema import ema_warmup_bars, normalize_ema_lengths
@@ -98,6 +99,7 @@ class StructureEventRecord:
 
 @dataclass(frozen=True, slots=True)
 class ChartContext:
+    artifacts_root: Path
     symbol: str
     timeframe: str
     session_profile: str
@@ -155,6 +157,33 @@ class ReplayWindowDelta:
 class ReplayWindowSequence:
     base: ReplayWindowBase
     deltas: tuple[ReplayWindowDelta, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackWindowBase:
+    as_of_bar_id: int | None
+    display_bars: tuple[dict[str, object], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackWindowStep:
+    step_id: str
+    source_kind: str
+    source_timeframe: str | None
+    source_bar_id: int | None
+    source_time_ns: int | None
+    display_bar: dict[str, object]
+    as_of_bar_id: int | None
+    closes_display_bar: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackWindowSequence:
+    mode: str
+    display_timeframe: str
+    step_timeframe: str | None
+    base: PlaybackWindowBase
+    steps: tuple[PlaybackWindowStep, ...]
 
 
 def load_chart_context(
@@ -612,6 +641,117 @@ def build_replay_window_sequence(
     )
 
 
+def build_playback_window_sequence(
+    *,
+    context: ChartContext,
+    min_bar_id: int | None,
+    max_bar_id: int | None,
+) -> PlaybackWindowSequence | None:
+    if min_bar_id is None or max_bar_id is None:
+        return None
+
+    family_rows = [
+        row
+        for row in context.bar_frame.to_pylist()
+        if min_bar_id <= int(row["bar_id"]) <= max_bar_id
+    ]
+    if not family_rows:
+        return None
+
+    family_bar_ids = np.asarray(
+        [int(row["bar_id"]) for row in family_rows],
+        dtype=np.int64,
+    )
+    first_family_index = int(np.searchsorted(context.bar_ids, family_bar_ids[0], side="left"))
+    base_as_of_bar_id = (
+        None
+        if first_family_index <= 0
+        else int(context.bar_ids[first_family_index - 1])
+    )
+    timeframe_minutes = parse_timeframe_minutes(context.timeframe)
+    if timeframe_minutes <= 1:
+        return PlaybackWindowSequence(
+            mode="selected_family_steps",
+            display_timeframe=context.timeframe,
+            step_timeframe=context.timeframe,
+            base=PlaybackWindowBase(
+                as_of_bar_id=base_as_of_bar_id,
+                display_bars=(),
+            ),
+            steps=tuple(
+                PlaybackWindowStep(
+                    step_id=f"bar:{int(row['bar_id'])}",
+                    source_kind="bar_family",
+                    source_timeframe=context.timeframe,
+                    source_bar_id=int(row["bar_id"]),
+                    source_time_ns=int(row["ts_utc_ns"]),
+                    display_bar=_coerce_bar_row(row),
+                    as_of_bar_id=int(row["bar_id"]),
+                    closes_display_bar=True,
+                )
+                for row in family_rows
+            ),
+        )
+
+    source_rows = _load_playback_source_rows(
+        context=context,
+        family_rows=family_rows,
+        timeframe_minutes=timeframe_minutes,
+    )
+    if not source_rows:
+        return None
+
+    source_row_times = np.asarray(
+        [int(row["ts_utc_ns"]) for row in source_rows],
+        dtype=np.int64,
+    )
+    steps: list[PlaybackWindowStep] = []
+    previous_closed_bar_id = base_as_of_bar_id
+    for family_row in family_rows:
+        start_bar_id = int(family_row["bar_id"])
+        partial_rows = _resolve_family_source_rows(
+            source_rows=source_rows,
+            source_row_times=source_row_times,
+            family_row=family_row,
+            timeframe_minutes=timeframe_minutes,
+        )
+        if not partial_rows:
+            continue
+
+        for index, source_row in enumerate(partial_rows):
+            steps.append(
+                PlaybackWindowStep(
+                    step_id=f"bar:{int(source_row['bar_id'])}",
+                    source_kind="bar_family",
+                    source_timeframe="1m",
+                    source_bar_id=int(source_row["bar_id"]),
+                    source_time_ns=int(source_row["ts_utc_ns"]),
+                    display_bar=_build_partial_family_bar(
+                        family_row=family_row,
+                        source_rows=partial_rows[: index + 1],
+                    ),
+                    as_of_bar_id=(
+                        start_bar_id if index == timeframe_minutes - 1 else previous_closed_bar_id
+                    ),
+                    closes_display_bar=index == timeframe_minutes - 1,
+                )
+            )
+        previous_closed_bar_id = start_bar_id
+
+    if not steps:
+        return None
+    return PlaybackWindowSequence(
+        mode="lower_family_steps",
+        display_timeframe=context.timeframe,
+        step_timeframe="1m",
+        base=PlaybackWindowBase(
+            as_of_bar_id=base_as_of_bar_id,
+            display_bars=(),
+        ),
+        steps=tuple(steps),
+    )
+
+
 def dataset_structure_refs(
     dataset: OverlaySourceDataset | RuntimeStructureDataset | RuntimeStructureEventDataset,
 ) -> tuple[str, ...]:
@@ -632,6 +772,93 @@ def _group_overlay_ids_by_structure(
         structure_id: tuple(overlay_ids)
         for structure_id, overlay_ids in grouped.items()
     }
+
+
+def _coerce_bar_row(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "bar_id": int(row["bar_id"]),
+        "ts_utc_ns": int(row["ts_utc_ns"]),
+        "session_id": int(row["session_id"]),
+        "session_date": int(row["session_date"]),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+    }
+
+
+def _build_partial_family_bar(
+    *,
+    family_row: dict[str, object],
+    source_rows: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    first_row = source_rows[0]
+    last_row = source_rows[-1]
+    return {
+        "bar_id": int(family_row["bar_id"]),
+        "ts_utc_ns": int(family_row["ts_utc_ns"]),
+        "session_id": int(first_row["session_id"]),
+        "session_date": int(first_row["session_date"]),
+        "open": float(first_row["open"]),
+        "high": float(max(float(row["high"]) for row in source_rows)),
+        "low": float(min(float(row["low"]) for row in source_rows)),
+        "close": float(last_row["close"]),
+    }
+
+
+def _resolve_family_source_rows(
+    *,
+    source_rows: Sequence[dict[str, object]],
+    source_row_times: np.ndarray,
+    family_row: dict[str, object],
+    timeframe_minutes: int,
+) -> list[dict[str, object]]:
+    start_time_ns = int(family_row["ts_utc_ns"])
+    end_time_ns = start_time_ns + (timeframe_minutes * 60_000_000_000)
+    start_index = int(np.searchsorted(source_row_times, start_time_ns, side="left"))
+    stop_index = int(np.searchsorted(source_row_times, end_time_ns, side="left"))
+    if stop_index - start_index != timeframe_minutes:
+        return []
+    selected_rows = list(source_rows[start_index:stop_index])
+    if not selected_rows:
+        return []
+    first_time_ns = int(selected_rows[0]["ts_utc_ns"])
+    last_time_ns = int(selected_rows[-1]["ts_utc_ns"])
+    expected_last_time_ns = start_time_ns + ((timeframe_minutes - 1) * 60_000_000_000)
+    if first_time_ns != start_time_ns or last_time_ns != expected_last_time_ns:
+        return []
+    return selected_rows
+
+
+def _load_playback_source_rows(
+    *,
+    context: ChartContext,
+    family_rows: Sequence[dict[str, object]],
+    timeframe_minutes: int,
+) -> list[dict[str, object]]:
+    if not family_rows:
+        return []
+    start_time = int(family_rows[0]["ts_utc_ns"]) // 1_000_000_000
+    end_time = (
+        int(family_rows[-1]["ts_utc_ns"]) // 1_000_000_000
+        + ((timeframe_minutes - 1) * 60)
+    )
+    source_table, _ = load_bar_family_candidate_table(
+        artifacts_root=context.artifacts_root,
+        data_version=context.source_data_version,
+        symbol=context.symbol,
+        session_profile=context.session_profile,
+        timeframe="1m",
+        center_bar_id=None,
+        session_date=None,
+        start_time=start_time,
+        end_time=end_time,
+        left_bars=0,
+        right_bars=0,
+        buffer_bars=0,
+        columns=CHART_BAR_COLUMNS,
+    )
+    return source_table.to_pylist()
 
 
 @lru_cache(maxsize=8)
@@ -791,6 +1018,7 @@ def _load_chart_context_cached(
     ts_utc_ns = np.asarray([int(row["ts_utc_ns"]) for row in bar_rows], dtype=np.int64)
 
     return ChartContext(
+        artifacts_root=artifacts_path,
         symbol=bar_manifest.symbol,
         timeframe=family_spec.timeframe,
         session_profile=family_spec.session_profile,
@@ -895,6 +1123,7 @@ def _load_runtime_family_context(
     ts_utc_ns = np.asarray([int(row["ts_utc_ns"]) for row in bar_rows], dtype=np.int64)
 
     return ChartContext(
+        artifacts_root=artifacts_path,
         symbol=runtime_chain.family_spec.symbol,
         timeframe=runtime_chain.family_spec.timeframe,
         session_profile=runtime_chain.family_spec.session_profile,
