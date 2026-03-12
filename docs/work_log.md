@@ -914,3 +914,9 @@ Copy this shape for new entries:
 - Files: `packages/pa_core/src/pa_core/overlays/projectors.py`, `packages/pa_core/tests/test_overlays.py`, `docs/work_log.md`
 - Verification: local `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_overlays -v`; pushed `c55287a` then `git pull --ff-only` on `homebox`; launched `pa_api` at `127.0.0.1:8000` and `pa_inspector` at `127.0.0.1:4173` on `homebox`; from the Mac over SSH tunnel, `curl http://127.0.0.1:18000/chart-window?...` returned `200` with `1800` bars and `883` overlays, and `curl http://127.0.0.1:14173/` returned the inspector HTML
 - Next: if you want `homebox` to use a GitHub SSH remote instead of HTTPS, add an authorized GitHub SSH key on `homebox` and then switch `origin` back once auth succeeds.
+
+### 2026-03-12
+- Summary: Rebound the remote inspector dev server to the LAN interface on `homebox` so the app is reachable directly at `http://192.168.110.42:2000`, keeping the backend on `127.0.0.1:8000` behind Vite's existing `/api` proxy.
+- Files: `docs/work_log.md`
+- Verification: `nohup npm run dev -- --host 0.0.0.0 --port 2000` on `homebox`; from the Mac, `curl -I http://192.168.110.42:2000/` returned `200`; `GET http://192.168.110.42:2000/api/chart-window?...` returned `200` with `1442` bars and `239` overlays
+- Next: if you want this to survive reboots cleanly, wrap `pa_api` and `pa_inspector` in a `systemd --user` service or another process manager on `homebox`.
