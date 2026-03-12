@@ -182,12 +182,10 @@ export function Toolbar(props: ToolbarProps) {
           <strong className="toolbar-menubar-title">Continuous Structure View</strong>
           <div className="toolbar-inline-meta toolbar-inline-meta-compact">
             <span className="toolbar-tag toolbar-tag-strong toolbar-chip-tight">
-              {props.symbol} {props.timeframe}
+              {props.symbol} {props.timeframe} · {props.sessionProfile}
             </span>
-            <span className="toolbar-tag toolbar-chip-tight">{props.sessionProfile}</span>
             <span className="toolbar-tag toolbar-chip-tight">{selectorSummary}</span>
-            <span className="toolbar-tag toolbar-chip-tight">Window {windowSummary}</span>
-            <span className="toolbar-tag toolbar-chip-tight">{structureVersionLabel}</span>
+            <span className="toolbar-tag toolbar-chip-tight">Win {windowSummary}</span>
           </div>
         </div>
 
@@ -260,6 +258,7 @@ export function Toolbar(props: ToolbarProps) {
           </div>
 
           <div className="toolbar-statusline">
+            <span className="toolbar-pill toolbar-chip-tight">{structureVersionLabel}</span>
             <span className="toolbar-pill toolbar-chip-tight toolbar-pill-strong">
               {STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}
             </span>
