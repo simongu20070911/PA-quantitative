@@ -453,12 +453,6 @@ def _overlay_display_label(
         "leg_up": "LU",
         "leg_down": "LD",
         "major_lh": "LH",
-        BREAK_LEVEL_SUPPORT_LABEL: "SUP",
-        BREAK_LEVEL_RESISTANCE_LABEL: "RES",
-        BREAKOUT_IMPULSE_BEARISH_LABEL: "BRK-",
-        BREAKOUT_IMPULSE_BULLISH_LABEL: "BRK+",
-        FAILED_BREAKOUT_BEARISH_LABEL: "FAIL-",
-        FAILED_BREAKOUT_BULLISH_LABEL: "FAIL+",
     }
     base_label = base_labels.get(source_kind)
     if base_label is None:

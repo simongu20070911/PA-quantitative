@@ -84,48 +84,6 @@ class OverlayProjectionTests(unittest.TestCase):
                     "rulebook_version": "v0_1",
                     "explanation_codes": ("lower_high", "proving_break"),
                 },
-                {
-                    "structure_id": "breakout-140",
-                    "kind": "breakout_impulse_bearish",
-                    "state": "confirmed",
-                    "start_bar_id": 140,
-                    "end_bar_id": 140,
-                    "confirm_bar_id": 140,
-                    "session_id": 20240102,
-                    "session_date": 20240102,
-                    "anchor_bar_ids": (130, 120, 140),
-                    "feature_refs": ("feature=hl_gap",),
-                    "rulebook_version": "v0_2",
-                    "explanation_codes": ("support_break",),
-                },
-                {
-                    "structure_id": "breakout-150",
-                    "kind": "breakout_impulse_bullish",
-                    "state": "confirmed",
-                    "start_bar_id": 150,
-                    "end_bar_id": 150,
-                    "confirm_bar_id": 152,
-                    "session_id": 20240102,
-                    "session_date": 20240102,
-                    "anchor_bar_ids": (130, 140, 150),
-                    "feature_refs": ("feature=hl_gap",),
-                    "rulebook_version": "v0_2",
-                    "explanation_codes": ("resistance_break",),
-                },
-                {
-                    "structure_id": "failed-breakout-160",
-                    "kind": "failed_breakout_bullish",
-                    "state": "confirmed",
-                    "start_bar_id": 150,
-                    "end_bar_id": 160,
-                    "confirm_bar_id": 160,
-                    "session_id": 20240102,
-                    "session_date": 20240102,
-                    "anchor_bar_ids": (140, 150, 160),
-                    "feature_refs": ("feature=hl_gap",),
-                    "rulebook_version": "v0_2",
-                    "explanation_codes": ("failed_breakout",),
-                },
             ],
             schema=STRUCTURE_ARTIFACT_SCHEMA,
         )
@@ -173,30 +131,6 @@ class OverlayProjectionTests(unittest.TestCase):
         self.assertEqual(major_overlay.meta["explanation_codes"], ("lower_high", "proving_break"))
         self.assertEqual(major_overlay.meta["display_label"], "LH")
 
-        breakout_overlay = overlay_by_source["breakout-140"]
-        self.assertEqual(breakout_overlay.kind, "breakout-marker")
-        self.assertEqual(breakout_overlay.anchor_bars, (140,))
-        self.assertEqual(breakout_overlay.anchor_prices, (13.0,))
-        self.assertEqual(breakout_overlay.style_key, "breakout.bearish.confirmed")
-        self.assertEqual(breakout_overlay.meta["display_label"], "BRK-")
-
-        bullish_breakout_overlay = overlay_by_source["breakout-150"]
-        self.assertEqual(bullish_breakout_overlay.kind, "breakout-marker")
-        self.assertEqual(bullish_breakout_overlay.anchor_bars, (150,))
-        self.assertEqual(bullish_breakout_overlay.anchor_prices, (12.0,))
-        self.assertEqual(bullish_breakout_overlay.style_key, "breakout.bullish.confirmed")
-        self.assertEqual(bullish_breakout_overlay.meta["display_label"], "BRK+")
-
-        failed_bullish_overlay = overlay_by_source["failed-breakout-160"]
-        self.assertEqual(failed_bullish_overlay.kind, "breakout-marker")
-        self.assertEqual(failed_bullish_overlay.anchor_bars, (160,))
-        self.assertEqual(failed_bullish_overlay.anchor_prices, (11.0,))
-        self.assertEqual(
-            failed_bullish_overlay.style_key,
-            "breakout.failed.bullish.confirmed",
-        )
-        self.assertEqual(failed_bullish_overlay.meta["display_label"], "FAIL+")
-
     def test_overlay_id_and_priority_helpers_are_stable(self) -> None:
         overlay_id = build_overlay_id(
             overlay_kind="pivot-marker",
@@ -217,7 +151,6 @@ class OverlayProjectionTests(unittest.TestCase):
             "pivot-marker:v1:pivot-high-110:replaced:115",
         )
         self.assertEqual(overlay_z_order("leg-line"), 1)
-        self.assertEqual(overlay_z_order("breakout-marker"), 4)
         self.assertEqual(overlay_hit_test_priority("major-lh-marker"), 3)
 
     def test_project_structure_event_overlay_objects_keeps_retired_pivot_history(self) -> None:
@@ -310,11 +243,6 @@ class OverlayProjectionTests(unittest.TestCase):
     def test_sort_overlay_objects_for_render_uses_spec_z_order(self) -> None:
         overlays = [
             pa_core_overlay(
-                overlay_id="breakout",
-                kind="breakout-marker",
-                anchor_bars=(140,),
-            ),
-            pa_core_overlay(
                 overlay_id="pivot",
                 kind="pivot-marker",
                 anchor_bars=(110,),
@@ -342,7 +270,7 @@ class OverlayProjectionTests(unittest.TestCase):
 
         self.assertEqual(
             [overlay.overlay_id for overlay in ordered],
-            ["leg", "pivot-st", "pivot", "major", "breakout"],
+            ["leg", "pivot-st", "pivot", "major"],
         )
 
 
