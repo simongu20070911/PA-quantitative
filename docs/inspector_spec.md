@@ -129,6 +129,7 @@ Required replay rules:
 - replay uses the selected bar family and its finalization rules, not raw wall-clock time alone
 - replay may also carry a separate backend-authored playback progression stream that updates the visible candle set between selected-family closes
 - playback progression must never cause the inspector to advance structure legality ahead of the selected bar family's actual close
+- backend-derived indicator lines such as `EMA` must hide future points in replay and clip to the same legal `as_of_bar_id` used for structure visibility
 - the inspector may animate backend-authored playback steps, but it must not synthesize higher-timeframe partial candles from lower-timeframe data on its own
 - backend-derived indicator lines aligned to the selected bar family, such as `EMA`, must also hide points beyond the current replay `as_of_bar_id`
 
