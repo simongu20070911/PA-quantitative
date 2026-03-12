@@ -54,6 +54,13 @@ The MVP must support:
 - overlay toggles
 - selection and inspection of visible structure objects
 
+Current toolbar surface for the MVP:
+
+- a compact horizontal top strip instead of a tall dashboard header
+- icon-led outer controls for jump, display, version, layer, and data menus
+- anchored dropdown menus that open beneath the owning control
+- compact menu-style rows rather than large stacked control panels when practical
+
 The initial overlay family is restricted to the current shipped backend artifact chain:
 
 - `pivot_st`
