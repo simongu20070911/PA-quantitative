@@ -33,7 +33,7 @@ export interface OverlayCanvasProps {
   sessionProfile: SessionProfile;
   enabledLayers: Record<OverlayLayer, boolean>;
   selectedOverlayId: string | null;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   replayEnabled: boolean;
   replayCursorBarId: number | null;
@@ -42,13 +42,13 @@ export interface OverlayCanvasProps {
     start: AnnotationAnchor;
     end: AnnotationAnchor;
   }) => void;
-  onAnnotationSelect: (annotationId: string | null) => void;
+  onAnnotationSelect: (annotationIds: string[]) => void;
   onAnnotationUpdate: (
     annotationId: string,
     start: AnnotationAnchor,
     end: AnnotationAnchor,
   ) => void;
-  onAnnotationDuplicate: (annotationId: string) => string | null;
+  onAnnotationDuplicate: (annotationIds: string[]) => string[];
   onOverlaySelect: (
     overlay: Overlay | null,
     anchorPoint: { x: number; y: number } | null,
@@ -68,7 +68,7 @@ export function OverlayCanvas({
   sessionProfile,
   enabledLayers,
   selectedOverlayId,
-  selectedAnnotationId,
+  selectedAnnotationIds,
   confirmationGuide,
   replayEnabled,
   replayCursorBarId,
@@ -99,7 +99,7 @@ export function OverlayCanvas({
   const visibleOverlaysRef = useRef<Overlay[]>([]);
   const sessionProfileRef = useRef(sessionProfile);
   const selectedOverlayIdRef = useRef(selectedOverlayId);
-  const selectedAnnotationIdRef = useRef(selectedAnnotationId);
+  const selectedAnnotationIdsRef = useRef(selectedAnnotationIds);
   const confirmationGuideRef = useRef(confirmationGuide);
   const annotationToolRef = useRef(annotationTool);
   const replayEnabledRef = useRef(replayEnabled);
@@ -127,7 +127,7 @@ export function OverlayCanvas({
         overlays: visibleOverlaysRef.current,
         annotations: annotationsRef.current,
         selectedOverlayId: selectedOverlayIdRef.current,
-        selectedAnnotationId: selectedAnnotationIdRef.current,
+        selectedAnnotationIds: selectedAnnotationIdsRef.current,
         confirmationGuide: confirmationGuideRef.current,
         sessionProfile: sessionProfileRef.current,
         annotationTool: annotationToolRef.current,
@@ -156,7 +156,7 @@ export function OverlayCanvas({
     visibleOverlaysRef.current = visibleOverlays;
     sessionProfileRef.current = sessionProfile;
     selectedOverlayIdRef.current = selectedOverlayId;
-    selectedAnnotationIdRef.current = selectedAnnotationId;
+    selectedAnnotationIdsRef.current = selectedAnnotationIds;
     confirmationGuideRef.current = confirmationGuide;
     onAnnotationCreateRef.current = onAnnotationCreate;
     onAnnotationSelectRef.current = onAnnotationSelect;
@@ -179,7 +179,7 @@ export function OverlayCanvas({
     annotations,
     bars,
     confirmationGuide,
-    selectedAnnotationId,
+    selectedAnnotationIds,
     selectedOverlayId,
     sessionProfile,
     visibleOverlays,
@@ -230,7 +230,7 @@ export function OverlayCanvas({
             }
           : undefined);
       if (!point) {
-        onAnnotationSelectRef.current(null);
+        onAnnotationSelectRef.current([]);
         onOverlaySelectRef.current(null, null);
         return;
       }
@@ -248,12 +248,12 @@ export function OverlayCanvas({
             onReplayCursorSelectRef.current(replayBarId);
           }
         }
-        onAnnotationSelectRef.current(null);
+        onAnnotationSelectRef.current([]);
         onOverlaySelectRef.current(null, null);
         return;
       }
 
-      onAnnotationSelectRef.current(null);
+      onAnnotationSelectRef.current([]);
       const shell = shellRef.current;
       const surface = surfaceRef.current;
       if (!shell || !surface) {
@@ -366,7 +366,7 @@ export function OverlayCanvas({
         event.preventDefault();
         event.stopPropagation();
         suppressNextChartClickRef.current = true;
-        onAnnotationSelectRef.current(null);
+        onAnnotationSelectRef.current([]);
         onOverlaySelectRef.current(null, null);
         activeDrawRef.current = true;
         draftStateRef.current = {
@@ -389,7 +389,7 @@ export function OverlayCanvas({
         event.preventDefault();
         event.stopPropagation();
         suppressNextChartClickRef.current = true;
-        onAnnotationSelectRef.current(null);
+        onAnnotationSelectRef.current([]);
         onOverlayCommandSelectRef.current(overlayDrawable.overlay);
         return;
       }
@@ -405,19 +405,27 @@ export function OverlayCanvas({
         suppressNextChartClickRef.current = true;
         onOverlaySelectRef.current(null, null);
         const style = annotationHit.drawable.annotation.style;
-        let dragAnnotationId = annotationHit.drawable.annotation.id;
+        const annotationId = annotationHit.drawable.annotation.id;
+        const currentSelection = selectedAnnotationIdsRef.current;
+        const modifierPressed = event.metaKey || event.ctrlKey;
+        let dragAnnotationId = annotationId;
         if (event.altKey) {
-          const duplicateId = onAnnotationDuplicateRef.current(
-            annotationHit.drawable.annotation.id,
-          );
+          const duplicateIds = onAnnotationDuplicateRef.current([annotationId]);
+          const duplicateId = duplicateIds[duplicateIds.length - 1] ?? null;
           if (duplicateId) {
             dragAnnotationId = duplicateId;
-            onAnnotationSelectRef.current(duplicateId);
+            onAnnotationSelectRef.current([duplicateId]);
           } else {
-            onAnnotationSelectRef.current(annotationHit.drawable.annotation.id);
+            onAnnotationSelectRef.current([annotationId]);
           }
+        } else if (modifierPressed) {
+          const nextSelection = currentSelection.includes(annotationId)
+            ? currentSelection.filter((id) => id !== annotationId)
+            : [...currentSelection, annotationId];
+          onAnnotationSelectRef.current(nextSelection);
+          return;
         } else {
-          onAnnotationSelectRef.current(annotationHit.drawable.annotation.id);
+          onAnnotationSelectRef.current([annotationId]);
         }
         if (!pointer || style.locked) {
           return;
@@ -435,7 +443,7 @@ export function OverlayCanvas({
       }
 
       activeBlankTapRef.current =
-        selectedAnnotationIdRef.current !== null ||
+        selectedAnnotationIdsRef.current.length > 0 ||
         selectedOverlayIdRef.current !== null ||
         replayEnabledRef.current
           ? {
@@ -601,7 +609,7 @@ export function OverlayCanvas({
       const replayBarId =
         replayEnabledRef.current ? resolveBarIdFromPoint(adapter, barsRef.current, point) : null;
       suppressNextChartClickRef.current = true;
-      onAnnotationSelectRef.current(null);
+      onAnnotationSelectRef.current([]);
       onOverlaySelectRef.current(null, null);
       if (replayBarId !== null) {
         onReplayCursorSelectRef.current(replayBarId);
@@ -680,7 +688,7 @@ function buildInspectorPrimitiveState(args: {
   overlays: Overlay[];
   annotations: ChartAnnotation[];
   selectedOverlayId: string | null;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   sessionProfile: SessionProfile;
   annotationTool: AnnotationTool;
@@ -694,7 +702,7 @@ function buildInspectorPrimitiveState(args: {
     overlays: args.overlays,
     annotations: args.annotations,
     selectedOverlayId: args.selectedOverlayId,
-    selectedAnnotationId: args.selectedAnnotationId,
+    selectedAnnotationIds: args.selectedAnnotationIds,
     confirmationGuide: args.confirmationGuide,
     sessionProfile: args.sessionProfile,
     draftAnnotation: buildDraftAnnotation(args.annotationTool, args.draftState),

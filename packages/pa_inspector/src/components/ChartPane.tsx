@@ -32,8 +32,8 @@ export interface ChartPaneProps {
   sessionProfile: SessionProfile;
   enabledLayers: Record<OverlayLayer, boolean>;
   selectedOverlayId: string | null;
-  selectedAnnotation: ChartAnnotation | null;
-  selectedAnnotationId: string | null;
+  selectedAnnotations: ChartAnnotation[];
+  selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   replayEnabled: boolean;
   replayCursorBarId: number | null;
@@ -62,15 +62,15 @@ export interface ChartPaneProps {
     start: { bar_id: number; price: number };
     end: { bar_id: number; price: number };
   }) => void;
-  onAnnotationSelect: (annotationId: string | null) => void;
+  onAnnotationSelect: (annotationIds: string[]) => void;
   onAnnotationUpdate: (
     annotationId: string,
     start: { bar_id: number; price: number },
     end: { bar_id: number; price: number },
   ) => void;
-  onAnnotationDuplicate: (annotationId: string) => string | null;
+  onAnnotationDuplicate: (annotationIds: string[]) => string[];
   onAnnotationStyleChange: (
-    annotationId: string,
+    annotationIds: string[],
     patch: Partial<AnnotationStyle>,
   ) => void;
   onAnnotationToolChange: (tool: AnnotationTool) => void;
@@ -95,8 +95,8 @@ export function ChartPane({
   sessionProfile,
   enabledLayers,
   selectedOverlayId,
-  selectedAnnotation,
-  selectedAnnotationId,
+  selectedAnnotations,
+  selectedAnnotationIds,
   confirmationGuide,
   replayEnabled,
   replayCursorBarId,
@@ -272,7 +272,7 @@ export function ChartPane({
         <AnnotationRail
           annotationTool={annotationTool}
           annotationCount={annotationCount}
-          hasSelection={selectedAnnotationId !== null}
+          hasSelection={selectedAnnotationIds.length > 0}
           initialPosition={annotationRailPosition}
           onPositionChange={onAnnotationRailPositionChange}
           onToolChange={onAnnotationToolChange}
@@ -287,14 +287,14 @@ export function ChartPane({
       </div>
       <AnnotationToolbar
         surfaceRef={containerRef}
-        annotation={selectedAnnotation}
+        annotations={selectedAnnotations}
         initialPosition={annotationToolbarPosition}
         onPositionChange={onAnnotationToolbarPositionChange}
         initialOpenPopover={annotationToolbarOpenPopover}
         onOpenPopoverChange={onAnnotationToolbarOpenPopoverChange}
         onAnnotationStyleChange={onAnnotationStyleChange}
         onAnnotationDuplicate={onAnnotationDuplicate}
-        onDeleteSelectedAnnotation={onDeleteSelectedAnnotation}
+        onDeleteSelectedAnnotations={onDeleteSelectedAnnotation}
       />
       <EmaToolbar
         surfaceRef={containerRef}
@@ -316,7 +316,7 @@ export function ChartPane({
         sessionProfile={sessionProfile}
         enabledLayers={enabledLayers}
         selectedOverlayId={selectedOverlayId}
-        selectedAnnotationId={selectedAnnotationId}
+        selectedAnnotationIds={selectedAnnotationIds}
         confirmationGuide={confirmationGuide}
         replayEnabled={replayEnabled}
         replayCursorBarId={replayCursorBarId}

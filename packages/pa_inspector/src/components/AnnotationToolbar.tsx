@@ -25,17 +25,17 @@ import type {
 
 interface AnnotationToolbarProps {
   surfaceRef: RefObject<HTMLDivElement | null>;
-  annotation: ChartAnnotation | null;
+  annotations: ChartAnnotation[];
   initialPosition: FloatingPosition | null;
   onPositionChange: (position: FloatingPosition | null) => void;
   initialOpenPopover: AnnotationToolbarPopover;
   onOpenPopoverChange: (popover: AnnotationToolbarPopover) => void;
   onAnnotationStyleChange: (
-    annotationId: string,
+    annotationIds: string[],
     patch: Partial<AnnotationStyle>,
   ) => void;
-  onAnnotationDuplicate: (annotationId: string) => string | null;
-  onDeleteSelectedAnnotation: () => void;
+  onAnnotationDuplicate: (annotationIds: string[]) => string[];
+  onDeleteSelectedAnnotations: () => void;
 }
 
 const TOOLBAR_WIDTH = 496;
@@ -43,18 +43,29 @@ const TOOLBAR_HEIGHT = 52;
 
 export function AnnotationToolbar({
   surfaceRef,
-  annotation,
+  annotations,
   initialPosition,
   onPositionChange,
   initialOpenPopover,
   onOpenPopoverChange,
   onAnnotationStyleChange,
   onAnnotationDuplicate,
-  onDeleteSelectedAnnotation,
+  onDeleteSelectedAnnotations,
 }: AnnotationToolbarProps) {
-  const style = annotation ? getAnnotationStyle(annotation) : null;
+  const primaryAnnotation = annotations[annotations.length - 1] ?? null;
+  const annotationIds = annotations.map((annotation) => annotation.id);
+  const styles = annotations.map((annotation) => getAnnotationStyle(annotation));
+  const style = primaryAnnotation ? getAnnotationStyle(primaryAnnotation) : null;
+  const strokeColor = commonAnnotationValue(styles.map((item) => item.strokeColor));
+  const fillColor = commonAnnotationValue(styles.map((item) => item.fillColor));
+  const lineWidth = commonAnnotationValue(styles.map((item) => item.lineWidth));
+  const lineStyle = commonAnnotationValue(styles.map((item) => item.lineStyle));
+  const opacity = commonAnnotationValue(styles.map((item) => item.opacity));
+  const allLocked = styles.length > 0 && styles.every((item) => item.locked);
+  const allBoxes =
+    annotations.length > 0 && annotations.every((annotation) => annotation.kind === "box");
   const toolbar = useFloatingToolbar({
-    active: annotation !== null,
+    active: annotations.length > 0,
     surfaceRef,
     toolbarWidth: TOOLBAR_WIDTH,
     toolbarHeight: TOOLBAR_HEIGHT,
@@ -65,7 +76,7 @@ export function AnnotationToolbar({
     dragFromContainerBackground: true,
   });
 
-  if (!annotation || !style) {
+  if (!primaryAnnotation || !style) {
     return null;
   }
 
@@ -82,11 +93,11 @@ export function AnnotationToolbar({
         <StrokeIcon />
         <span
           className="annotation-toolbar-color-bar"
-          style={{ backgroundColor: style.strokeColor }}
+          style={{ backgroundColor: strokeColor ?? style.strokeColor }}
         />
       </ToolbarButton>
       <ToolbarButton
-        disabled={annotation.kind !== "box"}
+        disabled={!allBoxes}
         onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("fill"))}
         title="Fill color"
       >
@@ -94,7 +105,7 @@ export function AnnotationToolbar({
         <span
           className="annotation-toolbar-color-bar"
           style={{
-            backgroundColor: annotation.kind === "box" ? style.fillColor : "#cbd5e1",
+            backgroundColor: allBoxes ? (fillColor ?? style.fillColor) : "#cbd5e1",
           }}
         />
       </ToolbarButton>
@@ -103,27 +114,27 @@ export function AnnotationToolbar({
         onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("width"))}
         title="Line width"
       >
-        <LineWidthPreview width={style.lineWidth} />
-        <span>{style.lineWidth}px</span>
+        <LineWidthPreview width={lineWidth ?? style.lineWidth} />
+        <span>{lineWidth === null ? "Mixed" : `${lineWidth}px`}</span>
       </ToolbarButton>
       <ToolbarButton
         onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("style"))}
         title="Line style"
       >
-        <LineStylePreview styleKey={style.lineStyle} />
+        <LineStylePreview styleKey={lineStyle ?? style.lineStyle} />
       </ToolbarButton>
       <ToolbarButton
         onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("opacity"))}
         title="Opacity"
       >
         <OpacityIcon />
-        <span>{Math.round(style.opacity * 100)}%</span>
+        <span>{opacity === null ? "Mixed" : `${Math.round(opacity * 100)}%`}</span>
       </ToolbarButton>
       <ToolbarButton
         onPointerDown={(event) =>
           toolbar.activateButton(event, () => {
-            const duplicateId = onAnnotationDuplicate(annotation.id);
-            if (duplicateId) {
+            const duplicateIds = onAnnotationDuplicate(annotationIds);
+            if (duplicateIds.length > 0) {
               toolbar.setOpenPopover(null);
             }
           })
@@ -133,18 +144,18 @@ export function AnnotationToolbar({
         <DuplicateIcon />
       </ToolbarButton>
       <ToolbarButton
-        active={style.locked}
+        active={allLocked}
         onPointerDown={(event) =>
           toolbar.activateButton(event, () =>
-            onAnnotationStyleChange(annotation.id, { locked: !style.locked }),
+            onAnnotationStyleChange(annotationIds, { locked: !allLocked }),
           )
         }
-        title={style.locked ? "Unlock drawing" : "Lock drawing"}
+        title={allLocked ? "Unlock drawing" : "Lock drawing"}
       >
-        <LockIcon locked={style.locked} />
+        <LockIcon locked={allLocked} />
       </ToolbarButton>
       <ToolbarButton
-        onPointerDown={(event) => toolbar.activateButton(event, onDeleteSelectedAnnotation)}
+        onPointerDown={(event) => toolbar.activateButton(event, onDeleteSelectedAnnotations)}
         title="Delete"
       >
         <TrashIcon />
@@ -153,29 +164,29 @@ export function AnnotationToolbar({
       {toolbar.openPopover === "stroke" ? (
         <ColorPopover
           colors={ANNOTATION_COLOR_PALETTE}
-          selectedColor={style.strokeColor}
+          selectedColor={strokeColor ?? style.strokeColor}
           title="Stroke"
-          onSelect={(color) => onAnnotationStyleChange(annotation.id, { strokeColor: color })}
+          onSelect={(color) => onAnnotationStyleChange(annotationIds, { strokeColor: color })}
         />
       ) : null}
-      {toolbar.openPopover === "fill" && annotation.kind === "box" ? (
+      {toolbar.openPopover === "fill" && allBoxes ? (
         <ColorPopover
           colors={ANNOTATION_COLOR_PALETTE}
-          selectedColor={style.fillColor}
+          selectedColor={fillColor ?? style.fillColor}
           title="Fill"
-          onSelect={(color) => onAnnotationStyleChange(annotation.id, { fillColor: color })}
+          onSelect={(color) => onAnnotationStyleChange(annotationIds, { fillColor: color })}
         />
       ) : null}
       {toolbar.openPopover === "width" ? (
         <WidthPopover
-          onSelect={(lineWidth) => onAnnotationStyleChange(annotation.id, { lineWidth })}
-          selectedWidth={style.lineWidth}
+          onSelect={(nextLineWidth) => onAnnotationStyleChange(annotationIds, { lineWidth: nextLineWidth })}
+          selectedWidth={lineWidth ?? style.lineWidth}
         />
       ) : null}
       {toolbar.openPopover === "style" ? (
         <StylePopover
-          onSelect={(lineStyle) => onAnnotationStyleChange(annotation.id, { lineStyle })}
-          selectedStyle={style.lineStyle}
+          onSelect={(nextLineStyle) => onAnnotationStyleChange(annotationIds, { lineStyle: nextLineStyle })}
+          selectedStyle={lineStyle ?? style.lineStyle}
         />
       ) : null}
       {toolbar.openPopover === "opacity" ? (
@@ -185,15 +196,23 @@ export function AnnotationToolbar({
           max="100"
           min="10"
           onChange={(value) =>
-            onAnnotationStyleChange(annotation.id, { opacity: Number(value) / 100 })
+            onAnnotationStyleChange(annotationIds, { opacity: Number(value) / 100 })
           }
           title="Opacity"
-          value={Math.round(style.opacity * 100)}
+          value={Math.round((opacity ?? style.opacity) * 100)}
           wide
         />
       ) : null}
     </FloatingToolbarShell>
   );
+}
+
+function commonAnnotationValue<Value>(values: Value[]): Value | null {
+  if (values.length === 0) {
+    return null;
+  }
+  const firstValue = values[0];
+  return values.every((value) => Object.is(value, firstValue)) ? firstValue : null;
 }
 
 function StrokeIcon() {

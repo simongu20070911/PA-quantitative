@@ -15,7 +15,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "pa_inspector.workspace.v1";
-const STORAGE_VERSION = 7;
+const STORAGE_VERSION = 8;
 
 export interface PersistedInspectorState {
   apiBaseUrl: string;
@@ -44,7 +44,7 @@ export interface PersistedInspectorState {
   overlayLayers: Record<OverlayLayer, boolean>;
   annotations: ChartAnnotation[];
   annotationTool: AnnotationTool;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: string[];
   selectedOverlayId: string | null;
   detailAnchor: ScreenPoint | null;
   confirmationGuide: ConfirmationGuide | null;
@@ -69,6 +69,12 @@ export interface PersistedViewportState {
 
 interface PersistedInspectorEnvelope extends PersistedInspectorState {
   version: number;
+}
+
+interface PersistedInspectorEnvelopeV7
+  extends Omit<PersistedInspectorState, "selectedAnnotationIds"> {
+  version: 7;
+  selectedAnnotationId: string | null;
 }
 
 interface PersistedInspectorDefaultsArgs {
@@ -225,9 +231,9 @@ const PERSISTED_INSPECTOR_FIELD_SPECS = [
     validate: isAnnotationTool,
   }),
   field({
-    key: "selectedAnnotationId",
-    defaultValue: () => null,
-    validate: isNullableString,
+    key: "selectedAnnotationIds",
+    defaultValue: () => [],
+    validate: isStringArray,
   }),
   field({
     key: "selectedOverlayId",
@@ -328,10 +334,16 @@ export function loadPersistedInspectorState(
       return defaults;
     }
     const parsed = JSON.parse(raw) as unknown;
+    if (isPersistedEnvelope(parsed)) {
+      return restorePersistedInspectorState(parsed, defaults);
+    }
+    if (isPersistedEnvelopeV7(parsed)) {
+      return restorePersistedInspectorStateV7(parsed, defaults);
+    }
     if (!isPersistedEnvelope(parsed)) {
       return defaults;
     }
-    return restorePersistedInspectorState(parsed, defaults);
+    return defaults;
   } catch (error) {
     console.warn("Failed to load persisted inspector state", error);
     return defaults;
@@ -361,6 +373,20 @@ function isPersistedEnvelope(value: unknown): value is PersistedInspectorEnvelop
   );
 }
 
+function isPersistedEnvelopeV7(value: unknown): value is PersistedInspectorEnvelopeV7 {
+  if (!isRecord(value) || value.version !== 7) {
+    return false;
+  }
+  return (
+    PERSISTED_INSPECTOR_FIELD_SPECS.every((spec) => {
+      if (spec.key === "selectedAnnotationIds") {
+        return isNullableString(value.selectedAnnotationId);
+      }
+      return spec.validate(value[spec.key]);
+    })
+  );
+}
+
 function restorePersistedInspectorState(
   envelope: PersistedInspectorEnvelope,
   defaults: PersistedInspectorState,
@@ -372,6 +398,28 @@ function restorePersistedInspectorState(
       PersistedInspectorState[keyof PersistedInspectorState]
     >;
   for (const spec of listFieldSpecs()) {
+    const value = envelope[spec.key];
+    writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
+  }
+  return restored;
+}
+
+function restorePersistedInspectorStateV7(
+  envelope: PersistedInspectorEnvelopeV7,
+  defaults: PersistedInspectorState,
+): PersistedInspectorState {
+  const restored = { ...defaults };
+  const writableRestored =
+    restored as Record<
+      keyof PersistedInspectorState,
+      PersistedInspectorState[keyof PersistedInspectorState]
+    >;
+  for (const spec of listFieldSpecs()) {
+    if (spec.key === "selectedAnnotationIds") {
+      writableRestored.selectedAnnotationIds =
+        envelope.selectedAnnotationId === null ? [] : [envelope.selectedAnnotationId];
+      continue;
+    }
     const value = envelope[spec.key];
     writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
   }
@@ -509,6 +557,10 @@ function isAnnotationToolbarPopover(value: unknown): value is AnnotationToolbarP
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 function isNullableFiniteNumber(value: unknown): value is number | null {

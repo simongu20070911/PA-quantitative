@@ -59,7 +59,7 @@ export interface InspectorPrimitiveState {
   overlays: Overlay[];
   annotations: ChartAnnotation[];
   selectedOverlayId: string | null;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   sessionProfile: SessionProfile;
   draftAnnotation: ChartAnnotation | null;
@@ -76,7 +76,7 @@ export interface InspectorRenderData {
   annotationDrawables: AnnotationDrawable[];
   draftDrawable: AnnotationDrawable | null;
   selectedOverlayId: string | null;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: string[];
 }
 
 export interface InspectorGeometryCache {
@@ -91,7 +91,7 @@ export interface InspectorPresentationState {
   replayCursor: ReplayCursorRender | null;
   draftDrawable: AnnotationDrawable | null;
   selectedOverlayId: string | null;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: string[];
 }
 
 export interface ConfirmationGuideRender {
@@ -156,7 +156,7 @@ export function buildInspectorPresentationState(
     | "confirmationGuide"
     | "draftAnnotation"
     | "selectedOverlayId"
-    | "selectedAnnotationId"
+    | "selectedAnnotationIds"
     | "replayMode"
     | "replayCursorBarId"
     | "replayHoverBarId"
@@ -181,7 +181,7 @@ export function buildInspectorPresentationState(
       ? resolveAnnotationDrawable(state.draftAnnotation, barTimeById, projector)
       : null,
     selectedOverlayId: state.selectedOverlayId,
-    selectedAnnotationId: state.selectedAnnotationId,
+    selectedAnnotationIds: state.selectedAnnotationIds,
   };
 }
 
@@ -197,7 +197,7 @@ export function composeInspectorRenderData(
     annotationDrawables: geometry.annotationDrawables,
     draftDrawable: presentation.draftDrawable,
     selectedOverlayId: presentation.selectedOverlayId,
-    selectedAnnotationId: presentation.selectedAnnotationId,
+    selectedAnnotationIds: presentation.selectedAnnotationIds,
   };
 }
 
@@ -222,7 +222,7 @@ export function drawInspectorScene(
       drawAnnotation(
         context,
         drawable,
-        drawable.annotation.id === data.selectedAnnotationId,
+        data.selectedAnnotationIds.includes(drawable.annotation.id),
         false,
       );
     }

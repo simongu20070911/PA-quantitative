@@ -111,7 +111,7 @@ export default function App() {
     overlayLayers,
     annotations,
     annotationTool,
-    selectedAnnotationId,
+    selectedAnnotationIds,
     selectedOverlayId,
     detailAnchor,
     confirmationGuide,
@@ -200,10 +200,16 @@ export default function App() {
     [activeFamilyKey, annotations],
   );
   const allChartBars = windowData?.bars ?? [];
+  const selectedAnnotations = useMemo(() => {
+    if (!selectedAnnotationIds.length) {
+      return [];
+    }
+    const selectedIdSet = new Set(selectedAnnotationIds);
+    return visibleAnnotations.filter((annotation) => selectedIdSet.has(annotation.id));
+  }, [selectedAnnotationIds, visibleAnnotations]);
   const selectedAnnotation = useMemo(
-    () =>
-      visibleAnnotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
-    [selectedAnnotationId, visibleAnnotations],
+    () => selectedAnnotations[selectedAnnotations.length - 1] ?? null,
+    [selectedAnnotations],
   );
   const selectedOverlay = useMemo(
     () =>
@@ -330,13 +336,17 @@ export default function App() {
   }, [sessionProfile, timeframe]);
 
   useEffect(() => {
-    if (!selectedAnnotationId) {
+    if (!selectedAnnotationIds.length) {
       return;
     }
-    if (!visibleAnnotations.some((annotation) => annotation.id === selectedAnnotationId)) {
-      setWorkspaceField("selectedAnnotationId", null);
+    const visibleIdSet = new Set(visibleAnnotations.map((annotation) => annotation.id));
+    const nextSelection = selectedAnnotationIds.filter((annotationId) =>
+      visibleIdSet.has(annotationId),
+    );
+    if (nextSelection.length !== selectedAnnotationIds.length) {
+      setWorkspaceField("selectedAnnotationIds", nextSelection);
     }
-  }, [selectedAnnotationId, visibleAnnotations]);
+  }, [selectedAnnotationIds, visibleAnnotations]);
 
   useEffect(() => {
     if (!emaEnabled) {
@@ -353,7 +363,7 @@ export default function App() {
   }, [configuredEmaLengths, emaEnabled, renderedEmaLines, selectedEmaLength]);
 
   useEffect(() => {
-    if (!selectedAnnotationId) {
+    if (!selectedAnnotationIds.length) {
       return;
     }
 
@@ -378,7 +388,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [selectedAnnotationId]);
+  }, [selectedAnnotationIds]);
 
   useEffect(() => {
     return () => {
@@ -486,7 +496,7 @@ export default function App() {
           patchWorkspace({
             selectedOverlayId: null,
             detailAnchor: null,
-            selectedAnnotationId: null,
+            selectedAnnotationIds: [],
             confirmationGuide: null,
           });
           setDetailData(null);
@@ -535,6 +545,7 @@ export default function App() {
           toolbarOpenPanel: null,
           selectedOverlayId: null,
           detailAnchor: null,
+          selectedAnnotationIds: [],
           confirmationGuide: null,
         });
         void requestWindow({
@@ -693,52 +704,62 @@ export default function App() {
   function clearChartSelection() {
     clearOverlaySelection();
     clearEmaSelection();
-    setWorkspaceField("selectedAnnotationId", null);
+    setWorkspaceField("selectedAnnotationIds", []);
   }
 
   function deleteSelectedAnnotation() {
-    if (!selectedAnnotationId) {
+    if (!selectedAnnotationIds.length) {
       return;
     }
+    const selectedIdSet = new Set(selectedAnnotationIds);
     setWorkspace((current) => ({
       ...current,
       annotations: current.annotations.filter(
-        (annotation) => annotation.id !== selectedAnnotationId,
+        (annotation) => !selectedIdSet.has(annotation.id),
       ),
-      selectedAnnotationId: null,
+      selectedAnnotationIds: [],
     }));
   }
 
-  function duplicateAnnotation(annotationId: string) {
-    const source = annotations.find((annotation) => annotation.id === annotationId);
-    if (!source) {
-      return null;
+  function duplicateAnnotation(annotationIds: string[]) {
+    const selectedIdSet = new Set(annotationIds);
+    const sources = annotations.filter((annotation) => selectedIdSet.has(annotation.id));
+    if (!sources.length) {
+      return [];
     }
-    const duplicateId = buildAnnotationId(
-      source.kind,
-      source.start.bar_id,
-      source.end.bar_id,
-    );
-    const duplicate: ChartAnnotation = {
-      ...source,
-      id: duplicateId,
-    };
+    const duplicateIds: string[] = [];
+    const duplicates = sources.map((source) => {
+      const duplicateId = buildAnnotationId(
+        source.kind,
+        source.start.bar_id,
+        source.end.bar_id,
+      );
+      duplicateIds.push(duplicateId);
+      return {
+        ...source,
+        id: duplicateId,
+      } satisfies ChartAnnotation;
+    });
     setWorkspace((current) => ({
       ...current,
-      annotations: [...current.annotations, duplicate],
-      selectedAnnotationId: duplicateId,
+      annotations: [...current.annotations, ...duplicates],
+      selectedAnnotationIds: duplicateIds,
     }));
-    return duplicateId;
+    return duplicateIds;
   }
 
   function patchAnnotationStyle(
-    annotationId: string,
+    annotationIds: string[],
     patch: Partial<AnnotationStyle>,
   ) {
+    if (!annotationIds.length) {
+      return;
+    }
+    const selectedIdSet = new Set(annotationIds);
     setWorkspace((current) => ({
       ...current,
       annotations: current.annotations.map((annotation) =>
-        annotation.id === annotationId
+        selectedIdSet.has(annotation.id)
           ? {
               ...annotation,
               style: {
@@ -774,7 +795,7 @@ export default function App() {
     }
     clearOverlaySelection();
     clearEmaSelection();
-    setWorkspaceField("selectedAnnotationId", null);
+    setWorkspaceField("selectedAnnotationIds", []);
     try {
       const detail = await fetchStructureDetail(
         buildStructureDetailRequest(overlay.source_structure_id),
@@ -969,7 +990,7 @@ export default function App() {
     setDetailLoading(false);
     patchWorkspace({
       structureSource: nextSource,
-      selectedAnnotationId: null,
+      selectedAnnotationIds: [],
       selectedOverlayId: null,
       detailAnchor: null,
       confirmationGuide: null,
@@ -1046,7 +1067,7 @@ export default function App() {
         onEmaSelect={(length) => {
           clearOverlaySelection();
           patchWorkspace({
-            selectedAnnotationId: null,
+            selectedAnnotationIds: [],
             selectedEmaLength: length,
           });
         }}
@@ -1101,8 +1122,8 @@ export default function App() {
             sessionProfile={windowData?.meta.session_profile ?? sessionProfile}
             enabledLayers={overlayLayers}
             selectedOverlayId={selectedOverlayId}
-            selectedAnnotation={selectedAnnotation}
-            selectedAnnotationId={selectedAnnotationId}
+            selectedAnnotations={selectedAnnotations}
+            selectedAnnotationIds={selectedAnnotationIds}
             confirmationGuide={confirmationGuide}
             replayEnabled={inspectorMode === "replay"}
             replayCursorBarId={replayCursorBarId}
@@ -1157,12 +1178,12 @@ export default function App() {
               setWorkspace((current) => ({
                 ...current,
                 annotations: [...current.annotations, nextAnnotation],
-                selectedAnnotationId: nextAnnotation.id,
+                selectedAnnotationIds: [nextAnnotation.id],
                 annotationTool: "none",
               }));
             }}
-            onAnnotationSelect={(annotationId) => {
-              setWorkspaceField("selectedAnnotationId", annotationId);
+            onAnnotationSelect={(annotationIds) => {
+              setWorkspaceField("selectedAnnotationIds", annotationIds);
               clearEmaSelection();
               clearOverlaySelection();
             }}
@@ -1191,14 +1212,14 @@ export default function App() {
                 annotations: current.annotations.filter(
                   (annotation) => annotation.familyKey !== activeFamilyKey,
                 ),
-                selectedAnnotationId: null,
+                selectedAnnotationIds: [],
               }));
             }}
             onOverlaySelect={(overlay, anchorPoint) => {
               setWorkspace((current) => ({
                 ...current,
                 confirmationGuide: null,
-                selectedAnnotationId: null,
+                selectedAnnotationIds: [],
                 selectedOverlayId: overlay?.overlay_id ?? null,
                 detailAnchor: anchorPoint,
                 inspectorPanelManualPosition: false,
