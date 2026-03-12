@@ -355,7 +355,10 @@ export function OverlayCanvas({
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) {
+      const commandPressed = event.metaKey || event.ctrlKey;
+      const isCommandClick =
+        commandPressed && (event.button === 0 || event.button === 2);
+      if (event.button !== 0 && !isCommandClick) {
         return;
       }
       if (isToolbarEvent(event.target)) {
@@ -392,7 +395,7 @@ export function OverlayCanvas({
         point.x,
         point.y,
       );
-      if (overlayDrawable && (event.metaKey || event.ctrlKey)) {
+      if (overlayDrawable && commandPressed) {
         activeBlankTapRef.current = null;
         event.preventDefault();
         event.stopPropagation();

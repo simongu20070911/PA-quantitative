@@ -980,3 +980,9 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/App.tsx`, `docs/inspector_spec.md`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: if we later move replay-aware indicator state fully backend-side, extend the playback payload contract so indicator series can arrive already step-resolved instead of being clipped in the inspector view model.
+
+### 2026-03-12
+- Summary: Moved the blue confirmation guide off the confirmation candle body by projecting it into the bar gap to the right, and hardened modifier-click handling so guide-setting clicks do not leak through as ordinary chart gestures.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: if confirmation-guide usage grows, add a checked-in browser smoke test that command-clicks a known overlay and asserts the guide lands beside the confirmation bar without shifting the visible range.

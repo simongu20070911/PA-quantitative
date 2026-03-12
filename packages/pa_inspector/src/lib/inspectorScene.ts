@@ -154,6 +154,7 @@ export function buildInspectorPresentationState(
   state: Pick<
     InspectorPrimitiveState,
     | "confirmationGuide"
+    | "bars"
     | "draftAnnotation"
     | "selectedOverlayId"
     | "selectedAnnotationIds"
@@ -167,6 +168,7 @@ export function buildInspectorPresentationState(
   return {
     confirmationGuide: resolveConfirmationGuide(
       state.confirmationGuide,
+      state.bars,
       barTimeById,
       projector,
     ),
@@ -476,6 +478,7 @@ export function resolveAnnotationDrawable(
 
 function resolveConfirmationGuide(
   guide: ConfirmationGuide | null,
+  bars: ChartBar[],
   barTimeById: Map<number, number>,
   projector: CoordinateProjector,
 ): ConfirmationGuideRender | null {
@@ -490,7 +493,26 @@ function resolveConfirmationGuide(
   if (x === null) {
     return null;
   }
-  return { x };
+  const barIndex = bars.findIndex((bar) => bar.bar_id === guide.confirmBarId);
+  if (barIndex < 0) {
+    return { x };
+  }
+  const nextBar = bars[barIndex + 1] ?? null;
+  const previousBar = bars[barIndex - 1] ?? null;
+  const nextX =
+    nextBar === null ? null : projector.timeToCoordinate(nextBar.time);
+  const previousX =
+    previousBar === null ? null : projector.timeToCoordinate(previousBar.time);
+  const rightSpacing =
+    nextX !== null && nextX > x
+      ? nextX - x
+      : previousX !== null && x > previousX
+        ? x - previousX
+        : null;
+  if (rightSpacing === null) {
+    return { x };
+  }
+  return { x: x + Math.max(5, rightSpacing * 0.42) };
 }
 
 function resolveReplayCursor(
