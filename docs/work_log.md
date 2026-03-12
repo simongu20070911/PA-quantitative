@@ -970,6 +970,12 @@ Copy this shape for new entries:
 - Next: add a small checked-in replay smoke test that asserts both overlays and EMA lines stay clipped until the selected-family close step lands.
 
 ### 2026-03-12
+- Summary: Locked replay scrubbing while playback is active so chart clicks and transport jumps no longer move the replay cursor until the user pauses.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ReplayTransport.tsx`, `docs/inspector_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; live browser check on `http://192.168.110.42:2000`
+- Next: add a small browser replay smoke test that presses Play, attempts a chart scrub and a transport jump, and verifies both stay locked until Pause is clicked.
+
+### 2026-03-12
 - Summary: Clipped replay-mode EMA rendering to the replay `as_of_bar_id` so future EMA points no longer remain visible while the replay cursor is behind the loaded window, including during lower-family playback steps for higher-timeframe bars.
 - Files: `packages/pa_inspector/src/App.tsx`, `docs/inspector_spec.md`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`

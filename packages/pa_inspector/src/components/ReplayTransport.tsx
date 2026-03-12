@@ -54,7 +54,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
         <div className="replay-transport-controls">
           <button
             className="transport-button"
-            disabled={!props.hasEvents || !props.backendResolved}
+            disabled={!props.hasEvents || !props.backendResolved || props.playing}
             type="button"
             onClick={() => props.onStepEvent(-1)}
           >
@@ -62,7 +62,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled={!props.cursorBar || !props.backendResolved}
+            disabled={!props.cursorBar || !props.backendResolved || props.playing}
             type="button"
             onClick={() => props.onStepBar(-1)}
           >
@@ -78,7 +78,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled={!props.cursorBar || !props.backendResolved}
+            disabled={!props.cursorBar || !props.backendResolved || props.playing}
             type="button"
             onClick={() => props.onStepBar(1)}
           >
@@ -86,7 +86,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled={!props.hasEvents || !props.backendResolved}
+            disabled={!props.hasEvents || !props.backendResolved || props.playing}
             type="button"
             onClick={() => props.onStepEvent(1)}
           >
@@ -94,7 +94,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled={!props.hasBars}
+            disabled={!props.hasBars || props.playing}
             type="button"
             onClick={props.onJumpToLatest}
           >
@@ -127,6 +127,8 @@ export function ReplayTransport(props: ReplayTransportProps) {
       <p className="replay-transport-note">
         {!props.cursorBar
           ? "Click empty chart space to choose a replay start point. Future bars stay visible only while you are choosing the cursor."
+          : props.playing
+            ? "Replay is running. Pause first before moving the replay cursor or jumping around the timeline."
           : props.backendResolved
             ? "Replay is showing backend-authored playback steps plus backend-resolved structure state. Future bars stay hidden after the active cursor."
             : "Replay is waiting for backend replay frames for this window. Future bars will stay hidden once the replay view is ready."}

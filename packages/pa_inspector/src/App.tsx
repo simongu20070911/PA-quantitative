@@ -974,6 +974,9 @@ export default function App() {
   }
 
   async function handleReplayStepEvent(direction: -1 | 1) {
+    if (replayPlaying) {
+      return;
+    }
     const events = await getReplayEventCatalog();
     if (!events.length) {
       return;
@@ -1005,7 +1008,9 @@ export default function App() {
   }
 
   function handleReplayCursorSelect(barId: number) {
-    setReplayPlaying(false);
+    if (replayPlaying) {
+      return;
+    }
     patchWorkspace({
       replayCursorBarId: barId,
       replayCursorStepId: resolveClosingPlaybackStepId(playbackSequence, barId),
@@ -1014,6 +1019,9 @@ export default function App() {
   }
 
   function handleReplayStepBar(direction: -1 | 1) {
+    if (replayPlaying) {
+      return;
+    }
     if (!playbackSequence?.steps.length) {
       return;
     }
@@ -1035,6 +1043,9 @@ export default function App() {
   }
 
   function handleReplayJumpToLatest() {
+    if (replayPlaying) {
+      return;
+    }
     if (!playbackSequence?.steps.length) {
       return;
     }
@@ -1201,6 +1212,7 @@ export default function App() {
             selectedAnnotationIds={selectedAnnotationIds}
             confirmationGuide={confirmationGuide}
             replayEnabled={inspectorMode === "replay"}
+            replayInteractionLocked={replayPlaying}
             replayCursorBarId={replayDisplayCursorBarId}
             annotationCount={visibleAnnotations.length}
             annotationRailPosition={annotationRailPosition}

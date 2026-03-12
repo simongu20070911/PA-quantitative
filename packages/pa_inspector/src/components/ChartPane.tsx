@@ -36,6 +36,7 @@ export interface ChartPaneProps {
   selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   replayEnabled: boolean;
+  replayInteractionLocked: boolean;
   replayCursorBarId: number | null;
   annotationCount: number;
   annotationRailPosition: FloatingPosition;
@@ -99,6 +100,7 @@ export function ChartPane({
   selectedAnnotationIds,
   confirmationGuide,
   replayEnabled,
+  replayInteractionLocked,
   replayCursorBarId,
   annotationCount,
   annotationRailPosition,
@@ -319,6 +321,7 @@ export function ChartPane({
         selectedAnnotationIds={selectedAnnotationIds}
         confirmationGuide={confirmationGuide}
         replayEnabled={replayEnabled}
+        replayInteractionLocked={replayInteractionLocked}
         replayCursorBarId={replayCursorBarId}
         onAnnotationCreate={onAnnotationCreate}
         onAnnotationSelect={onAnnotationSelect}

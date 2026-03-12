@@ -36,6 +36,7 @@ export interface OverlayCanvasProps {
   selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   replayEnabled: boolean;
+  replayInteractionLocked: boolean;
   replayCursorBarId: number | null;
   onAnnotationCreate: (annotation: {
     kind: AnnotationKind;
@@ -71,6 +72,7 @@ export function OverlayCanvas({
   selectedAnnotationIds,
   confirmationGuide,
   replayEnabled,
+  replayInteractionLocked,
   replayCursorBarId,
   onAnnotationCreate,
   onAnnotationSelect,
@@ -103,6 +105,7 @@ export function OverlayCanvas({
   const confirmationGuideRef = useRef(confirmationGuide);
   const annotationToolRef = useRef(annotationTool);
   const replayEnabledRef = useRef(replayEnabled);
+  const replayInteractionLockedRef = useRef(replayInteractionLocked);
   const replayCursorBarIdRef = useRef(replayCursorBarId);
   const replayHoverBarIdRef = useRef<number | null>(null);
   const onAnnotationCreateRef = useRef(onAnnotationCreate);
@@ -165,6 +168,7 @@ export function OverlayCanvas({
     onOverlaySelectRef.current = onOverlaySelect;
     onOverlayCommandSelectRef.current = onOverlayCommandSelect;
     replayEnabledRef.current = replayEnabled;
+    replayInteractionLockedRef.current = replayInteractionLocked;
     replayCursorBarIdRef.current = replayCursorBarId;
     if (!replayEnabled || replayCursorBarId !== null) {
       replayHoverBarIdRef.current = null;
@@ -184,6 +188,7 @@ export function OverlayCanvas({
     sessionProfile,
     visibleOverlays,
     replayEnabled,
+    replayInteractionLocked,
     replayCursorBarId,
     onReplayCursorSelect,
   ]);
@@ -242,6 +247,9 @@ export function OverlayCanvas({
         point.y,
       );
       if (!overlayDrawable) {
+        if (replayEnabledRef.current && replayInteractionLockedRef.current) {
+          return;
+        }
         if (replayEnabledRef.current) {
           const replayBarId = resolveBarIdFromPoint(adapter, barsRef.current, point);
           if (replayBarId !== null) {
@@ -442,6 +450,11 @@ export function OverlayCanvas({
         return;
       }
 
+      if (replayEnabledRef.current && replayInteractionLockedRef.current) {
+        activeBlankTapRef.current = null;
+        return;
+      }
+
       activeBlankTapRef.current =
         selectedAnnotationIdsRef.current.length > 0 ||
         selectedOverlayIdRef.current !== null ||
@@ -608,6 +621,9 @@ export function OverlayCanvas({
       };
       const replayBarId =
         replayEnabledRef.current ? resolveBarIdFromPoint(adapter, barsRef.current, point) : null;
+      if (replayEnabledRef.current && replayInteractionLockedRef.current) {
+        return;
+      }
       suppressNextChartClickRef.current = true;
       onAnnotationSelectRef.current([]);
       onOverlaySelectRef.current(null, null);
