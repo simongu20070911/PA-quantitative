@@ -64,6 +64,15 @@ Commands:
 - `cd packages/pa_inspector && npm run dev -- --host 127.0.0.1 --port 4173`
 - `cd packages/pa_inspector && npm run build`
 
+Homebox user-service deployment:
+
+- `ssh homebox 'systemctl --user status pa-api.service pa-inspector.service'`
+- `ssh homebox 'systemctl --user restart pa-api.service pa-inspector.service'`
+- inspector LAN entrypoint: `http://192.168.110.42:2000`
+- backend stays behind the Vite `/api` proxy on `127.0.0.1:8000`
+- `pa-inspector.service` runs `npm run dev -- --host 0.0.0.0 --port 2000 --strictPort`
+- `pa-api.service` runs `python -m uvicorn pa_api.app:app --host 127.0.0.1 --port 8000`
+
 ## Data
 
 Canonical raw input:

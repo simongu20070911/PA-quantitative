@@ -920,3 +920,9 @@ Copy this shape for new entries:
 - Files: `docs/work_log.md`
 - Verification: `nohup npm run dev -- --host 0.0.0.0 --port 2000` on `homebox`; from the Mac, `curl -I http://192.168.110.42:2000/` returned `200`; `GET http://192.168.110.42:2000/api/chart-window?...` returned `200` with `1442` bars and `239` overlays
 - Next: if you want this to survive reboots cleanly, wrap `pa_api` and `pa_inspector` in a `systemd --user` service or another process manager on `homebox`.
+
+### 2026-03-12
+- Summary: Added persistent `systemd --user` services on `homebox` for the API and inspector, enabled them at login/boot with user lingering already on, and hardened the inspector service with `--strictPort` so it stays on `192.168.110.42:2000` instead of drifting to a fallback port.
+- Files: `docs/dev_setup.md`, `docs/work_log.md`
+- Verification: `systemctl --user enable pa-api.service pa-inspector.service`; `systemctl --user restart pa-api.service pa-inspector.service`; `systemctl --user status ...` showed both active; from the Mac, `curl -I http://192.168.110.42:2000/` returned `200` and `GET http://192.168.110.42:2000/api/chart-window?...` returned `200` with `1442` bars and `239` overlays
+- Next: if you want the service definitions tracked in Git rather than only on `homebox`, add checked-in unit templates or a bootstrap script under the repo later.
