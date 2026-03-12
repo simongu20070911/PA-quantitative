@@ -361,7 +361,7 @@ export function Toolbar(props: ToolbarProps) {
 
             <div className="toolbar-popover-grid toolbar-popover-grid-compact">
               {props.selectorMode === "session_date" ? (
-                <label className="field">
+                <label className="field field-row">
                   <span>Session Date</span>
                   <input
                     value={props.sessionDate}
@@ -371,7 +371,7 @@ export function Toolbar(props: ToolbarProps) {
                 </label>
               ) : null}
               {props.selectorMode === "center_bar_id" ? (
-                <label className="field">
+                <label className="field field-row">
                   <span>Center Bar ID</span>
                   <input
                     value={props.centerBarId}
@@ -382,7 +382,7 @@ export function Toolbar(props: ToolbarProps) {
               ) : null}
               {props.selectorMode === "time_range" ? (
                 <>
-                  <label className="field">
+                  <label className="field field-row">
                     <span>Start Time (UTC s)</span>
                     <input
                       value={props.startTime}
@@ -390,7 +390,7 @@ export function Toolbar(props: ToolbarProps) {
                       placeholder="1741228200"
                     />
                   </label>
-                  <label className="field">
+                  <label className="field field-row">
                     <span>End Time (UTC s)</span>
                     <input
                       value={props.endTime}
@@ -410,28 +410,28 @@ export function Toolbar(props: ToolbarProps) {
           <div className="toolbar-menu-section">
             <div className="toolbar-section-label">Window</div>
             <div className="compact-grid compact-grid-fields">
-              <label className="field">
+              <label className="field field-row">
                 <span>Left Bars</span>
                 <input
                   value={props.leftBars}
                   onChange={(event) => props.onLeftBarsChange(event.target.value)}
                 />
               </label>
-              <label className="field">
+              <label className="field field-row">
                 <span>Right Bars</span>
                 <input
                   value={props.rightBars}
                   onChange={(event) => props.onRightBarsChange(event.target.value)}
                 />
               </label>
-              <label className="field">
+              <label className="field field-row">
                 <span>Buffer Bars</span>
                 <input
                   value={props.bufferBars}
                   onChange={(event) => props.onBufferBarsChange(event.target.value)}
                 />
               </label>
-              <label className="field">
+              <label className="field field-row">
                 <span>EMA Lengths</span>
                 <input
                   disabled={!props.emaEnabled}
@@ -621,14 +621,14 @@ export function Toolbar(props: ToolbarProps) {
           <div className="toolbar-menu-section">
             <div className="toolbar-section-label">Dataset</div>
             <div className="compact-grid compact-grid-fields">
-              <label className="field">
+              <label className="field field-row">
                 <span>Symbol</span>
                 <input
                   value={props.symbol}
                   onChange={(event) => props.onSymbolChange(event.target.value)}
                 />
               </label>
-              <label className="field">
+              <label className="field field-row">
                 <span>Timeframe</span>
                 <select
                   value={props.timeframe}
@@ -641,7 +641,7 @@ export function Toolbar(props: ToolbarProps) {
                   ))}
                 </select>
               </label>
-              <label className="field">
+              <label className="field field-row">
                 <span>Session Profile</span>
                 <select
                   value={props.sessionProfile}
@@ -653,14 +653,14 @@ export function Toolbar(props: ToolbarProps) {
                   <option value="rth">rth</option>
                 </select>
               </label>
-              <label className="field field-wide">
+              <label className="field field-row field-wide">
                 <span>API Base</span>
                 <input
                   value={props.apiBaseUrl}
                   onChange={(event) => props.onApiBaseUrlChange(event.target.value)}
                 />
               </label>
-              <label className="field field-wide">
+              <label className="field field-row field-wide">
                 <span>Data Version</span>
                 <input
                   value={props.dataVersion}

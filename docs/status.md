@@ -1,6 +1,6 @@
 # Project Status
 
-Status date: 2026-03-10
+Status date: 2026-03-12
 Project root: `/Users/simongu/Projects/PA quantitative`
 
 ## Summary
@@ -14,6 +14,7 @@ The project currently has:
 - on-demand overlay projection for `pivot_st`, `pivot`, `leg`, and `major_lh`
 - a thin `pa_api` read layer for chart-window and structure-detail reads
 - a React/TypeScript inspector that renders backend-owned candles, overlays, replay state, and detail panels
+- a compact inspector menubar with backend-backed replay transport and menu-sheet controls
 
 The project does not currently have:
 

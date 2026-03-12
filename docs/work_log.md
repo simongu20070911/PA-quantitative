@@ -952,6 +952,12 @@ Copy this shape for new entries:
 - Next: add a small live browser smoke test that asserts 5m replay visibly builds a candle through 1m steps and then advances overlays only when the 5m close lands.
 
 ### 2026-03-12
+- Summary: Refined the new inspector menubar into a whiter, smaller-scale control strip and converted the second-level toolbar panels into compact menu-style dropdowns that anchor beneath the clicked control instead of reading like dashboard cards.
+- Files: `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; `cd packages/pa_inspector && git diff --check`; pulled on `homebox` and restarted `pa-inspector.service`; live browser screenshots confirmed the compact white menubar and menu-style structure-source dropdown
+- Next: add a tiny checked-in browser smoke test that opens each toolbar menu and catches future regressions in button sizing, menu anchoring, and compact row layout.
+
+### 2026-03-12
 - Summary: Refined the compact inspector top strip into a slimmer all-white menu bar with smaller icon buttons, anchored each dropdown under its owning control, and replaced the chunky card-style second-level panels with tighter menu-style sections and list rows so the control chrome feels lighter without changing replay or structure behavior.
 - Files: `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`

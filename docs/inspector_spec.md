@@ -615,7 +615,7 @@ Suggested `pa_inspector` component layout:
 Responsibilities:
 
 - `AppShell`: top-level app orchestration
-- `Toolbar`: jump controls, display controls, overlay toggles, explicit structure-source selection, and resolved version display
+- `Toolbar`: compact horizontal menubar shell for jump controls, display controls, overlay toggles, explicit structure-source selection, and resolved version display
 - `ChartPane`: owns the `Lightweight Charts` instance
 - `OverlayCanvas`: draws visible overlays and performs hit testing
 - `InspectorPanel`: shows selected object evidence and provenance
@@ -656,6 +656,8 @@ Required usability goals:
 - keyboard-accessible date and bar jump controls
 - clear layer toggle labeling
 - a visible structure-source selector that makes `auto` resolution and explicit version requests legible
+- a thin light-theme menubar that keeps the primary chart surface visually dominant
+- second-level control surfaces that behave like compact dropdown menus rather than dashboard cards
 - stable selection highlight
 - readable side-panel metadata
 - visible version badges for artifact provenance
