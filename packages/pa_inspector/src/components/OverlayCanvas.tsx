@@ -82,6 +82,11 @@ export function OverlayCanvas({
 }: OverlayCanvasProps) {
   const activeDrawRef = useRef(false);
   const activeDragRef = useRef<AnnotationDragState | null>(null);
+  const activeBlankTapRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const suppressNextChartClickRef = useRef(false);
   const draftStateRef = useRef<{
     start: AnnotationAnchor;
@@ -354,6 +359,7 @@ export function OverlayCanvas({
       };
       const pointer = resolvePoint(event);
       if (annotationToolRef.current !== "none") {
+        activeBlankTapRef.current = null;
         if (!pointer) {
           return;
         }
@@ -379,6 +385,7 @@ export function OverlayCanvas({
         point.y,
       );
       if (overlayDrawable && (event.metaKey || event.ctrlKey)) {
+        activeBlankTapRef.current = null;
         event.preventDefault();
         event.stopPropagation();
         suppressNextChartClickRef.current = true;
@@ -392,6 +399,7 @@ export function OverlayCanvas({
         point.y,
       );
       if (annotationHit) {
+        activeBlankTapRef.current = null;
         event.preventDefault();
         event.stopPropagation();
         suppressNextChartClickRef.current = true;
@@ -425,6 +433,17 @@ export function OverlayCanvas({
         surface.setPointerCapture(event.pointerId);
         return;
       }
+
+      activeBlankTapRef.current =
+        selectedAnnotationIdRef.current !== null ||
+        selectedOverlayIdRef.current !== null ||
+        replayEnabledRef.current
+          ? {
+              pointerId: event.pointerId,
+              startX: point.x,
+              startY: point.y,
+            }
+          : null;
     };
 
     const onPointerMove = (event: PointerEvent) => {
@@ -432,6 +451,7 @@ export function OverlayCanvas({
         return;
       }
       if (activeDrawRef.current) {
+        activeBlankTapRef.current = null;
         const rawAnchor = resolvePoint(event);
         const surfaceRect = surface.getBoundingClientRect();
         const anchor =
@@ -464,8 +484,21 @@ export function OverlayCanvas({
         return;
       }
       if (!activeDragRef.current) {
+        const blankTap = activeBlankTapRef.current;
+        if (blankTap && blankTap.pointerId === event.pointerId) {
+          const point = {
+            x: event.clientX - surface.getBoundingClientRect().left,
+            y: event.clientY - surface.getBoundingClientRect().top,
+          };
+          const dx = point.x - blankTap.startX;
+          const dy = point.y - blankTap.startY;
+          if (Math.hypot(dx, dy) > 6) {
+            activeBlankTapRef.current = null;
+          }
+        }
         return;
       }
+      activeBlankTapRef.current = null;
       const pointer = resolvePoint(event);
       if (!pointer) {
         return;
@@ -502,6 +535,7 @@ export function OverlayCanvas({
         return;
       }
       if (activeDrawRef.current) {
+        activeBlankTapRef.current = null;
         const drawKind = annotationToolRef.current;
         if (drawKind === "none") {
           activeDrawRef.current = false;
@@ -545,12 +579,32 @@ export function OverlayCanvas({
         return;
       }
       if (activeDragRef.current) {
+        activeBlankTapRef.current = null;
         event.preventDefault();
         event.stopPropagation();
         if (surface.hasPointerCapture(event.pointerId)) {
           surface.releasePointerCapture(event.pointerId);
         }
         activeDragRef.current = null;
+        return;
+      }
+
+      const blankTap = activeBlankTapRef.current;
+      activeBlankTapRef.current = null;
+      if (!blankTap || blankTap.pointerId !== event.pointerId) {
+        return;
+      }
+      const point = {
+        x: event.clientX - surface.getBoundingClientRect().left,
+        y: event.clientY - surface.getBoundingClientRect().top,
+      };
+      const replayBarId =
+        replayEnabledRef.current ? resolveBarIdFromPoint(adapter, barsRef.current, point) : null;
+      suppressNextChartClickRef.current = true;
+      onAnnotationSelectRef.current(null);
+      onOverlaySelectRef.current(null, null);
+      if (replayBarId !== null) {
+        onReplayCursorSelectRef.current(replayBarId);
       }
     };
 
@@ -561,6 +615,7 @@ export function OverlayCanvas({
       if (surface.hasPointerCapture(event.pointerId)) {
         surface.releasePointerCapture(event.pointerId);
       }
+      activeBlankTapRef.current = null;
       activeDrawRef.current = false;
       activeDragRef.current = null;
       lineSnapActiveRef.current = false;
