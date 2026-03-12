@@ -926,3 +926,9 @@ Copy this shape for new entries:
 - Files: `docs/dev_setup.md`, `docs/work_log.md`
 - Verification: `systemctl --user enable pa-api.service pa-inspector.service`; `systemctl --user restart pa-api.service pa-inspector.service`; `systemctl --user status ...` showed both active; from the Mac, `curl -I http://192.168.110.42:2000/` returned `200` and `GET http://192.168.110.42:2000/api/chart-window?...` returned `200` with `1442` bars and `239` overlays
 - Next: if you want the service definitions tracked in Git rather than only on `homebox`, add checked-in unit templates or a bootstrap script under the repo later.
+
+### 2026-03-12
+- Summary: Removed on-chart structure text badges from the inspector canvas, replaced annotation ID generation with a secure-context-safe client UUID helper so drawing works on the LAN-served `http://192.168.110.42:2000` app, and tightened overlay click handling so modifier-command behavior is owned only by the DOM pointer path instead of the chart library click callback.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/lib/clientIds.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; pushed `8ab04d4`, pulled on `homebox`, restarted `pa-inspector.service`; browser checks at `http://192.168.110.42:2000` confirmed the overlay labels were gone and line/box/fib50 creation plus delete/clear persisted correctly through local workspace state on the live app
+- Next: if you want even stronger confidence on structure click behavior, add a small checked-in browser smoke test that probes overlay selection/command interactions against a known chart fixture instead of relying on manual pixel checks.
