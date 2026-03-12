@@ -950,3 +950,9 @@ Copy this shape for new entries:
 - Files: `packages/pa_core/src/pa_core/chart_reads.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_api/src/pa_api/service.py`, `packages/pa_api/tests/test_app.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ReplayTransport.tsx`, `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/types.ts`, `docs/inspector_spec.md`, `docs/replay_lifecycle_spec.md`, `docs/session_timeframe_spec.md`, `docs/status.md`, `docs/work_log.md`
 - Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m py_compile src/pa_core/chart_reads.py`; `cd packages/pa_api && PYTHONPATH=src:../pa_core/src python3 -m py_compile src/pa_api/models.py src/pa_api/service.py`; `cd packages/pa_inspector && npm run build`; targeted `pa_api` unittest execution is still blocked by the existing stale breakout imports already present in `packages/pa_api/tests/test_app.py`
 - Next: add a small live browser smoke test that asserts 5m replay visibly builds a candle through 1m steps and then advances overlays only when the 5m close lands.
+
+### 2026-03-12
+- Summary: Refined the compact inspector top strip into a slimmer all-white menu bar with smaller icon buttons, anchored each dropdown under its owning control, and replaced the chunky card-style second-level panels with tighter menu-style sections and list rows so the control chrome feels lighter without changing replay or structure behavior.
+- Files: `packages/pa_inspector/src/components/Toolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: if the control chrome still feels heavy in daily use, the next refinement should tighten the remaining metadata chips and explore menu-bar keyboard affordances before adding any new visible controls.

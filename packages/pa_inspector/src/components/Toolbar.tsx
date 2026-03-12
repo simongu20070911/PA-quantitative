@@ -1,4 +1,11 @@
-import { useMemo, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { OVERLAY_LAYER_LABELS } from "../lib/overlayLayers";
 import type {
@@ -29,6 +36,14 @@ const STRUCTURE_SOURCE_HINTS: Record<StructureSourceProfile, string> = {
   artifact_v0_1: "Use only the canonical v0.1 artifact-backed rulebook chain.",
   artifact_v0_2: "Use only canonical v0.2 artifacts when they are materialized on disk.",
   runtime_v0_2: "Use only the live-computed v0.2 rulebook chain from pa_core.",
+};
+
+const PANEL_WIDTHS: Record<Exclude<InspectorToolbarPanel, null>, number> = {
+  jump: 308,
+  display: 372,
+  versions: 404,
+  layers: 336,
+  data: 344,
 };
 
 export interface ToolbarProps {
@@ -89,6 +104,12 @@ export interface ToolbarProps {
 }
 
 export function Toolbar(props: ToolbarProps) {
+  const toolbarRef = useRef<HTMLElement | null>(null);
+  const buttonRefs = useRef<
+    Partial<Record<Exclude<InspectorToolbarPanel, null>, HTMLButtonElement | null>>
+  >({});
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>();
+
   const selectorSummary = useMemo(() => {
     if (props.selectorMode === "session_date") {
       return `Session ${props.sessionDate || "default"}`;
@@ -122,6 +143,7 @@ export function Toolbar(props: ToolbarProps) {
   const sourceSummary = structureSourceChanged
     ? `Requested ${STRUCTURE_SOURCE_LABELS[props.structureSource]} -> ${STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}`
     : `Using ${STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}`;
+  const resolvedSummary = `${STRUCTURE_SOURCE_LABELS[resolvedStructureSource]} · ${structureVersionLabel}`;
   const requestStatusClass =
     props.requestStatusTone === "error"
       ? "toolbar-pill toolbar-pill-error"
@@ -132,6 +154,35 @@ export function Toolbar(props: ToolbarProps) {
   function togglePanel(panel: Exclude<InspectorToolbarPanel, null>) {
     props.onOpenPanelChange(props.openPanel === panel ? null : panel);
   }
+
+  useLayoutEffect(() => {
+    const openPanel = props.openPanel;
+    if (openPanel === null) {
+      setPopoverStyle(undefined);
+      return;
+    }
+
+    const updatePosition = () => {
+      const toolbar = toolbarRef.current;
+      const button = buttonRefs.current[openPanel];
+      if (!toolbar || !button) {
+        return;
+      }
+
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const buttonRect = button.getBoundingClientRect();
+      const preferredWidth = PANEL_WIDTHS[openPanel];
+      const width = Math.min(preferredWidth, Math.max(280, toolbarRect.width - 24));
+      const centeredLeft =
+        buttonRect.left - toolbarRect.left + buttonRect.width / 2 - width / 2;
+      const left = Math.max(12, Math.min(centeredLeft, toolbarRect.width - width - 12));
+      setPopoverStyle({ left: `${left}px`, width: `${width}px` });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => window.removeEventListener("resize", updatePosition);
+  }, [props.openPanel]);
 
   if (props.hidden) {
     const collapsedStatusClass =
@@ -173,7 +224,7 @@ export function Toolbar(props: ToolbarProps) {
   }
 
   return (
-    <section className="toolbar-card">
+    <section className="toolbar-card" ref={toolbarRef}>
       <div className="toolbar-menubar">
         <div className="toolbar-menubar-group toolbar-menubar-group-left">
           <span className="toolbar-menubar-mode">
@@ -203,10 +254,15 @@ export function Toolbar(props: ToolbarProps) {
             ))}
           </div>
 
+          <span className="toolbar-menubar-divider" />
+
           <div className="toolbar-menu-actions" role="toolbar" aria-label="Inspector menus">
             <ToolbarMenuButton
               active={props.openPanel === "jump"}
               badge={props.selectorMode === "session_date" ? "S" : props.selectorMode === "center_bar_id" ? "#" : "T"}
+              buttonRef={(node) => {
+                buttonRefs.current.jump = node;
+              }}
               icon={<JumpIcon />}
               label="Jump"
               onClick={() => togglePanel("jump")}
@@ -214,6 +270,9 @@ export function Toolbar(props: ToolbarProps) {
             <ToolbarMenuButton
               active={props.openPanel === "display"}
               badge={props.emaEnabled ? "EMA" : undefined}
+              buttonRef={(node) => {
+                buttonRefs.current.display = node;
+              }}
               icon={<DisplayIcon />}
               label="Display"
               onClick={() => togglePanel("display")}
@@ -221,6 +280,9 @@ export function Toolbar(props: ToolbarProps) {
             <ToolbarMenuButton
               active={props.openPanel === "versions"}
               badge={structureSourceChanged ? "Auto" : undefined}
+              buttonRef={(node) => {
+                buttonRefs.current.versions = node;
+              }}
               icon={<VersionIcon />}
               label="Version"
               onClick={() => togglePanel("versions")}
@@ -228,12 +290,18 @@ export function Toolbar(props: ToolbarProps) {
             <ToolbarMenuButton
               active={props.openPanel === "layers"}
               badge={String(activeLayerCount)}
+              buttonRef={(node) => {
+                buttonRefs.current.layers = node;
+              }}
               icon={<LayersMenuIcon />}
               label="Layers"
               onClick={() => togglePanel("layers")}
             />
             <ToolbarMenuButton
               active={props.openPanel === "data"}
+              buttonRef={(node) => {
+                buttonRefs.current.data = node;
+              }}
               icon={<DataIcon />}
               label="Data"
               onClick={() => togglePanel("data")}
@@ -258,15 +326,7 @@ export function Toolbar(props: ToolbarProps) {
           </div>
 
           <div className="toolbar-statusline">
-            <span className="toolbar-pill toolbar-chip-tight">{structureVersionLabel}</span>
-            <span className="toolbar-pill toolbar-chip-tight toolbar-pill-strong">
-              {STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}
-            </span>
-            {structureSourceChanged ? (
-              <span className="toolbar-pill toolbar-chip-tight toolbar-pill-accent">
-                Requested {STRUCTURE_SOURCE_LABELS[props.structureSource]}
-              </span>
-            ) : null}
+            <span className="toolbar-pill toolbar-chip-tight">{resolvedSummary}</span>
             <span className={`${requestStatusClass} toolbar-chip-tight`}>
               {props.requestStatusMessage ?? sourceSummary}
             </span>
@@ -275,10 +335,11 @@ export function Toolbar(props: ToolbarProps) {
       </div>
 
       {props.openPanel === "jump" ? (
-        <div className="toolbar-popover">
-          <div className="compact-row">
-            <span className="mode-label">Selector</span>
-            <div className="segmented">
+        <div className="toolbar-popover toolbar-popover-jump" style={popoverStyle}>
+          <div className="toolbar-menu-section">
+            <div className="compact-row compact-row-menu">
+              <span className="mode-label">Selector</span>
+              <div className="segmented segmented-compact">
               {(["session_date", "center_bar_id", "time_range"] as SelectorMode[]).map(
                 (mode) => (
                   <button
@@ -295,92 +356,100 @@ export function Toolbar(props: ToolbarProps) {
                   </button>
                 ),
               )}
+              </div>
             </div>
-          </div>
 
-          <div className="toolbar-popover-grid">
-            {props.selectorMode === "session_date" ? (
-              <label className="field">
-                <span>Session Date</span>
-                <input
-                  value={props.sessionDate}
-                  onChange={(event) => props.onSessionDateChange(event.target.value)}
-                  placeholder="20251117"
-                />
-              </label>
-            ) : null}
-            {props.selectorMode === "center_bar_id" ? (
-              <label className="field">
-                <span>Center Bar ID</span>
-                <input
-                  value={props.centerBarId}
-                  onChange={(event) => props.onCenterBarIdChange(event.target.value)}
-                  placeholder="29390399"
-                />
-              </label>
-            ) : null}
-            {props.selectorMode === "time_range" ? (
-              <>
+            <div className="toolbar-popover-grid toolbar-popover-grid-compact">
+              {props.selectorMode === "session_date" ? (
                 <label className="field">
-                  <span>Start Time (UTC s)</span>
+                  <span>Session Date</span>
                   <input
-                    value={props.startTime}
-                    onChange={(event) => props.onStartTimeChange(event.target.value)}
-                    placeholder="1741228200"
+                    value={props.sessionDate}
+                    onChange={(event) => props.onSessionDateChange(event.target.value)}
+                    placeholder="20251117"
                   />
                 </label>
+              ) : null}
+              {props.selectorMode === "center_bar_id" ? (
                 <label className="field">
-                  <span>End Time (UTC s)</span>
+                  <span>Center Bar ID</span>
                   <input
-                    value={props.endTime}
-                    onChange={(event) => props.onEndTimeChange(event.target.value)}
-                    placeholder="1741233600"
+                    value={props.centerBarId}
+                    onChange={(event) => props.onCenterBarIdChange(event.target.value)}
+                    placeholder="29390399"
                   />
                 </label>
-              </>
-            ) : null}
+              ) : null}
+              {props.selectorMode === "time_range" ? (
+                <>
+                  <label className="field">
+                    <span>Start Time (UTC s)</span>
+                    <input
+                      value={props.startTime}
+                      onChange={(event) => props.onStartTimeChange(event.target.value)}
+                      placeholder="1741228200"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>End Time (UTC s)</span>
+                    <input
+                      value={props.endTime}
+                      onChange={(event) => props.onEndTimeChange(event.target.value)}
+                      placeholder="1741233600"
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
 
       {props.openPanel === "display" ? (
-        <div className="toolbar-popover">
-          <div className="compact-grid">
-            <label className="field">
-              <span>Left Bars</span>
-              <input
-                value={props.leftBars}
-                onChange={(event) => props.onLeftBarsChange(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Right Bars</span>
-              <input
-                value={props.rightBars}
-                onChange={(event) => props.onRightBarsChange(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Buffer Bars</span>
-              <input
-                value={props.bufferBars}
-                onChange={(event) => props.onBufferBarsChange(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>EMA Lengths</span>
-              <input
-                disabled={!props.emaEnabled}
-                value={props.emaLengths}
-                onChange={(event) => props.onEmaLengthsChange(event.target.value)}
-                placeholder="9, 20, 50"
-              />
-            </label>
+        <div className="toolbar-popover toolbar-popover-display" style={popoverStyle}>
+          <div className="toolbar-menu-section">
+            <div className="toolbar-section-label">Window</div>
+            <div className="compact-grid compact-grid-fields">
+              <label className="field">
+                <span>Left Bars</span>
+                <input
+                  value={props.leftBars}
+                  onChange={(event) => props.onLeftBarsChange(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Right Bars</span>
+                <input
+                  value={props.rightBars}
+                  onChange={(event) => props.onRightBarsChange(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Buffer Bars</span>
+                <input
+                  value={props.bufferBars}
+                  onChange={(event) => props.onBufferBarsChange(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>EMA Lengths</span>
+                <input
+                  disabled={!props.emaEnabled}
+                  value={props.emaLengths}
+                  onChange={(event) => props.onEmaLengthsChange(event.target.value)}
+                  placeholder="9, 20, 50"
+                />
+              </label>
+            </div>
           </div>
 
-          <div className="compact-row">
-            <span className="mode-label">Indicators</span>
-            <label className={props.emaEnabled ? "layer-pill active" : "layer-pill"}>
+          <div className="toolbar-menu-section">
+            <div className="toolbar-section-label">Indicators</div>
+            <label className={props.emaEnabled ? "toolbar-toggle-row active" : "toolbar-toggle-row"}>
+              <div className="toolbar-toggle-copy">
+                <strong>EMA</strong>
+                <span>Show backend-owned EMA series on chart.</span>
+              </div>
               <input
                 checked={props.emaEnabled}
                 onChange={(event) =>
@@ -388,41 +457,50 @@ export function Toolbar(props: ToolbarProps) {
                 }
                 type="checkbox"
               />
-              <span>EMA On</span>
             </label>
-          </div>
 
-          {props.emaEntries.length ? (
-            <div className="compact-row">
-              <span className="mode-label">Active EMAs</span>
-              <div className="layer-pills">
+            {props.emaEntries.length ? (
+              <div className="toolbar-choice-list">
                 {props.emaEntries.map((entry) => (
                   <button
-                    className={entry.selected ? "layer-pill active ema-pill-button" : "layer-pill ema-pill-button"}
+                    className={
+                      entry.selected
+                        ? "toolbar-choice-row active"
+                        : "toolbar-choice-row"
+                    }
                     key={entry.length}
                     onClick={() =>
                       props.onEmaSelect(entry.selected ? null : entry.length)
                     }
                     type="button"
                   >
-                    <span
-                      className="ema-pill-swatch"
-                      style={{
-                        backgroundColor: entry.style.strokeColor,
-                        opacity: entry.style.visible ? entry.style.opacity : 0.28,
-                      }}
-                    />
-                    <span>EMA {entry.length}</span>
-                    <code>{entry.style.visible ? "On" : "Off"}</code>
+                    <div className="toolbar-choice-copy">
+                      <div className="toolbar-choice-title">
+                        <span
+                          className="ema-pill-swatch"
+                          style={{
+                            backgroundColor: entry.style.strokeColor,
+                            opacity: entry.style.visible ? entry.style.opacity : 0.28,
+                          }}
+                        />
+                        <strong>EMA {entry.length}</strong>
+                      </div>
+                      <span>{entry.style.visible ? "Visible" : "Hidden"}</span>
+                    </div>
+                    <code>{entry.selected ? "Selected" : "Inspect"}</code>
                   </button>
                 ))}
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
-          <div className="compact-row">
-            <span className="mode-label">Viewport</span>
-            <label className={props.autoViewportFetch ? "layer-pill active" : "layer-pill"}>
+          <div className="toolbar-menu-section">
+            <div className="toolbar-section-label">Viewport</div>
+            <label className={props.autoViewportFetch ? "toolbar-toggle-row active" : "toolbar-toggle-row"}>
+              <div className="toolbar-toggle-copy">
+                <strong>Auto Fetch</strong>
+                <span>Refresh chart data while panning and zooming.</span>
+              </div>
               <input
                 checked={props.autoViewportFetch}
                 onChange={(event) =>
@@ -430,18 +508,21 @@ export function Toolbar(props: ToolbarProps) {
                 }
                 type="checkbox"
               />
-              <span>Auto Fetch On Pan</span>
             </label>
           </div>
 
           {props.inspectorMode === "replay" ? (
-            <div className="compact-row">
-              <span className="mode-label">Replay</span>
+            <div className="toolbar-menu-section">
+              <div className="toolbar-section-label">Replay</div>
               <label
                 className={
-                  props.showReplayRetiredOverlays ? "layer-pill active" : "layer-pill"
+                  props.showReplayRetiredOverlays ? "toolbar-toggle-row active" : "toolbar-toggle-row"
                 }
               >
+                <div className="toolbar-toggle-copy">
+                  <strong>Retired Pivots</strong>
+                  <span>Keep cancelled pivot ghosts visible during replay.</span>
+                </div>
                 <input
                   checked={props.showReplayRetiredOverlays}
                   onChange={(event) =>
@@ -449,7 +530,6 @@ export function Toolbar(props: ToolbarProps) {
                   }
                   type="checkbox"
                 />
-                <span>Show Cancelled Pivots</span>
               </label>
             </div>
           ) : null}
@@ -457,57 +537,71 @@ export function Toolbar(props: ToolbarProps) {
       ) : null}
 
       {props.openPanel === "versions" ? (
-        <div className="toolbar-popover">
-          <p className="toolbar-note">
-            Choose the rulebook explicitly. <code>Auto</code> prefers canonical artifacts when
-            available and falls back to runtime v0.2 when they are not materialized. Canonical
-            <code> v0.2 </code>
-            artifacts are not materialized yet, so the live v0.2 path is currently
-            <code> runtime_v0_2</code>.
-          </p>
-          <div className="source-grid">
+        <div className="toolbar-popover toolbar-popover-versions" style={popoverStyle}>
+          <div className="toolbar-menu-section">
+            <div className="toolbar-section-label">Structure Source</div>
+            <p className="toolbar-note toolbar-note-compact">
+              <code>Auto</code> prefers artifacts first, then falls back to the live runtime chain.
+            </p>
+            <div className="source-grid source-grid-menu">
             {STRUCTURE_SOURCE_OPTIONS.map((option) => {
               const selected = props.structureSource === option;
               const active = resolvedStructureSource === option;
               return (
                 <button
-                  className={selected ? "source-card selected" : "source-card"}
+                  className={selected ? "source-card source-card-menu selected" : "source-card source-card-menu"}
                   key={option}
                   onClick={() => props.onStructureSourceChange(option)}
                   type="button"
                 >
-                  <div className="source-card-head">
-                    <strong>{STRUCTURE_SOURCE_LABELS[option]}</strong>
-                    {active ? <span className="source-badge">Active</span> : null}
+                  <div className="source-card-head source-card-head-menu">
+                    <div className="source-card-copy">
+                      <strong>{STRUCTURE_SOURCE_LABELS[option]}</strong>
+                      <p>{STRUCTURE_SOURCE_HINTS[option]}</p>
+                    </div>
+                    <div className="source-card-meta">
+                      {active ? <span className="source-badge">Active</span> : null}
+                      <span className={selected ? "toolbar-menu-check active" : "toolbar-menu-check"}>
+                        <CheckIcon />
+                      </span>
+                    </div>
                   </div>
-                  <p>{STRUCTURE_SOURCE_HINTS[option]}</p>
                 </button>
               );
             })}
+            </div>
           </div>
-          <div className="toolbar-callout">
-            <span className="toolbar-status-label">Resolved Rulebook</span>
-            <strong>{STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}</strong>
-            <span>
-              Rulebook {props.resolvedRulebookVersion ?? "n/a"} · Structure{" "}
-              {props.resolvedStructureVersion ?? "n/a"}
-            </span>
+
+          <div className="toolbar-menu-section">
+            <div className="toolbar-callout toolbar-callout-menu">
+              <span className="toolbar-status-label">Resolved Rulebook</span>
+              <strong>{STRUCTURE_SOURCE_LABELS[resolvedStructureSource]}</strong>
+              <span>
+                Rulebook {props.resolvedRulebookVersion ?? "n/a"} · Structure{" "}
+                {props.resolvedStructureVersion ?? "n/a"}
+              </span>
+            </div>
           </div>
         </div>
       ) : null}
 
       {props.openPanel === "layers" ? (
-        <div className="toolbar-popover">
-          <p className="toolbar-note">
-            Layer toggles follow the overlay payload returned by the backend for the current
-            session/timeframe family and active structure source.
-          </p>
-          <div className="layer-pills">
+        <div className="toolbar-popover toolbar-popover-layers" style={popoverStyle}>
+          <div className="toolbar-menu-section">
+            <div className="toolbar-section-label">Overlay Layers</div>
+            <p className="toolbar-note toolbar-note-compact">
+              Layer visibility follows backend-projected overlays for the current chart context.
+            </p>
+            <div className="toolbar-choice-list">
             {(Object.keys(props.overlayLayers) as OverlayLayer[]).map((layer) => (
               <label
-                className={props.overlayLayers[layer] ? "layer-pill active" : "layer-pill"}
+                className={props.overlayLayers[layer] ? "toolbar-toggle-row active" : "toolbar-toggle-row"}
                 key={layer}
               >
+                <div className="toolbar-toggle-copy">
+                  <strong>{OVERLAY_LAYER_LABELS[layer]}</strong>
+                  <span>{props.overlayLayerCounts[layer]} visible objects</span>
+                </div>
                 <input
                   checked={props.overlayLayers[layer]}
                   onChange={(event) =>
@@ -515,63 +609,65 @@ export function Toolbar(props: ToolbarProps) {
                   }
                   type="checkbox"
                 />
-                  <span>{OVERLAY_LAYER_LABELS[layer]}</span>
-                <code>{props.overlayLayerCounts[layer]}</code>
               </label>
             ))}
+            </div>
           </div>
         </div>
       ) : null}
 
       {props.openPanel === "data" ? (
-        <div className="toolbar-popover">
-          <div className="compact-grid">
-            <label className="field">
-              <span>Symbol</span>
-              <input
-                value={props.symbol}
-                onChange={(event) => props.onSymbolChange(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Timeframe</span>
-              <select
-                value={props.timeframe}
-                onChange={(event) => props.onTimeframeChange(event.target.value)}
-              >
-                {["1m", "2m", "3m", "5m", "10m", "15m"].map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Session Profile</span>
-              <select
-                value={props.sessionProfile}
-                onChange={(event) =>
-                  props.onSessionProfileChange(event.target.value as SessionProfile)
-                }
-              >
-                <option value="eth_full">eth_full</option>
-                <option value="rth">rth</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>API Base</span>
-              <input
-                value={props.apiBaseUrl}
-                onChange={(event) => props.onApiBaseUrlChange(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Data Version</span>
-              <input
-                value={props.dataVersion}
-                onChange={(event) => props.onDataVersionChange(event.target.value)}
-              />
-            </label>
+        <div className="toolbar-popover toolbar-popover-data" style={popoverStyle}>
+          <div className="toolbar-menu-section">
+            <div className="toolbar-section-label">Dataset</div>
+            <div className="compact-grid compact-grid-fields">
+              <label className="field">
+                <span>Symbol</span>
+                <input
+                  value={props.symbol}
+                  onChange={(event) => props.onSymbolChange(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Timeframe</span>
+                <select
+                  value={props.timeframe}
+                  onChange={(event) => props.onTimeframeChange(event.target.value)}
+                >
+                  {["1m", "2m", "3m", "5m", "10m", "15m"].map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Session Profile</span>
+                <select
+                  value={props.sessionProfile}
+                  onChange={(event) =>
+                    props.onSessionProfileChange(event.target.value as SessionProfile)
+                  }
+                >
+                  <option value="eth_full">eth_full</option>
+                  <option value="rth">rth</option>
+                </select>
+              </label>
+              <label className="field field-wide">
+                <span>API Base</span>
+                <input
+                  value={props.apiBaseUrl}
+                  onChange={(event) => props.onApiBaseUrlChange(event.target.value)}
+                />
+              </label>
+              <label className="field field-wide">
+                <span>Data Version</span>
+                <input
+                  value={props.dataVersion}
+                  onChange={(event) => props.onDataVersionChange(event.target.value)}
+                />
+              </label>
+            </div>
           </div>
         </div>
       ) : null}
@@ -582,6 +678,7 @@ export function Toolbar(props: ToolbarProps) {
 interface ToolbarMenuButtonProps {
   active: boolean;
   badge?: string;
+  buttonRef?: (node: HTMLButtonElement | null) => void;
   icon: ReactNode;
   label: string;
   onClick: () => void;
@@ -593,6 +690,7 @@ function ToolbarMenuButton(props: ToolbarMenuButtonProps) {
       aria-label={props.label}
       className={props.active ? "toolbar-menu-button active" : "toolbar-menu-button"}
       onClick={props.onClick}
+      ref={props.buttonRef}
       title={props.label}
       type="button"
     >
@@ -718,6 +816,21 @@ function LoadIcon() {
     <svg aria-hidden="true" viewBox="0 0 18 18">
       <path
         d="M9 3.5v7m0 0 2.8-2.8M9 10.5 6.2 7.7M4 13.8h10"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18">
+      <path
+        d="m4.5 9.2 2.7 2.7 6.3-6.3"
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"
