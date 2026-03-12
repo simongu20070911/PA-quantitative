@@ -249,11 +249,6 @@ export function OverlayCanvas({
       }
 
       onAnnotationSelectRef.current(null);
-      if (param.sourceEvent?.metaKey || param.sourceEvent?.ctrlKey || modifierPressedRef.current) {
-        onOverlayCommandSelectRef.current(overlayDrawable.overlay);
-        return;
-      }
-
       const shell = shellRef.current;
       const surface = surfaceRef.current;
       if (!shell || !surface) {
