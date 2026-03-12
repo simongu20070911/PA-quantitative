@@ -260,7 +260,7 @@ export default function App() {
       ? playbackFrameState?.cursorBar ??
         (replayCursorIndex === null ? null : allChartBars[replayCursorIndex] ?? null)
       : null;
-  const chartBars = useMemo(() => {
+  const replayDisplayBars = useMemo(() => {
     if (inspectorMode !== "replay") {
       return allChartBars;
     }
@@ -1199,7 +1199,8 @@ export default function App() {
       <div className="workspace-main">
         <div className="chart-stage">
           <ChartPane
-            bars={chartBars}
+            bars={allChartBars}
+            displayBars={replayDisplayBars}
             emptyMessage={windowError ?? windowNotice ?? undefined}
             emaLines={displayEmaLines}
             overlays={visibleOverlays}

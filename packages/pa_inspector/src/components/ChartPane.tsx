@@ -24,6 +24,7 @@ import { OverlayCanvas } from "./OverlayCanvas";
 
 export interface ChartPaneProps {
   bars: ChartBar[];
+  displayBars: ChartBar[];
   emptyMessage?: string;
   emaLines: RenderedEmaLine[];
   overlays: Overlay[];
@@ -88,6 +89,7 @@ export interface ChartPaneProps {
 
 export function ChartPane({
   bars,
+  displayBars,
   emptyMessage,
   emaLines,
   overlays,
@@ -248,6 +250,7 @@ export function ChartPane({
         ? restoreViewport.centerBarId
         : previousCenterBarId;
     adapter?.setBars(bars, emaLines, {
+      displayBars,
       preserveLogicalRange: restoredRange,
       preserveAnchorTime: restoredCenterTime,
       preserveAnchorBarId: restoredCenterBarId,
@@ -264,7 +267,7 @@ export function ChartPane({
     }
     barsRef.current = bars;
     lastViewportCenterRef.current = null;
-  }, [bars, emaLines, viewportFamilyKey]);
+  }, [bars, displayBars, emaLines, viewportFamilyKey]);
 
   const empty = useMemo(() => bars.length === 0, [bars.length]);
 

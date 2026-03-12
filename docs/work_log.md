@@ -934,6 +934,12 @@ Copy this shape for new entries:
 - Next: add a small checked-in browser interaction smoke test for selection/deselection and draw/create/delete flows so these canvas-path regressions are caught automatically.
 
 ### 2026-03-12
+- Summary: Stopped replay cursor placement from shoving the chart toward the right edge by separating the mounted chart timeline from the replay-visible candle set, so future bars now become intentional whitespace instead of the series being truncated to history-only length when the cursor moves.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/inspector_spec.md`, `docs/replay_lifecycle_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; live browser check at `http://192.168.110.42:2000` to confirm setting the replay cursor keeps the viewport stable while the future region stays masked
+- Next: add a replay browser smoke test that captures the visible logical range before and after setting a replay cursor and fails if the viewport recenters unexpectedly.
+
+### 2026-03-12
 - Summary: Upgraded annotation selection from a single selected id to a real multi-selection set, migrated persisted workspace state forward, and wired the annotation toolbar to batch-apply shared edits across all selected drawings.
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`; pushed `591f3fe`, pulled on `homebox`, restarted `pa-inspector.service`; live Playwright check at `http://192.168.110.42:2000` created two line annotations, selected both with click plus ctrl-click, then verified via persisted workspace state that both selected ids were present and that toolbar actions changed both lines to `4px` and `dashed`

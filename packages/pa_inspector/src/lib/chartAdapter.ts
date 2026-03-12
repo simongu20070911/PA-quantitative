@@ -4,12 +4,14 @@ import {
   CrosshairMode,
   LineSeries,
   LineStyle,
+  type CandlestickData,
   createChart,
   type IChartApi,
   type ISeriesApi,
   type LogicalRange,
   type MouseEventParams,
   type Time,
+  type WhitespaceData,
 } from "lightweight-charts";
 
 import { colorWithOpacity } from "./annotationStyle";
@@ -26,10 +28,11 @@ export interface ChartAdapter {
   chart: IChartApi;
   series: ISeriesApi<"Candlestick", Time>;
   resize: (width: number, height: number) => void;
-    setBars: (
-      bars: ChartBar[],
+  setBars: (
+      timelineBars: ChartBar[],
       emaLines: RenderedEmaLine[],
     options?: {
+      displayBars?: ChartBar[];
       preserveLogicalRange?: LogicalRange | null;
       preserveAnchorTime?: number | null;
       preserveAnchorBarId?: number | null;
@@ -155,18 +158,15 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       chart.applyOptions({ width, height });
       refreshInspectorRenderData();
     },
-    setBars(bars: ChartBar[], emaLines: RenderedEmaLine[], options) {
+    setBars(timelineBars: ChartBar[], emaLines: RenderedEmaLine[], options) {
       series.setData(
-        bars.map((bar) => ({
-          time: bar.time as Time,
-          open: bar.open,
-          high: bar.high,
-          low: bar.low,
-          close: bar.close,
-        })),
+        buildCandlestickSeriesData(
+          timelineBars,
+          options?.displayBars ?? timelineBars,
+        ),
       );
       syncEmaSeries(chart, emaSeriesByLength, emaLines);
-      if (bars.length === 0) {
+      if (timelineBars.length === 0) {
         refreshInspectorRenderData();
         return;
       }
@@ -178,8 +178,8 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       if (previousRange && (preserveAnchorBarId !== null || preserveAnchorTime !== null)) {
         const anchorIndex =
           preserveAnchorBarId !== null
-            ? bars.findIndex((bar) => bar.bar_id === preserveAnchorBarId)
-            : bars.findIndex((bar) => bar.time === preserveAnchorTime);
+            ? timelineBars.findIndex((bar) => bar.bar_id === preserveAnchorBarId)
+            : timelineBars.findIndex((bar) => bar.time === preserveAnchorTime);
         if (anchorIndex >= 0) {
           const span = Math.max(previousRange.to - previousRange.from, 1);
           const halfSpan = span / 2;
@@ -200,7 +200,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       if (chart.timeScale().getVisibleLogicalRange() === null) {
         chart.timeScale().setVisibleLogicalRange({
           from: -0.5,
-          to: Math.max(bars.length - 0.5, 1),
+          to: Math.max(timelineBars.length - 0.5, 1),
         });
       }
       refreshInspectorRenderData();
@@ -259,6 +259,26 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       chart.remove();
     },
   };
+}
+
+function buildCandlestickSeriesData(
+  timelineBars: ChartBar[],
+  displayBars: ChartBar[],
+): Array<CandlestickData<Time> | WhitespaceData<Time>> {
+  const displayBarsById = new Map(displayBars.map((bar) => [bar.bar_id, bar]));
+  return timelineBars.map((timelineBar) => {
+    const displayBar = displayBarsById.get(timelineBar.bar_id);
+    if (!displayBar) {
+      return { time: timelineBar.time as Time };
+    }
+    return {
+      time: timelineBar.time as Time,
+      open: displayBar.open,
+      high: displayBar.high,
+      low: displayBar.low,
+      close: displayBar.close,
+    };
+  });
 }
 
 function syncEmaSeries(

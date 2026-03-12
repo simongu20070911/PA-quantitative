@@ -131,6 +131,7 @@ Required replay rules:
 - playback progression must never cause the inspector to advance structure legality ahead of the selected bar family's actual close
 - backend-derived indicator lines such as `EMA` must hide future points in replay and clip to the same legal `as_of_bar_id` used for structure visibility
 - when replay playback is actively running, cursor scrubbing and manual replay jumps must stay locked until the user pauses
+- replay must preserve the loaded chart timeline while the cursor moves; setting or moving the replay cursor must not recenter or collapse the viewport just because future bars are hidden
 - the inspector may animate backend-authored playback steps, but it must not synthesize higher-timeframe partial candles from lower-timeframe data on its own
 
 ## Frontend Stack
@@ -523,6 +524,7 @@ Context visibility guidance:
 
 - bars after the replay cursor may remain visible for orientation, but they must be visually subordinate to bars at or before the cursor
 - future bars must not be styled in a way that could be mistaken for already-known replay state
+- the frontend should preserve bar positions across replay cursor moves by keeping the full timeline mounted and rendering future bars as intentional whitespace or an equivalent non-semantic hidden state instead of shrinking the candle series to history-only length
 
 ## Replay Visual State Policy
 

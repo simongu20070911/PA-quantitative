@@ -224,6 +224,7 @@ Rules:
 - playback steps must carry the backend-authored post-step display-bar snapshot
 - the active structure replay state after a playback step must still equal the state legally visible at that step's `as_of_bar_id`
 - backend-derived indicator lines shown in replay, such as `EMA`, must also clip to the same legal `as_of_bar_id` rather than leaking values from later selected-family bars
+- replay playback must not require the frontend to shrink the loaded time axis to history-only length; preserving the full timeline while hiding future bars is the preferred contract because cursor moves should not implicitly recenter the viewport
 - if a playback step occurs before the selected-family bar closes, structure visibility must remain at the prior selected-family close
 - when a playback step closes the selected-family bar, the backend may advance both the playback transport and the legal replay cursor on that step
 - the frontend may apply playback steps, but it must not reconstruct partial higher-timeframe bars or infer structure advancement from lower-timeframe raw bars
