@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Mapping, Sequence
 
 import pyarrow as pa
 
@@ -38,6 +38,11 @@ class StructureMaterializationContext:
     source_profile: str
     structure_inputs: StructureInputs
     dataset_specs_by_kind: dict[str, ResolvedStructureDatasetSpec]
+
+
+@dataclass(frozen=True, slots=True)
+class StructureDependencyFrames:
+    by_kind: Mapping[str, pa.Table]
 
 
 def resolve_structure_materialization_context(
@@ -130,7 +135,21 @@ def write_structure_artifact_from_context(
     frame: pa.Table,
 ) -> StructureArtifactManifest:
     spec = context.dataset_specs_by_kind[kind]
-    writer = StructureArtifactWriter(
+    writer = build_structure_writer(
+        context,
+        kind=kind,
+    )
+    writer.write_chunk(frame)
+    return writer.finalize()
+
+
+def build_structure_writer(
+    context: StructureMaterializationContext,
+    *,
+    kind: str,
+) -> StructureArtifactWriter:
+    spec = context.dataset_specs_by_kind[kind]
+    return StructureArtifactWriter(
         artifacts_root=context.artifacts_root,
         kind=spec.kind,
         structure_version=spec.structure_version,
@@ -143,8 +162,6 @@ def write_structure_artifact_from_context(
         structure_refs=spec.structure_refs,
         parquet_engine=context.parquet_engine,
     )
-    writer.write_chunk(frame)
-    return writer.finalize()
 
 
 def write_structure_event_artifact_from_context(
@@ -155,7 +172,23 @@ def write_structure_event_artifact_from_context(
     payload_schema: pa.DataType,
 ) -> StructureEventArtifactManifest:
     spec = context.dataset_specs_by_kind[kind]
-    writer = StructureEventArtifactWriter(
+    writer = build_structure_event_writer(
+        context,
+        kind=kind,
+        payload_schema=payload_schema,
+    )
+    writer.write_chunk(frame)
+    return writer.finalize()
+
+
+def build_structure_event_writer(
+    context: StructureMaterializationContext,
+    *,
+    kind: str,
+    payload_schema: pa.DataType,
+) -> StructureEventArtifactWriter:
+    spec = context.dataset_specs_by_kind[kind]
+    return StructureEventArtifactWriter(
         artifacts_root=context.artifacts_root,
         kind=spec.kind,
         structure_version=spec.structure_version,
@@ -169,5 +202,60 @@ def write_structure_event_artifact_from_context(
         payload_schema=payload_schema,
         parquet_engine=context.parquet_engine,
     )
-    writer.write_chunk(frame)
-    return writer.finalize()
+
+
+def materialize_structure_family(
+    context: StructureMaterializationContext,
+    *,
+    kind: str,
+    bar_columns: Sequence[str],
+    empty_error: str,
+    build_object_frame: Callable[[pa.Table, StructureDependencyFrames], pa.Table] | None = None,
+    build_event_frames: Callable[[pa.Table, StructureDependencyFrames], object] | None = None,
+    payload_schema: pa.DataType | None = None,
+) -> StructureArtifactManifest:
+    spec = context.dataset_specs_by_kind[kind]
+    bar_frame = load_structure_bar_frame(context, columns=bar_columns)
+    if spec.has_events:
+        if build_event_frames is None:
+            raise ValueError(f"Structure family {kind} requires an event-frame builder.")
+        dependency_frames = StructureDependencyFrames(
+            by_kind={
+                dependency_kind: load_structure_event_dependency_from_context(
+                    context,
+                    kind=dependency_kind,
+                ).frame
+                for dependency_kind in spec.depends_on
+            }
+        )
+        lifecycle_frames = build_event_frames(bar_frame, dependency_frames)
+        object_frame = lifecycle_frames.object_frame
+        event_frame = lifecycle_frames.event_frame
+    else:
+        if build_object_frame is None:
+            raise ValueError(f"Structure family {kind} requires an object-frame builder.")
+        dependency_frames = StructureDependencyFrames(
+            by_kind={
+                dependency_kind: load_structure_dependency_from_context(
+                    context,
+                    kind=dependency_kind,
+                ).frame
+                for dependency_kind in spec.depends_on
+            }
+        )
+        object_frame = build_object_frame(bar_frame, dependency_frames)
+        event_frame = None
+
+    if object_frame.num_rows == 0:
+        raise ValueError(empty_error)
+    manifest = write_structure_artifact_from_context(context, kind=kind, frame=object_frame)
+    if event_frame is not None:
+        if payload_schema is None:
+            raise ValueError(f"Structure family {kind} requires a payload schema for event writes.")
+        write_structure_event_artifact_from_context(
+            context,
+            kind=kind,
+            frame=event_frame,
+            payload_schema=payload_schema,
+        )
+    return manifest

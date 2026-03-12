@@ -34,11 +34,15 @@ import type {
   InspectorToolbarPanel,
   Overlay,
   OverlayLayer,
+  ReplayDelta,
+  ReplaySequence,
   RenderedEmaLine,
   ScreenPoint,
   SelectorMode,
   SessionProfile,
+  StructureEvent,
   StructureDetailResponse,
+  StructureSummary,
   StructureSourceProfile,
 } from "./lib/types";
 
@@ -56,6 +60,7 @@ export default function App() {
   const windowCacheRef = useRef<Map<string, ChartWindowResponse>>(new Map());
   const inFlightRef = useRef<Map<string, Promise<ChartWindowResponse>>>(new Map());
   const lastAutoCenterRef = useRef<number | null>(null);
+  const latestWindowRequestIdRef = useRef(0);
   const [workspace, setWorkspace] = useState<PersistedInspectorState>(() =>
     loadPersistedInspectorState(
       buildDefaultInspectorState({
@@ -101,6 +106,7 @@ export default function App() {
     emaToolbarPosition,
     emaToolbarOpenPopover,
     autoViewportFetch,
+    showReplayRetiredOverlays,
     overlayLayers,
     annotations,
     annotationTool,
@@ -109,6 +115,7 @@ export default function App() {
     detailAnchor,
     confirmationGuide,
     replayCursorBarId,
+    replayCursorEventId,
     replaySpeed,
     toolbarHidden,
     toolbarOpenPanel,
@@ -151,19 +158,41 @@ export default function App() {
     [renderedEmaLines, selectedEmaLength],
   );
 
+  const replaySequence = windowData?.replay_sequence ?? null;
+  const replayFrameState = useMemo(
+    () =>
+      resolveReplayFrameState({
+        replaySequence,
+        replayCursorBarId,
+        replayCursorEventId,
+      }),
+    [replayCursorBarId, replayCursorEventId, replaySequence],
+  );
+  const displayOverlays =
+    inspectorMode === "replay" && replayCursorBarId !== null && replayFrameState !== null
+      ? replayFrameState.overlays
+      : (windowData?.overlays ?? []);
+  const filteredDisplayOverlays = useMemo(
+    () =>
+      showReplayRetiredOverlays
+        ? displayOverlays
+        : displayOverlays.filter((overlay) => !isReplayRetiredOverlay(overlay)),
+    [displayOverlays, showReplayRetiredOverlays],
+  );
+
   const visibleOverlays = useMemo(() => {
-    if (!windowData) {
+    if (!filteredDisplayOverlays.length) {
       return [];
     }
-    return filterOverlaysByEnabledLayers(windowData.overlays, overlayLayers);
-  }, [overlayLayers, windowData]);
+    return filterOverlaysByEnabledLayers(filteredDisplayOverlays, overlayLayers);
+  }, [filteredDisplayOverlays, overlayLayers]);
 
   const overlayLayerCounts = useMemo(() => {
-    if (!windowData) {
+    if (!filteredDisplayOverlays.length) {
       return EMPTY_OVERLAY_LAYER_COUNTS;
     }
-    return countOverlaysByLayer(windowData.overlays);
-  }, [windowData]);
+    return countOverlaysByLayer(filteredDisplayOverlays);
+  }, [filteredDisplayOverlays]);
 
   const visibleAnnotations = useMemo(
     () => annotations.filter((annotation) => annotation.familyKey === activeFamilyKey),
@@ -177,8 +206,8 @@ export default function App() {
   );
   const selectedOverlay = useMemo(
     () =>
-      windowData?.overlays.find((overlay) => overlay.overlay_id === selectedOverlayId) ?? null,
-    [selectedOverlayId, windowData],
+      filteredDisplayOverlays.find((overlay) => overlay.overlay_id === selectedOverlayId) ?? null,
+    [filteredDisplayOverlays, selectedOverlayId],
   );
   const replayCursorIndex = useMemo(() => {
     if (!allChartBars.length || replayCursorBarId === null) {
@@ -196,12 +225,12 @@ export default function App() {
     return allChartBars.slice(0, replayCursorIndex + 1);
   }, [allChartBars, inspectorMode, replayCursorIndex]);
   const activeAsOfBarId = inspectorMode === "replay" ? replayCursorBarId : null;
+  const activeAsOfEventId = inspectorMode === "replay" ? replayCursorEventId : null;
   const replayBackendResolved =
     inspectorMode === "replay" &&
-    activeAsOfBarId !== null &&
-    windowData?.meta.as_of_bar_id === activeAsOfBarId &&
-    windowData.meta.replay_source !== null &&
-    windowData.meta.replay_source !== undefined;
+    replaySequence !== null &&
+    replaySequence !== undefined;
+  const hasReplayLifecycleEvents = (windowData?.events.length ?? 0) > 0;
   const resolvedStructureSource = windowData?.meta.structure_source ?? null;
   const resolvedRulebookVersion = windowData?.meta.rulebook_version ?? null;
   const resolvedStructureVersion = windowData?.meta.structure_version ?? null;
@@ -245,11 +274,17 @@ export default function App() {
     if (allChartBars.some((bar) => bar.bar_id === replayCursorBarId)) {
       return;
     }
-    setWorkspaceField("replayCursorBarId", null);
+    patchWorkspace({
+      replayCursorBarId: null,
+      replayCursorEventId: null,
+    });
   }, [allChartBars, inspectorMode, replayCursorBarId]);
 
   useEffect(() => {
     if (inspectorMode !== "replay" || !replayPlaying) {
+      return;
+    }
+    if (!replayBackendResolved) {
       return;
     }
     if (!allChartBars.length || replayCursorIndex === null) {
@@ -266,34 +301,22 @@ export default function App() {
         setReplayPlaying(false);
         return;
       }
-      setWorkspaceField("replayCursorBarId", nextBar.bar_id);
+      patchWorkspace({
+        replayCursorBarId: nextBar.bar_id,
+        replayCursorEventId: null,
+      });
     }, replayDelayMs(replaySpeed));
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [allChartBars, inspectorMode, replayCursorIndex, replayPlaying, replaySpeed]);
-
-  useEffect(() => {
-    if (inspectorMode !== "replay") {
-      if (windowData?.meta.as_of_bar_id !== null && windowData?.meta.as_of_bar_id !== undefined) {
-        void requestWindow({ source: "replay" });
-      }
-      return;
-    }
-    if (replayCursorBarId === null) {
-      if (windowData?.meta.as_of_bar_id !== null && windowData?.meta.as_of_bar_id !== undefined) {
-        void requestWindow({ source: "replay" });
-      }
-      return;
-    }
-    if (
-      windowData?.meta.as_of_bar_id === replayCursorBarId &&
-      windowData.meta.structure_source === structureSource
-    ) {
-      return;
-    }
-    void requestWindow({ source: "replay" });
-  }, [inspectorMode, replayCursorBarId, structureSource, windowData?.meta.as_of_bar_id, windowData?.meta.structure_source]);
+  }, [
+    allChartBars,
+    inspectorMode,
+    replayBackendResolved,
+    replayCursorIndex,
+    replayPlaying,
+    replaySpeed,
+  ]);
 
   useEffect(() => {
     lastAutoCenterRef.current = null;
@@ -384,16 +407,9 @@ export default function App() {
     let active = true;
     setDetailLoading(true);
     setDetailError(null);
-    void fetchStructureDetail({
-      apiBaseUrl,
-      structureId: selectedOverlay.source_structure_id,
-      symbol,
-      timeframe,
-      sessionProfile,
-      dataVersion,
-      structureSource,
-      asOfBarId: activeAsOfBarId,
-    })
+    void fetchStructureDetail(
+      buildStructureDetailRequest(selectedOverlay.source_structure_id),
+    )
       .then((detail) => {
         if (!active) {
           return;
@@ -414,7 +430,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [activeAsOfBarId, apiBaseUrl, dataVersion, selectedOverlay, sessionProfile, structureSource, symbol, timeframe]);
+  }, [activeAsOfBarId, activeAsOfEventId, apiBaseUrl, dataVersion, selectedOverlay, sessionProfile, structureSource, symbol, timeframe]);
 
   async function loadWindow(source: "manual" | "restore" | "replay" = "manual") {
     if (
@@ -435,11 +451,14 @@ export default function App() {
     source?: "manual" | "viewport" | "restore" | "replay";
     structureSource?: StructureSourceProfile;
     selectorMode?: SelectorMode;
+    includeReplaySequence?: boolean;
     centerBarId?: string;
     sessionDate?: string;
     startTime?: string;
     endTime?: string;
   }) {
+    const requestId = latestWindowRequestIdRef.current + 1;
+    latestWindowRequestIdRef.current = requestId;
     let request: ReturnType<typeof buildWindowRequest>;
     try {
       request = buildWindowRequest(args);
@@ -455,6 +474,9 @@ export default function App() {
     setWindowNotice(null);
     try {
       const response = await getOrFetchWindow(cacheKey, request);
+      if (requestId !== latestWindowRequestIdRef.current) {
+        return;
+      }
       startTransition(() => {
         setWindowData(response);
         setWindowLoading(false);
@@ -495,6 +517,9 @@ export default function App() {
       });
       void prefetchAdjacentWindows(response, request.structureSource);
     } catch (error) {
+      if (requestId !== latestWindowRequestIdRef.current) {
+        return;
+      }
       setWindowLoading(false);
       const rawMessage =
         error instanceof Error ? error.message : "Failed to load chart window.";
@@ -530,6 +555,7 @@ export default function App() {
   function buildWindowRequest(args?: {
     structureSource?: StructureSourceProfile;
     selectorMode?: SelectorMode;
+    includeReplaySequence?: boolean;
     centerBarId?: string;
     sessionDate?: string;
     startTime?: string;
@@ -542,9 +568,11 @@ export default function App() {
       sessionProfile,
       dataVersion,
       structureSource: args?.structureSource ?? structureSource,
+      includeReplaySequence: args?.includeReplaySequence ?? inspectorMode === "replay",
       emaLengths: emaEnabled ? configuredEmaLengths : [],
       selectorMode: args?.selectorMode ?? selectorMode,
-      asOfBarId: activeAsOfBarId,
+      asOfBarId: null,
+      asOfEventId: null,
       sessionDate: args?.sessionDate ?? sessionDate,
       centerBarId: args?.centerBarId ?? centerBarId,
       startTime: args?.startTime ?? startTime,
@@ -611,6 +639,7 @@ export default function App() {
         buildWindowRequest({
           structureSource: requestStructureSource,
           selectorMode: "center_bar_id",
+          includeReplaySequence: false,
           centerBarId: value,
         }),
       );
@@ -746,16 +775,9 @@ export default function App() {
     clearEmaSelection();
     setWorkspaceField("selectedAnnotationId", null);
     try {
-      const detail = await fetchStructureDetail({
-        apiBaseUrl,
-      structureId: overlay.source_structure_id,
-      symbol,
-      timeframe,
-      sessionProfile,
-      dataVersion,
-      structureSource,
-      asOfBarId: activeAsOfBarId,
-    });
+      const detail = await fetchStructureDetail(
+        buildStructureDetailRequest(overlay.source_structure_id),
+      );
       if (!detail.confirm_bar) {
         setWorkspaceField("confirmationGuide", null);
         return;
@@ -773,7 +795,10 @@ export default function App() {
 
   function handleInspectorModeChange(mode: InspectorMode) {
     if (mode !== "replay") {
-      setWorkspaceField("inspectorMode", mode);
+      patchWorkspace({
+        inspectorMode: mode,
+        replayCursorEventId: null,
+      });
       setReplayPlaying(false);
       if (windowData?.meta.as_of_bar_id !== null && windowData?.meta.as_of_bar_id !== undefined) {
         void requestWindow({ source: "replay" });
@@ -784,15 +809,121 @@ export default function App() {
     patchWorkspace({
       inspectorMode: mode,
       replayCursorBarId: null,
+      replayCursorEventId: null,
       selectedOverlayId: null,
       detailAnchor: null,
       confirmationGuide: null,
+    });
+    void requestWindow({
+      source: "replay",
+      includeReplaySequence: true,
+    });
+  }
+
+  function buildStructureDetailRequest(structureId: string) {
+    return {
+      apiBaseUrl,
+      structureId,
+      symbol,
+      timeframe,
+      sessionProfile,
+      dataVersion,
+      structureSource,
+      asOfBarId: activeAsOfBarId,
+      asOfEventId: activeAsOfEventId,
+      selectorMode,
+      centerBarId,
+      sessionDate,
+      startTime,
+      endTime,
+      leftBars: Number(leftBars || 0),
+      rightBars: Number(rightBars || 0),
+      bufferBars: Number(bufferBars || 0),
+    };
+  }
+
+  async function getReplayEventCatalog() {
+    if (windowData?.events.length) {
+      return windowData.events;
+    }
+    const request = {
+      ...buildWindowRequest(),
+      includeReplaySequence: true,
+      asOfBarId: null,
+      asOfEventId: null,
+    };
+    const cacheKey = buildWindowCacheKey(request);
+    const cached = windowCacheRef.current.get(cacheKey);
+    if (cached) {
+      return cached.events;
+    }
+    const response = await getOrFetchWindow(cacheKey, request);
+    rememberWindowCacheEntry(windowCacheRef.current, cacheKey, response);
+    return response.events;
+  }
+
+  function resolveReplayEventIndex(
+    events: StructureEvent[],
+    eventIds: string[],
+    replayBarId: number | null,
+    replayEventId: string | null,
+  ) {
+    if (!eventIds.length) {
+      return null;
+    }
+    if (replayEventId) {
+      const index = eventIds.indexOf(replayEventId);
+      if (index >= 0) {
+        return index;
+      }
+    }
+    if (replayBarId === null) {
+      return null;
+    }
+    let currentIndex: number | null = null;
+    for (let index = 0; index < events.length; index += 1) {
+      if (events[index]?.event_bar_id <= replayBarId) {
+        currentIndex = index;
+      }
+    }
+    return currentIndex;
+  }
+
+  async function handleReplayStepEvent(direction: -1 | 1) {
+    const events = await getReplayEventCatalog();
+    if (!events.length) {
+      return;
+    }
+    const eventIds = events.map((event) => event.event_id);
+    const currentIndex = resolveReplayEventIndex(
+      events,
+      eventIds,
+      replayCursorBarId,
+      replayCursorEventId,
+    );
+    const nextIndex =
+      currentIndex === null
+        ? direction < 0
+          ? events.length - 1
+          : 0
+        : Math.max(0, Math.min(events.length - 1, currentIndex + direction));
+    const nextEvent = events[nextIndex];
+    if (!nextEvent) {
+      return;
+    }
+    setReplayPlaying(false);
+    patchWorkspace({
+      replayCursorBarId: nextEvent.event_bar_id,
+      replayCursorEventId: nextEvent.event_id,
     });
   }
 
   function handleReplayCursorSelect(barId: number) {
     setReplayPlaying(false);
-    setWorkspaceField("replayCursorBarId", barId);
+    patchWorkspace({
+      replayCursorBarId: barId,
+      replayCursorEventId: null,
+    });
   }
 
   function handleReplayStepBar(direction: -1 | 1) {
@@ -806,7 +937,10 @@ export default function App() {
       Math.min(allChartBars.length - 1, currentIndex + direction),
     );
     setReplayPlaying(false);
-    setWorkspaceField("replayCursorBarId", allChartBars[nextIndex]?.bar_id ?? null);
+    patchWorkspace({
+      replayCursorBarId: allChartBars[nextIndex]?.bar_id ?? null,
+      replayCursorEventId: null,
+    });
   }
 
   function handleReplayJumpToLatest() {
@@ -814,7 +948,10 @@ export default function App() {
       return;
     }
     setReplayPlaying(false);
-    setWorkspaceField("replayCursorBarId", allChartBars[allChartBars.length - 1]?.bar_id ?? null);
+    patchWorkspace({
+      replayCursorBarId: allChartBars[allChartBars.length - 1]?.bar_id ?? null,
+      replayCursorEventId: null,
+    });
   }
 
   function handleStructureSourceChange(nextSource: StructureSourceProfile) {
@@ -835,6 +972,7 @@ export default function App() {
       selectedOverlayId: null,
       detailAnchor: null,
       confirmationGuide: null,
+      replayCursorEventId: null,
       toolbarOpenPanel: null,
     });
     void requestWindow({
@@ -914,6 +1052,10 @@ export default function App() {
         autoViewportFetch={autoViewportFetch}
         onAutoViewportFetchChange={(value) =>
           setWorkspaceField("autoViewportFetch", value)
+        }
+        showReplayRetiredOverlays={showReplayRetiredOverlays}
+        onShowReplayRetiredOverlaysChange={(value) =>
+          setWorkspaceField("showReplayRetiredOverlays", value)
         }
         overlayLayerCounts={overlayLayerCounts}
         overlayLayers={overlayLayers}
@@ -1071,6 +1213,7 @@ export default function App() {
           <ReplayTransport
             visible={inspectorMode === "replay"}
             hasBars={allChartBars.length > 0}
+            hasEvents={hasReplayLifecycleEvents}
             cursorBar={replayCursorBar}
             playing={replayPlaying}
             speed={replaySpeed}
@@ -1082,9 +1225,7 @@ export default function App() {
               setReplayPlaying((current) => !current);
             }}
             onStepBar={handleReplayStepBar}
-            onStepEvent={() => {
-              setReplayPlaying(false);
-            }}
+            onStepEvent={handleReplayStepEvent}
             onSpeedChange={(speed) => setWorkspaceField("replaySpeed", speed)}
             onJumpToLatest={handleReplayJumpToLatest}
           />
@@ -1113,6 +1254,120 @@ export default function App() {
   );
 }
 
+function resolveReplayFrameState(args: {
+  replaySequence: ReplaySequence | null;
+  replayCursorBarId: number | null;
+  replayCursorEventId: string | null;
+}): { structures: StructureSummary[]; overlays: Overlay[] } | null {
+  if (!args.replaySequence || args.replayCursorBarId === null) {
+    return null;
+  }
+  const targetDeltaIndex =
+    args.replayCursorEventId === null
+      ? null
+      : (() => {
+          const index = args.replaySequence.deltas.findIndex(
+            (delta) => delta.event_id === args.replayCursorEventId,
+          );
+          return index >= 0 ? index : null;
+        })();
+  const structuresById = new Map(
+    args.replaySequence.base.structures.map((structure) => [structure.structure_id, structure]),
+  );
+  const overlaysById = new Map(
+    args.replaySequence.base.overlays.map((overlay) => [overlay.overlay_id, overlay]),
+  );
+  for (let index = 0; index < args.replaySequence.deltas.length; index += 1) {
+    const delta = args.replaySequence.deltas[index];
+    if (
+      !replayDeltaVisibleAtCursor(
+        delta,
+        index,
+        targetDeltaIndex,
+        args.replayCursorBarId,
+      )
+    ) {
+      break;
+    }
+    for (const structureId of delta.remove_structure_ids) {
+      structuresById.delete(structureId);
+    }
+    for (const structure of delta.upsert_structures) {
+      structuresById.set(structure.structure_id, structure);
+    }
+    for (const overlayId of delta.remove_overlay_ids) {
+      overlaysById.delete(overlayId);
+    }
+    for (const overlay of delta.upsert_overlays) {
+      overlaysById.set(overlay.overlay_id, overlay);
+    }
+  }
+  return {
+    structures: Array.from(structuresById.values()).sort(compareReplayStructures),
+    overlays: Array.from(overlaysById.values()).sort(compareReplayOverlays),
+  };
+}
+
+function replayDeltaVisibleAtCursor(
+  delta: ReplayDelta,
+  deltaIndex: number,
+  targetDeltaIndex: number | null,
+  replayCursorBarId: number,
+) {
+  if (targetDeltaIndex !== null) {
+    return deltaIndex <= targetDeltaIndex;
+  }
+  return delta.event_bar_id <= replayCursorBarId;
+}
+
+function compareReplayStructures(left: StructureSummary, right: StructureSummary) {
+  return (
+    left.start_bar_id - right.start_bar_id ||
+    ((left.end_bar_id ?? left.start_bar_id) - (right.end_bar_id ?? right.start_bar_id)) ||
+    left.kind.localeCompare(right.kind) ||
+    left.structure_id.localeCompare(right.structure_id)
+  );
+}
+
+function compareReplayOverlays(left: Overlay, right: Overlay) {
+  return (
+    replayOverlayZOrder(left.kind) - replayOverlayZOrder(right.kind) ||
+    replayOverlayTierRank(left) - replayOverlayTierRank(right) ||
+    ((left.anchor_bars[0] ?? -1) - (right.anchor_bars[0] ?? -1)) ||
+    left.overlay_id.localeCompare(right.overlay_id)
+  );
+}
+
+function replayOverlayZOrder(kind: string) {
+  if (kind === "leg-line") {
+    return 1;
+  }
+  if (kind === "pivot-marker") {
+    return 2;
+  }
+  if (kind === "major-lh-marker") {
+    return 3;
+  }
+  return 100;
+}
+
+function replayOverlayTierRank(overlay: Overlay) {
+  if (overlay.meta.replay_event_type) {
+    return -1;
+  }
+  if (overlay.style_key.startsWith("pivot_st.")) {
+    return 0;
+  }
+  if (overlay.style_key.startsWith("pivot.")) {
+    return 1;
+  }
+  return 0;
+}
+
+function isReplayRetiredOverlay(overlay: Overlay) {
+  return overlay.meta.replay_event_type !== undefined && overlay.meta.replay_event_type !== null;
+}
+
 function buildWindowCacheKey(request: Parameters<typeof fetchChartWindow>[0]) {
   return JSON.stringify({
     apiBaseUrl: request.apiBaseUrl,
@@ -1120,7 +1375,9 @@ function buildWindowCacheKey(request: Parameters<typeof fetchChartWindow>[0]) {
     timeframe: request.timeframe,
     dataVersion: request.dataVersion,
     structureSource: request.structureSource,
+    includeReplaySequence: request.includeReplaySequence ?? false,
     asOfBarId: request.asOfBarId ?? null,
+    asOfEventId: request.asOfEventId ?? null,
     selectorMode: request.selectorMode,
     centerBarId: request.centerBarId,
     sessionDate: request.sessionDate,
@@ -1136,7 +1393,10 @@ function buildWindowCacheKey(request: Parameters<typeof fetchChartWindow>[0]) {
 }
 
 function shouldCacheWindowRequest(request: Parameters<typeof fetchChartWindow>[0]) {
-  return request.asOfBarId === null || request.asOfBarId === undefined;
+  return (
+    (request.asOfBarId === null || request.asOfBarId === undefined) &&
+    (request.asOfEventId === null || request.asOfEventId === undefined)
+  );
 }
 
 function rememberWindowCacheEntry(

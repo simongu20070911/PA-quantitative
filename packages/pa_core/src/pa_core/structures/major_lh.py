@@ -25,7 +25,6 @@ from pa_core.rulebooks.v0_1 import (
     MAJOR_LH_STRUCTURE_VERSION,
     MAJOR_LH_TIMING_SEMANTICS,
 )
-from pa_core.structures.ids import build_structure_id
 from pa_core.structures.lifecycle_frames import (
     DerivedLifecycleFrames,
     DerivedLifecycleReasons,
@@ -33,13 +32,11 @@ from pa_core.structures.lifecycle_frames import (
     build_lifecycle_frames_from_upstream_events,
 )
 from pa_core.structures.materialization import (
-    load_structure_bar_frame,
-    load_structure_dependency_from_context,
-    load_structure_event_dependency_from_context,
+    StructureDependencyFrames,
+    materialize_structure_family,
     resolve_structure_materialization_context,
-    write_structure_artifact_from_context,
-    write_structure_event_artifact_from_context,
 )
+from pa_core.structures.row_builders import build_structure_row
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,46 +191,27 @@ def materialize_major_lh(
             MAJOR_LH_KIND_GROUP: (config.rulebook_version, config.structure_version),
         },
     )
-    bar_frame = load_structure_bar_frame(
-        context,
-        columns=["bar_id", "session_id", "session_date", "high", "low"],
-    )
-    if context.dataset_specs_by_kind[MAJOR_LH_KIND_GROUP].has_events:
-        leg_event_dependency = load_structure_event_dependency_from_context(context, kind=LEG_KIND_GROUP)
-        major_lh_frame = build_major_lh_lifecycle_frames(
-            bar_frame=bar_frame,
-            leg_event_frame=leg_event_dependency.frame,
-            feature_refs=context.structure_inputs.feature_refs,
-            rulebook_version=config.rulebook_version,
-            structure_version=config.structure_version,
-        )
-        object_frame = major_lh_frame.object_frame
-        event_frame = major_lh_frame.event_frame
-    else:
-        leg_dependency = load_structure_dependency_from_context(context, kind=LEG_KIND_GROUP)
-        object_frame = build_major_lh_structure_frame(
-            bar_frame=bar_frame,
-            leg_frame=leg_dependency.frame,
-            feature_refs=context.structure_inputs.feature_refs,
-            rulebook_version=config.rulebook_version,
-            structure_version=config.structure_version,
-        )
-        event_frame = None
-    if object_frame.num_rows == 0:
-        raise ValueError("No major_lh rows were generated from the current leg artifacts.")
-    manifest = write_structure_artifact_from_context(
+    return materialize_structure_family(
         context,
         kind=MAJOR_LH_KIND_GROUP,
-        frame=object_frame,
+        bar_columns=["bar_id", "session_id", "session_date", "high", "low"],
+        empty_error="No major_lh rows were generated from the current leg artifacts.",
+        build_object_frame=lambda bar_frame, dependencies: build_major_lh_structure_frame(
+            bar_frame=bar_frame,
+            leg_frame=dependencies.by_kind[LEG_KIND_GROUP],
+            feature_refs=context.structure_inputs.feature_refs,
+            rulebook_version=config.rulebook_version,
+            structure_version=config.structure_version,
+        ),
+        build_event_frames=lambda bar_frame, dependencies: build_major_lh_lifecycle_frames(
+            bar_frame=bar_frame,
+            leg_event_frame=dependencies.by_kind[LEG_KIND_GROUP],
+            feature_refs=context.structure_inputs.feature_refs,
+            rulebook_version=config.rulebook_version,
+            structure_version=config.structure_version,
+        ),
+        payload_schema=EXPLANATION_CODES_PAYLOAD_SCHEMA,
     )
-    if event_frame is not None:
-        write_structure_event_artifact_from_context(
-            context,
-            kind=MAJOR_LH_KIND_GROUP,
-            frame=event_frame,
-            payload_schema=EXPLANATION_CODES_PAYLOAD_SCHEMA,
-        )
-    return manifest
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -329,28 +307,20 @@ def _build_major_lh_row(
         explanation_codes.append(MAJOR_LH_CROSS_SESSION_CODE)
 
     anchor_bar = bar_lookup[h2_bar_id]
-    return {
-        "structure_id": build_structure_id(
-            kind=MAJOR_LH_KIND_GROUP,
-            start_bar_id=h1_bar_id,
-            end_bar_id=h2_bar_id,
-            confirm_bar_id=confirm_bar_id,
-            anchor_bar_ids=anchor_bar_ids,
-            rulebook_version=rulebook_version,
-            structure_version=structure_version,
-            scope_ref=structure_scope,
-        ),
-        "kind": MAJOR_LH_KIND_GROUP,
-        "state": "confirmed" if confirmed else "candidate",
-        "start_bar_id": h1_bar_id,
-        "end_bar_id": h2_bar_id,
-        "confirm_bar_id": confirm_bar_id,
-        "session_id": int(anchor_bar["session_id"]),
-        "session_date": int(anchor_bar["session_date"]),
-        "anchor_bar_ids": anchor_bar_ids,
-        "feature_refs": feature_refs,
-        "rulebook_version": rulebook_version,
-        "explanation_codes": tuple(explanation_codes),
-    }
+    return build_structure_row(
+        kind=MAJOR_LH_KIND_GROUP,
+        state="confirmed" if confirmed else "candidate",
+        start_bar_id=h1_bar_id,
+        end_bar_id=h2_bar_id,
+        confirm_bar_id=confirm_bar_id,
+        session_id=int(anchor_bar["session_id"]),
+        session_date=int(anchor_bar["session_date"]),
+        anchor_bar_ids=anchor_bar_ids,
+        feature_refs=feature_refs,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        explanation_codes=explanation_codes,
+        structure_scope=structure_scope,
+    )
 if __name__ == "__main__":
     raise SystemExit(main())

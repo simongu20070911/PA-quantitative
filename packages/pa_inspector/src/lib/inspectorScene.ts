@@ -382,6 +382,9 @@ export function findOverlayAtPoint(
 ): Drawable | null {
   for (let index = drawables.length - 1; index >= 0; index -= 1) {
     const drawable = drawables[index];
+    if (drawable.overlay.meta.replay_event_type) {
+      continue;
+    }
     if (resolveOverlaySemantics(drawable.overlay).geometryKind === "leg-line") {
       const [start, end] = drawable.points;
       if (pointToSegmentDistance(x, y, start, end) <= drawable.radius) {
@@ -721,9 +724,17 @@ function drawOverlay(
   } else if (semantics.geometryKind === "major-lh-marker") {
     const [point] = drawable.points;
     drawDiamondBadge(context, point.x, point.y, 6, "above", style);
-  } else if (semantics.geometryKind === "breakout-marker") {
-    const [point] = drawable.points;
-    drawBreakoutBadge(context, point.x, point.y, 6, style);
+  }
+
+  const labelText = overlayDisplayLabel(drawable.overlay, semantics);
+  if (labelText) {
+    drawOverlayLabel(
+      context,
+      labelText,
+      overlayLabelAnchor(drawable, semantics),
+      style,
+      selected,
+    );
   }
 
   context.restore();
@@ -787,7 +798,7 @@ function drawPivotBadge(
   const anchor = crispPoint(x, y);
   const offset = direction === "up" ? 11 : -11;
   context.strokeStyle = style.stroke;
-  context.fillStyle = "rgba(255, 252, 246, 0.985)";
+  context.fillStyle = style.fill;
   drawTriangle(context, anchor.x, crisp(anchor.y + offset), size, direction);
 }
 
@@ -802,7 +813,7 @@ function drawDiamondBadge(
   const anchor = crispPoint(x, y);
   const badgeY = crisp(anchor.y + (placement === "above" ? -8 : 8));
   context.strokeStyle = style.stroke;
-  context.fillStyle = "rgba(255, 251, 242, 0.985)";
+  context.fillStyle = style.fill;
   drawDiamond(context, anchor.x, badgeY, size);
   context.beginPath();
   context.setLineDash([]);
@@ -811,36 +822,109 @@ function drawDiamondBadge(
   context.fill();
 }
 
-function drawBreakoutBadge(
+function overlayDisplayLabel(
+  overlay: Overlay,
+  semantics: ReturnType<typeof resolveOverlaySemantics>,
+) {
+  const displayLabel = overlay.meta.display_label;
+  if (typeof displayLabel !== "string" || displayLabel.length === 0) {
+    return null;
+  }
+  if (overlay.meta.replay_event_type) {
+    return null;
+  }
+  if (semantics.pivotTier === "pivot_st") {
+    return null;
+  }
+  return displayLabel;
+}
+
+function overlayLabelAnchor(
+  drawable: Drawable,
+  semantics: ReturnType<typeof resolveOverlaySemantics>,
+): { x: number; y: number; placement: "above" | "below" | "right-above" | "right-below" } {
+  if (semantics.geometryKind === "leg-line") {
+    const [start, end] = drawable.points;
+    return {
+      x: end.x,
+      y: end.y,
+      placement: end.y <= start.y ? "right-above" : "right-below",
+    };
+  }
+  const [point] = drawable.points;
+  if (semantics.geometryKind === "pivot-marker") {
+    return {
+      x: point.x,
+      y: point.y,
+      placement: semantics.pivotDirection === "high" ? "above" : "below",
+    };
+  }
+  return {
+    x: point.x,
+    y: point.y,
+    placement: "above",
+  };
+}
+
+function drawOverlayLabel(
+  context: CanvasRenderingContext2D,
+  text: string,
+  anchor: { x: number; y: number; placement: "above" | "below" | "right-above" | "right-below" },
+  style: OverlayPaint,
+  selected: boolean,
+) {
+  const fontSize = selected ? 11 : 10;
+  const paddingX = 5;
+  const height = fontSize + 6;
+  context.save();
+  context.setLineDash([]);
+  context.font = `600 ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+  context.textBaseline = "middle";
+  const textWidth = Math.ceil(context.measureText(text).width);
+  const width = textWidth + paddingX * 2;
+  let centerX = anchor.x;
+  let centerY = anchor.y;
+  if (anchor.placement === "above") {
+    centerY -= 22;
+  } else if (anchor.placement === "below") {
+    centerY += 22;
+  } else if (anchor.placement === "right-above") {
+    centerX += 16 + width * 0.5;
+    centerY -= 10;
+  } else {
+    centerX += 16 + width * 0.5;
+    centerY += 10;
+  }
+  const left = Math.round(centerX - width * 0.5);
+  const top = Math.round(centerY - height * 0.5);
+  const radius = 5;
+  context.fillStyle = withAlpha(style.fill, selected ? 0.96 : 0.9);
+  context.strokeStyle = withAlpha(style.stroke, selected ? 0.92 : 0.72);
+  context.lineWidth = 1;
+  drawRoundedRect(context, left, top, width, height, radius);
+  context.fill();
+  context.stroke();
+  context.fillStyle = withAlpha(style.stroke, selected ? 0.98 : 0.9);
+  context.fillText(text, left + paddingX, top + height * 0.5 + 0.5);
+  context.restore();
+}
+
+function drawRoundedRect(
   context: CanvasRenderingContext2D,
   x: number,
   y: number,
-  size: number,
-  style: OverlayPaint,
+  width: number,
+  height: number,
+  radius: number,
 ) {
-  const anchor = crispPoint(x, y);
-  const badgeY = crisp(anchor.y - 9);
+  const clampedRadius = Math.max(0, Math.min(radius, width * 0.5, height * 0.5));
   context.beginPath();
-  context.setLineDash([]);
-  context.fillStyle = "rgba(255, 250, 244, 0.985)";
-  context.arc(anchor.x, badgeY, size * 0.82, 0, Math.PI * 2);
-  context.fill();
-  context.stroke();
-
-  context.beginPath();
-  context.strokeStyle = style.accent;
-  context.lineWidth = 1.6;
-  context.moveTo(crisp(anchor.x - 3), crisp(badgeY - 1));
-  context.lineTo(anchor.x, crisp(badgeY + 3));
-  context.lineTo(crisp(anchor.x + 3), crisp(badgeY - 1));
-  context.stroke();
-
-  context.beginPath();
-  context.strokeStyle = style.stroke;
-  context.lineWidth = 1.2;
-  context.moveTo(anchor.x, crisp(badgeY + size * 0.72));
-  context.lineTo(anchor.x, crisp(anchor.y - 2));
-  context.stroke();
+  context.moveTo(x + clampedRadius, y);
+  context.arcTo(x + width, y, x + width, y + height, clampedRadius);
+  context.arcTo(x + width, y + height, x, y + height, clampedRadius);
+  context.arcTo(x, y + height, x, y, clampedRadius);
+  context.arcTo(x, y, x + width, y, clampedRadius);
+  context.closePath();
 }
 
 function drawTriangle(
@@ -882,60 +966,64 @@ function drawDiamond(
 }
 
 function overlayStyle(styleKey: string, selected: boolean): OverlayPaint {
-  const stateOpacity = styleKey.includes(".candidate") ? 0.52 : 0.92;
-  const pivotStOpacity = styleKey.includes(".candidate") ? 0.36 : 0.62;
+  const candidate = styleKey.includes(".candidate");
+  const retired = styleKey.includes(".invalidated") || styleKey.includes(".replaced");
+  const stateOpacity = retired ? 0.16 : candidate ? 0.52 : 0.92;
+  const pivotStOpacity = retired ? 0.12 : candidate ? 0.36 : 0.62;
+  const fillOpacity = retired ? 0.035 : 0.16;
+  const retiredDash = retired ? [3, 4] : [];
   if (styleKey.startsWith("leg.up")) {
     return {
       stroke: `rgba(36, 92, 62, ${stateOpacity})`,
-      fill: "rgba(36, 92, 62, 0.16)",
+      fill: `rgba(36, 92, 62, ${fillOpacity})`,
       accent: "rgba(79, 151, 111, 0.96)",
       lineWidth: selected ? 2.9 : 1.65,
-      dash: styleKey.includes(".candidate") ? [8, 6] : [],
+      dash: candidate ? [8, 6] : retiredDash,
     };
   }
   if (styleKey.startsWith("leg.down")) {
     return {
       stroke: `rgba(179, 84, 54, ${stateOpacity})`,
-      fill: "rgba(179, 84, 54, 0.16)",
+      fill: `rgba(179, 84, 54, ${fillOpacity})`,
       accent: "rgba(214, 125, 93, 0.97)",
       lineWidth: selected ? 2.9 : 1.65,
-      dash: styleKey.includes(".candidate") ? [8, 6] : [],
+      dash: candidate ? [8, 6] : retiredDash,
     };
   }
   if (styleKey.startsWith("pivot_st.high")) {
     return {
       stroke: `rgba(164, 99, 73, ${pivotStOpacity})`,
-      fill: "rgba(255, 247, 238, 0.82)",
-      accent: "rgba(196, 129, 103, 0.88)",
+      fill: retired ? "rgba(255, 247, 238, 0.16)" : "rgba(255, 247, 238, 0.82)",
+      accent: retired ? "rgba(196, 129, 103, 0.34)" : "rgba(196, 129, 103, 0.88)",
       lineWidth: selected ? 1.9 : 1.1,
-      dash: [],
+      dash: retiredDash,
     };
   }
   if (styleKey.startsWith("pivot_st.low")) {
     return {
       stroke: `rgba(52, 104, 80, ${pivotStOpacity})`,
-      fill: "rgba(246, 252, 248, 0.82)",
-      accent: "rgba(98, 148, 122, 0.88)",
+      fill: retired ? "rgba(246, 252, 248, 0.16)" : "rgba(246, 252, 248, 0.82)",
+      accent: retired ? "rgba(98, 148, 122, 0.34)" : "rgba(98, 148, 122, 0.88)",
       lineWidth: selected ? 1.9 : 1.1,
-      dash: [],
+      dash: retiredDash,
     };
   }
   if (styleKey.startsWith("pivot.high")) {
     return {
       stroke: `rgba(179, 84, 54, ${stateOpacity})`,
-      fill: "rgba(255, 252, 246, 0.94)",
-      accent: "rgba(214, 125, 93, 0.97)",
+      fill: retired ? "rgba(255, 252, 246, 0.18)" : "rgba(255, 252, 246, 0.94)",
+      accent: retired ? "rgba(214, 125, 93, 0.4)" : "rgba(214, 125, 93, 0.97)",
       lineWidth: selected ? 2.2 : 1.35,
-      dash: [],
+      dash: retiredDash,
     };
   }
   if (styleKey.startsWith("pivot.low")) {
     return {
       stroke: `rgba(36, 92, 62, ${stateOpacity})`,
-      fill: "rgba(255, 252, 246, 0.94)",
-      accent: "rgba(79, 151, 111, 0.96)",
+      fill: retired ? "rgba(255, 252, 246, 0.18)" : "rgba(255, 252, 246, 0.94)",
+      accent: retired ? "rgba(79, 151, 111, 0.4)" : "rgba(79, 151, 111, 0.96)",
       lineWidth: selected ? 2.2 : 1.35,
-      dash: [],
+      dash: retiredDash,
     };
   }
   if (styleKey.startsWith("major_lh")) {
@@ -944,7 +1032,7 @@ function overlayStyle(styleKey: string, selected: boolean): OverlayPaint {
       fill: "rgba(255, 251, 242, 0.95)",
       accent: "rgba(230, 177, 95, 0.94)",
       lineWidth: selected ? 2.5 : 1.55,
-      dash: styleKey.includes(".candidate") ? [5, 4] : [],
+      dash: candidate ? [5, 4] : retiredDash,
     };
   }
   return {

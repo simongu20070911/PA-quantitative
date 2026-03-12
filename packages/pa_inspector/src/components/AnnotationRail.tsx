@@ -1,6 +1,10 @@
 import { useRef } from "react";
 
-import { useDraggableFloatingSurface, useFloatingSurfacePosition } from "../lib/floatingSurface";
+import {
+  resolveFloatingSurfaceBounds,
+  useDraggableFloatingSurface,
+  useFloatingSurfacePosition,
+} from "../lib/floatingSurface";
 import type { AnnotationTool, FloatingPosition } from "../lib/types";
 
 interface AnnotationRailProps {
@@ -34,8 +38,18 @@ export function AnnotationRail({
   useDraggableFloatingSurface({
     handleRef: gripRef,
     surfaceRef: railRef,
-    clampInset: 8,
     setPosition,
+    boundsResolver: (surface) => {
+      const parent = surface.offsetParent;
+      if (!(parent instanceof HTMLElement)) {
+        return null;
+      }
+      return resolveFloatingSurfaceBounds(parent, {
+        surfaceWidth: surface.offsetWidth,
+        surfaceHeight: surface.offsetHeight,
+        clampInset: 8,
+      });
+    },
   });
 
   return (

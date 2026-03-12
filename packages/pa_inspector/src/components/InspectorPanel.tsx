@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { useDraggableFloatingSurface, useFloatingSurfacePosition } from "../lib/floatingSurface";
+import {
+  clampFloatingPosition,
+  resolveFloatingSurfaceBounds,
+  useDraggableFloatingSurface,
+  useFloatingSurfacePosition,
+} from "../lib/floatingSurface";
 import type {
   ChartBar,
   FloatingPosition,
@@ -8,6 +13,42 @@ import type {
   Overlay,
   StructureDetailResponse,
 } from "../lib/types";
+
+type StructurePayload = Record<string, unknown>;
+
+function asPayloadRecord(value: unknown): StructurePayload | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as StructurePayload)
+    : null;
+}
+
+function payloadNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function payloadStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+}
+
+function formatPayloadNumber(value: unknown, digits = 2): string {
+  const numeric = payloadNumber(value);
+  return numeric === null ? "None" : numeric.toFixed(digits);
+}
+
+function formatPayloadText(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+  return "None";
+}
 
 export interface InspectorPanelProps {
   overlay: Overlay | null;
@@ -50,6 +91,7 @@ export function InspectorPanel({
   });
   const [manualPosition, setManualPosition] = useState(initialManualPosition);
   const overlayKey = overlay?.overlay_id ?? null;
+  const structurePayload = asPayloadRecord(detail?.structure.payload);
 
   useEffect(() => {
     onManualPositionChangeRef.current = onManualPositionChange;
@@ -79,9 +121,16 @@ export function InspectorPanel({
     let top = preferBelow
       ? anchorPoint.y + gap
       : anchorPoint.y - panelRect.height - gap;
-    left = Math.max(gap, Math.min(left, parentRect.width - panelRect.width - gap));
-    top = Math.max(gap, Math.min(top, parentRect.height - panelRect.height - gap));
-    setPosition({ left, top });
+    setPosition(
+      clampFloatingPosition(
+        { left, top },
+        resolveFloatingSurfaceBounds(parent, {
+          surfaceWidth: panelRect.width,
+          surfaceHeight: panelRect.height,
+          clampInset: gap,
+        }),
+      ),
+    );
   }, [anchorPoint, detail, error, loading, manualPosition, overlay]);
 
   useEffect(() => {
@@ -95,8 +144,18 @@ export function InspectorPanel({
   useDraggableFloatingSurface({
     handleRef: dragHandleRef,
     surfaceRef: panelRef,
-    clampInset: 14,
     setPosition,
+    boundsResolver: (surface) => {
+      const parent = surface.offsetParent;
+      if (!(parent instanceof HTMLElement)) {
+        return null;
+      }
+      return resolveFloatingSurfaceBounds(parent, {
+        surfaceWidth: surface.offsetWidth,
+        surfaceHeight: surface.offsetHeight,
+        clampInset: 14,
+      });
+    },
     onDragStart: () => {
       setManualPosition(true);
     },
@@ -224,6 +283,13 @@ export function InspectorPanel({
               ))}
             </div>
           </div>
+
+          {structurePayload ? (
+            <div className="detail-block">
+              <h3>Payload</h3>
+              <pre className="detail-payload">{JSON.stringify(structurePayload, null, 2)}</pre>
+            </div>
+          ) : null}
 
           <div className="detail-block">
             <h3>Versions</h3>

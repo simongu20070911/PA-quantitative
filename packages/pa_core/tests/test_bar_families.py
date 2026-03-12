@@ -4,7 +4,7 @@ import unittest
 
 import pyarrow as pa
 
-from pa_core.data.bar_families import _derive_bar_family
+from pa_core.data.bar_families import _derive_bar_family, _select_family_window
 
 
 NS_PER_MINUTE = 60_000_000_000
@@ -39,6 +39,43 @@ class BarFamilyTests(unittest.TestCase):
         self.assertEqual(derived.column("low").to_pylist(), [6.0, 5.0])
         self.assertEqual(derived.column("close").to_pylist(), [12.0, 6.0])
         self.assertEqual(derived.column("volume").to_pylist(), [2.0, 2.0])
+
+    def test_session_date_selection_trims_family_window_after_part_load(self) -> None:
+        family = pa.table(
+            {
+                "bar_id": pa.array([100, 101, 102, 103, 104, 105], type=pa.int64()),
+                "symbol": pa.array(["ES"] * 6),
+                "timeframe": pa.array(["1m"] * 6),
+                "ts_utc_ns": pa.array(
+                    [1, 2, 3, 4, 5, 6],
+                    type=pa.int64(),
+                ),
+                "ts_et_ns": pa.array(
+                    [1, 2, 3, 4, 5, 6],
+                    type=pa.int64(),
+                ),
+                "session_id": pa.array([1, 1, 1, 2, 2, 2], type=pa.int64()),
+                "session_date": pa.array([20240101, 20240101, 20240101, 20240102, 20240102, 20240102], type=pa.int64()),
+                "open": pa.array([1, 1, 1, 1, 1, 1], type=pa.float64()),
+                "high": pa.array([2, 2, 2, 2, 2, 2], type=pa.float64()),
+                "low": pa.array([0, 0, 0, 0, 0, 0], type=pa.float64()),
+                "close": pa.array([1, 1, 1, 1, 1, 1], type=pa.float64()),
+                "volume": pa.array([1, 1, 1, 1, 1, 1], type=pa.float64()),
+            }
+        )
+
+        window = _select_family_window(
+            family_table=family,
+            center_bar_id=None,
+            session_date=20240102,
+            start_time=None,
+            end_time=None,
+            left_bars=1,
+            right_bars=1,
+            buffer_bars=0,
+        )
+
+        self.assertEqual(window.column("bar_id").to_pylist(), [102, 103, 104, 105])
 
 
 def _sample_base_table() -> pa.Table:

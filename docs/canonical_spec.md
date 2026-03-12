@@ -28,7 +28,7 @@ Ad hoc deviations are not allowed.
 Build a long-term, theory-first market-structure platform with:
 
 - a carefully hand-crafted, interpretable feature library
-- a structure engine for legs, swings, breakout starts, major LH/HL, trendlines, and related objects
+- a structure engine for pivots, legs, swings, major LH/HL, trendlines, and related objects
 - a TradingView-like continuous inspector for visual validation and refinement
 - a human review workflow that is tied to exact rule and artifact versions
 
@@ -69,13 +69,19 @@ Dependency rules:
 - lower layers must never depend on higher layers
 - the inspector must never become the home of structure logic
 
+Semantic ownership rules:
+
+- reusable analytical concepts should be defined once in dedicated definition docs
+- rulebooks should instantiate those definitions instead of inventing semantics ad hoc
+- implementation code and artifacts should preserve both definition provenance and rulebook provenance where relevant
+
 ## Canonical Repository Layout
 
 Target layout:
 
 ```text
 Data/                         # immutable raw source files
-docs/                         # architecture specs, rulebooks, ADRs
+docs/                         # architecture specs, definitions, rulebooks, ADRs
 packages/
   pa_core/                    # Python: data, features, structures, overlays
   pa_api/                     # FastAPI: artifact serving and review endpoints
@@ -88,6 +94,11 @@ Package responsibilities:
 - `pa_core`: all deterministic computation and artifact generation
 - `pa_api`: all read/write service boundaries for the inspector
 - `pa_inspector`: chart rendering, navigation, inspection, and review UI
+
+Documentation responsibilities:
+
+- `docs/definitions/`: semantic source of truth for reusable concepts when dedicated definition docs exist
+- `docs/rulebooks/`: versioned instantiations of those definitions and other rule-specific legality
 
 ## Canonical Data Source Policy
 
@@ -156,6 +167,7 @@ Current focus:
 Long-term requirement:
 
 - the same feature and structure definitions should support later incremental or real-time updates without changing semantic meaning
+- the same reusable concept should keep one stable definition even when multiple rulebooks instantiate it differently
 
 Compatibility rules:
 
@@ -164,6 +176,7 @@ Compatibility rules:
 - bar-finalization policy must be explicit
 - session-boundary behavior must be explicit
 - batch and incremental forms of the same logic must agree on artifact semantics
+- parameter changes that alter the meaning of one reusable concept must be tracked through definition provenance, not only rulebook prose
 
 Timing semantics must specify when a value becomes available, for example:
 
@@ -370,7 +383,6 @@ Initial structure classes include:
 - `pivot`
 - `leg`
 - `swing`
-- `breakout_start`
 - `major_lh`
 - `major_hl`
 - `structure_level`
@@ -785,12 +797,12 @@ Examples of components that should strongly prefer reference-first development:
 3. Build initial structure artifacts:
    - `pivot`
    - `leg`
-   - `breakout_start`
+   - `major_lh`
 4. Build inspector MVP:
    - continuous candles
    - pivot overlays
    - leg overlays
-   - breakout overlays
+    - major-LH overlays
    - side-panel inspection
 5. Add review capture.
 6. Add diff mode.

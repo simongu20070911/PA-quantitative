@@ -25,10 +25,16 @@ from pa_core.overlays import (
     MVP_OVERLAY_VERSION,
     OverlaySourceDataset,
     project_overlay_objects,
+    project_structure_event_overlay_objects,
     sort_overlay_objects_for_render,
 )
 from pa_core.schemas import OverlayObject
-from pa_core.structures.lifecycle import resolve_structure_rows_from_lifecycle_events
+from pa_core.structures.lifecycle import (
+    advance_structure_states_from_lifecycle_event,
+    resolve_structure_rows_from_lifecycle_events,
+    resolve_structure_states_from_lifecycle_events,
+    resolved_structure_state_to_row,
+)
 from pa_core.structures.pivots_v0_2 import (
     PIVOT_KIND_GROUP as PIVOT_V0_2_KIND_GROUP,
     PIVOT_RULEBOOK_VERSION as PIVOT_V0_2_RULEBOOK_VERSION,
@@ -125,6 +131,32 @@ class ResolvedStructureDetail:
     structure_refs: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ReplayWindowBase:
+    as_of_bar_id: int | None
+    structure_rows: tuple[dict[str, object], ...]
+    overlays: tuple[OverlayObject, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayWindowDelta:
+    event_id: str
+    event_bar_id: int
+    event_order: int
+    event_type: str
+    structure_id: str
+    remove_structure_ids: tuple[str, ...]
+    upsert_structure_rows: tuple[dict[str, object], ...]
+    remove_overlay_ids: tuple[str, ...]
+    upsert_overlays: tuple[OverlayObject, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayWindowSequence:
+    base: ReplayWindowBase
+    deltas: tuple[ReplayWindowDelta, ...]
+
+
 def load_chart_context(
     *,
     config: ChartReadConfig,
@@ -191,6 +223,13 @@ def validate_as_of_bar_id(*, context: ChartContext, as_of_bar_id: int) -> None:
         )
 
 
+def validate_as_of_event_id(*, context: ChartContext, as_of_event_id: str) -> None:
+    if not any(str(record.row["event_id"]) == as_of_event_id for record in context.structure_event_records):
+        raise ChartWindowSelectionError(
+            f"as_of_event_id={as_of_event_id} was not found in the selected {context.session_profile} {context.timeframe} lifecycle event stream."
+        )
+
+
 def resolve_structure_rows_for_window(
     *,
     structure_records: dict[str, StructureRecord],
@@ -198,15 +237,27 @@ def resolve_structure_rows_for_window(
     min_bar_id: int | None,
     max_bar_id: int | None,
     as_of_bar_id: int | None,
+    as_of_event_id: str | None = None,
 ) -> list[dict[str, object]]:
     if min_bar_id is None or max_bar_id is None:
         return []
+    event_backed_ids = {
+        str(record.row["structure_id"])
+        for record in structure_event_records
+    }
+    effective_as_of_bar_id = as_of_bar_id
+    if effective_as_of_bar_id is None and as_of_event_id is not None:
+        effective_as_of_bar_id = _resolve_event_cursor_position(
+            structure_event_records,
+            as_of_event_id,
+        )[0]
     lifecycle_rows = (
         resolve_structure_rows_from_lifecycle_events(
             [record.row for record in structure_event_records],
-            as_of_bar_id=as_of_bar_id,
+            as_of_bar_id=effective_as_of_bar_id,
+            as_of_event_id=as_of_event_id,
         )
-        if as_of_bar_id is not None
+        if effective_as_of_bar_id is not None or as_of_event_id is not None
         else {}
     )
     rows: list[dict[str, object]] = [
@@ -216,13 +267,16 @@ def resolve_structure_rows_for_window(
     ]
     for record in structure_records.values():
         row = record.row
-        if as_of_bar_id is not None and str(row["structure_id"]) in lifecycle_rows:
+        structure_id = str(row["structure_id"])
+        if (as_of_bar_id is not None or as_of_event_id is not None) and structure_id in lifecycle_rows:
+            continue
+        if as_of_event_id is not None and structure_id in event_backed_ids:
             continue
         if not _structure_row_overlaps_window(row, min_bar_id=min_bar_id, max_bar_id=max_bar_id):
             continue
-        if as_of_bar_id is not None and not _structure_row_visible_as_of(row, as_of_bar_id):
+        if effective_as_of_bar_id is not None and not _structure_row_visible_as_of(row, effective_as_of_bar_id):
             continue
-        if as_of_bar_id is None and str(row["state"]) == "invalidated":
+        if effective_as_of_bar_id is None and as_of_event_id is None and str(row["state"]) == "invalidated":
             continue
         rows.append(row)
     rows.sort(
@@ -242,13 +296,23 @@ def resolve_structure_events_for_window(
     min_bar_id: int | None,
     max_bar_id: int | None,
     as_of_bar_id: int | None,
+    as_of_event_id: str | None = None,
 ) -> list[dict[str, object]]:
-    if min_bar_id is None or max_bar_id is None or as_of_bar_id is None:
+    if min_bar_id is None or max_bar_id is None:
         return []
+    cursor_position = (
+        None
+        if as_of_event_id is None
+        else _resolve_event_cursor_position(structure_event_records, as_of_event_id)
+    )
     rows = [
         record.row
         for record in structure_event_records
-        if int(record.row["event_bar_id"]) <= as_of_bar_id
+        if _event_record_visible_as_of(
+            record,
+            as_of_bar_id=as_of_bar_id,
+            cursor_position=cursor_position,
+        )
         and _structure_row_overlaps_window(record.row, min_bar_id=min_bar_id, max_bar_id=max_bar_id)
     ]
     rows.sort(
@@ -266,28 +330,63 @@ def resolve_structure_detail(
     context: ChartContext,
     structure_id: str,
     as_of_bar_id: int | None,
+    as_of_event_id: str | None = None,
 ) -> ResolvedStructureDetail:
     record = context.structure_records.get(structure_id)
     row = record.row if record is not None else None
-    feature_refs: tuple[str, ...] | None = (
-        tuple(str(value) for value in row["feature_refs"]) if row is not None else None
-    )
+    effective_as_of_bar_id = as_of_bar_id
+    if effective_as_of_bar_id is None and as_of_event_id is not None:
+        effective_as_of_bar_id = _resolve_event_cursor_position(
+            context.structure_event_records,
+            as_of_event_id,
+        )[0]
+    feature_refs: tuple[str, ...] | None = None
+    if row is not None:
+        row_feature_refs = row.get("feature_refs")
+        if row_feature_refs is not None:
+            feature_refs = tuple(str(value) for value in row_feature_refs)
     structure_refs: tuple[str, ...] | None = (
         dataset_structure_refs(record.dataset) if record is not None else None
     )
-    if as_of_bar_id is not None:
+    latest_replay_rows: dict[str, dict[str, object]] | None = None
+    if context.structure_event_records and structure_id in context.structure_event_kind_groups:
+        latest_event_id = str(
+            max(
+                context.structure_event_records,
+                key=lambda event_record: (
+                    int(event_record.row["event_bar_id"]),
+                    int(event_record.row["event_order"]),
+                    str(event_record.row["event_id"]),
+                ),
+            ).row["event_id"]
+        )
+        latest_replay_rows = resolve_structure_rows_from_lifecycle_events(
+            [event_record.row for event_record in context.structure_event_records],
+            as_of_event_id=latest_event_id,
+        )
+    if as_of_bar_id is not None or as_of_event_id is not None:
         replay_rows = (
             resolve_structure_rows_from_lifecycle_events(
                 [event_record.row for event_record in context.structure_event_records],
-                as_of_bar_id=as_of_bar_id,
+                as_of_bar_id=effective_as_of_bar_id,
+                as_of_event_id=as_of_event_id,
             )
             if context.structure_event_records
             else {}
         )
         if structure_id in replay_rows:
             row = replay_rows[structure_id]
-        elif record is None or not _structure_row_visible_as_of(record.row, as_of_bar_id):
+        elif (
+            structure_id in context.structure_event_kind_groups
+            or record is None
+            or (
+                effective_as_of_bar_id is not None
+                and not _structure_row_visible_as_of(record.row, effective_as_of_bar_id)
+            )
+        ):
             raise KeyError(structure_id)
+    elif latest_replay_rows is not None and structure_id in latest_replay_rows:
+        row = latest_replay_rows[structure_id]
     if row is None:
         raise KeyError(structure_id)
     if feature_refs is None or structure_refs is None:
@@ -328,6 +427,191 @@ def project_structure_rows_to_overlays(
     )
 
 
+def project_structure_event_rows_to_overlays(
+    *,
+    structure_event_rows: Sequence[dict[str, object]],
+    context: ChartContext,
+    min_bar_id: int | None,
+    max_bar_id: int | None,
+    overlay_layers: Sequence[str] | None,
+) -> list[OverlayObject]:
+    if not structure_event_rows:
+        return []
+    overlays = project_structure_event_overlay_objects(
+        bar_frame=context.bar_frame.select(["bar_id", "high", "low"]),
+        structure_event_rows=structure_event_rows,
+        data_version=context.data_version,
+        rulebook_version=context.rulebook_version or PIVOT_V0_2_RULEBOOK_VERSION,
+        structure_version=context.structure_version or PIVOT_V0_2_STRUCTURE_VERSION,
+        overlay_version=context.overlay_version,
+    )
+    return _filter_overlays_for_window(
+        overlays=sort_overlay_objects_for_render(overlays),
+        min_bar_id=min_bar_id,
+        max_bar_id=max_bar_id,
+        overlay_layers=overlay_layers,
+    )
+
+
+def build_replay_window_sequence(
+    *,
+    context: ChartContext,
+    min_bar_id: int | None,
+    max_bar_id: int | None,
+    overlay_layers: Sequence[str] | None,
+) -> ReplayWindowSequence | None:
+    if min_bar_id is None or max_bar_id is None or not context.structure_event_records:
+        return None
+    window_start_index = int(np.searchsorted(context.bar_ids, min_bar_id, side="left"))
+    base_as_of_bar_id = (
+        None
+        if window_start_index <= 0
+        else int(context.bar_ids[window_start_index - 1])
+    )
+    base_structure_rows = (
+        resolve_structure_rows_for_window(
+            structure_records=context.structure_records,
+            structure_event_records=context.structure_event_records,
+            min_bar_id=min_bar_id,
+            max_bar_id=max_bar_id,
+            as_of_bar_id=base_as_of_bar_id,
+        )
+        if base_as_of_bar_id is not None
+        else []
+    )
+    base_active_overlays = project_structure_rows_to_overlays(
+        structure_rows=base_structure_rows,
+        context=context,
+        min_bar_id=min_bar_id,
+        max_bar_id=max_bar_id,
+        overlay_layers=overlay_layers,
+    )
+    base_history_event_rows = (
+        resolve_structure_events_for_window(
+            structure_event_records=context.structure_event_records,
+            min_bar_id=min_bar_id,
+            max_bar_id=max_bar_id,
+            as_of_bar_id=base_as_of_bar_id,
+        )
+        if base_as_of_bar_id is not None
+        else []
+    )
+    base_history_overlays = project_structure_event_rows_to_overlays(
+        structure_event_rows=base_history_event_rows,
+        context=context,
+        min_bar_id=min_bar_id,
+        max_bar_id=max_bar_id,
+        overlay_layers=overlay_layers,
+    )
+    active_states = (
+        resolve_structure_states_from_lifecycle_events(
+            [record.row for record in context.structure_event_records],
+            as_of_bar_id=base_as_of_bar_id,
+        )
+        if base_as_of_bar_id is not None
+        else {}
+    )
+    visible_structure_rows_by_id = {
+        str(row["structure_id"]): row
+        for row in base_structure_rows
+    }
+    active_overlay_ids_by_structure = _group_overlay_ids_by_structure(base_active_overlays)
+    deltas: list[ReplayWindowDelta] = []
+    event_rows = resolve_structure_events_for_window(
+        structure_event_records=context.structure_event_records,
+        min_bar_id=min_bar_id,
+        max_bar_id=max_bar_id,
+        as_of_bar_id=None,
+    )
+    for event_row in event_rows:
+        structure_id = str(event_row["structure_id"])
+        previous_visible = structure_id in visible_structure_rows_by_id
+        previous_overlay_ids = active_overlay_ids_by_structure.get(structure_id, ())
+        advance_structure_states_from_lifecycle_event(active_states, event_row)
+        remove_structure_ids: list[str] = []
+        upsert_structure_rows: list[dict[str, object]] = []
+        remove_overlay_ids: list[str] = []
+        upsert_overlays: list[OverlayObject] = []
+
+        next_state = active_states.get(structure_id)
+        next_row = None if next_state is None else resolved_structure_state_to_row(next_state)
+        next_visible = (
+            next_row is not None
+            and _structure_row_overlaps_window(
+                next_row,
+                min_bar_id=min_bar_id,
+                max_bar_id=max_bar_id,
+            )
+        )
+        next_overlays = (
+            project_structure_rows_to_overlays(
+                structure_rows=[next_row],
+                context=context,
+                min_bar_id=min_bar_id,
+                max_bar_id=max_bar_id,
+                overlay_layers=overlay_layers,
+            )
+            if next_visible and next_row is not None
+            else []
+        )
+        next_overlay_ids = tuple(overlay.overlay_id for overlay in next_overlays)
+
+        if previous_visible and not next_visible:
+            remove_structure_ids.append(structure_id)
+            visible_structure_rows_by_id.pop(structure_id, None)
+        elif next_visible and next_row is not None:
+            upsert_structure_rows.append(next_row)
+            visible_structure_rows_by_id[structure_id] = next_row
+
+        if previous_overlay_ids:
+            remove_overlay_ids.extend(
+                overlay_id
+                for overlay_id in previous_overlay_ids
+                if overlay_id not in next_overlay_ids
+            )
+        if next_overlays:
+            upsert_overlays.extend(next_overlays)
+            active_overlay_ids_by_structure[structure_id] = next_overlay_ids
+        else:
+            active_overlay_ids_by_structure.pop(structure_id, None)
+
+        history_overlays = project_structure_event_rows_to_overlays(
+            structure_event_rows=[event_row],
+            context=context,
+            min_bar_id=min_bar_id,
+            max_bar_id=max_bar_id,
+            overlay_layers=overlay_layers,
+        )
+        if history_overlays:
+            upsert_overlays.extend(history_overlays)
+
+        deltas.append(
+            ReplayWindowDelta(
+                event_id=str(event_row["event_id"]),
+                event_bar_id=int(event_row["event_bar_id"]),
+                event_order=int(event_row["event_order"]),
+                event_type=str(event_row["event_type"]),
+                structure_id=structure_id,
+                remove_structure_ids=tuple(remove_structure_ids),
+                upsert_structure_rows=tuple(upsert_structure_rows),
+                remove_overlay_ids=tuple(remove_overlay_ids),
+                upsert_overlays=tuple(sort_overlay_objects_for_render(upsert_overlays)),
+            )
+        )
+    return ReplayWindowSequence(
+        base=ReplayWindowBase(
+            as_of_bar_id=base_as_of_bar_id,
+            structure_rows=tuple(base_structure_rows),
+            overlays=tuple(
+                sort_overlay_objects_for_render(
+                    [*base_active_overlays, *base_history_overlays]
+                )
+            ),
+        ),
+        deltas=tuple(deltas),
+    )
+
+
 def dataset_structure_refs(
     dataset: OverlaySourceDataset | RuntimeStructureDataset | RuntimeStructureEventDataset,
 ) -> tuple[str, ...]:
@@ -336,6 +620,18 @@ def dataset_structure_refs(
     if isinstance(dataset, RuntimeStructureEventDataset):
         return dataset.structure_refs
     return dataset.manifest.structure_refs
+
+
+def _group_overlay_ids_by_structure(
+    overlays: Sequence[OverlayObject],
+) -> dict[str, tuple[str, ...]]:
+    grouped: dict[str, list[str]] = {}
+    for overlay in overlays:
+        grouped.setdefault(overlay.source_structure_id, []).append(overlay.overlay_id)
+    return {
+        structure_id: tuple(overlay_ids)
+        for structure_id, overlay_ids in grouped.items()
+    }
 
 
 @lru_cache(maxsize=8)
@@ -660,15 +956,11 @@ def _overlay_to_layer(overlay: OverlayObject) -> str | None:
             return "leg"
         if source_kind == "major_lh":
             return "major_lh"
-        if source_kind == "bearish_breakout_start":
-            return "breakout_start"
 
     if overlay.kind == "leg-line":
         return "leg"
     if overlay.kind == "major-lh-marker":
         return "major_lh"
-    if overlay.kind == "breakout-marker":
-        return "breakout_start"
     if overlay.style_key.startswith("pivot_st."):
         return "pivot_st"
     if overlay.style_key.startswith("pivot."):
@@ -699,6 +991,37 @@ def _structure_row_visible_as_of(row: dict[str, object], as_of_bar_id: int) -> b
         available_bar_id = start_bar_id if confirm_bar_id is None else int(confirm_bar_id)
         return available_bar_id <= as_of_bar_id
     return False
+
+
+def _resolve_event_cursor_position(
+    structure_event_records: Sequence[StructureEventRecord],
+    as_of_event_id: str,
+) -> tuple[int, int, str]:
+    for record in structure_event_records:
+        if str(record.row["event_id"]) == as_of_event_id:
+            return _structure_event_position(record.row)
+    raise KeyError(as_of_event_id)
+
+
+def _event_record_visible_as_of(
+    record: StructureEventRecord,
+    *,
+    as_of_bar_id: int | None,
+    cursor_position: tuple[int, int, str] | None,
+) -> bool:
+    if cursor_position is not None:
+        return _structure_event_position(record.row) <= cursor_position
+    if as_of_bar_id is None:
+        return True
+    return int(record.row["event_bar_id"]) <= as_of_bar_id
+
+
+def _structure_event_position(row: dict[str, object]) -> tuple[int, int, str]:
+    return (
+        int(row["event_bar_id"]),
+        int(row["event_order"]),
+        str(row["event_id"]),
+    )
 
 
 def _resolve_canonical_structure_source(

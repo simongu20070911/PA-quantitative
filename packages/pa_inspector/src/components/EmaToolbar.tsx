@@ -1,15 +1,13 @@
-import {
-  type RefObject,
-} from "react";
-
-import {
-  ANNOTATION_COLOR_PALETTE,
-} from "../lib/annotationStyle";
+import { ANNOTATION_COLOR_PALETTE } from "../lib/annotationStyle";
 import {
   ColorPopover,
+  FloatingToolbarShell,
   LineStylePreview,
   LineWidthPreview,
+  SliderPopover,
   StylePopover,
+  ToolbarButton,
+  ToolbarGripIcon,
   WidthPopover,
   useFloatingToolbar,
 } from "./toolbarShared";
@@ -19,9 +17,9 @@ import type {
   FloatingPosition,
   RenderedEmaLine,
 } from "../lib/types";
+import type { RefObject } from "react";
 
 interface EmaToolbarProps {
-  hostRef: RefObject<HTMLElement | null>;
   surfaceRef: RefObject<HTMLDivElement | null>;
   emaLine: RenderedEmaLine | null;
   initialPosition: FloatingPosition | null;
@@ -35,7 +33,6 @@ const TOOLBAR_WIDTH = 420;
 const TOOLBAR_HEIGHT = 52;
 
 export function EmaToolbar({
-  hostRef,
   surfaceRef,
   emaLine,
   initialPosition,
@@ -44,19 +41,8 @@ export function EmaToolbar({
   onOpenPopoverChange,
   onEmaStyleChange,
 }: EmaToolbarProps) {
-  const {
-    toolbarRef,
-    openPopover,
-    left,
-    top,
-    beginToolbarDrag,
-    togglePopover,
-    swallowPointer,
-    activateButton,
-    onToolbarPointerDown,
-  } = useFloatingToolbar({
+  const toolbar = useFloatingToolbar({
     active: emaLine !== null,
-    hostRef,
     surfaceRef,
     toolbarWidth: TOOLBAR_WIDTH,
     toolbarHeight: TOOLBAR_HEIGHT,
@@ -73,110 +59,72 @@ export function EmaToolbar({
   const style = emaLine.style;
 
   return (
-    <div
-      className="annotation-toolbar"
-      onClick={swallowPointer}
-      onDoubleClick={swallowPointer}
-      onPointerDown={onToolbarPointerDown}
-      onPointerMove={swallowPointer}
-      onPointerUp={swallowPointer}
-      ref={toolbarRef}
-      style={{ left: `${left}px`, top: `${top}px` }}
+    <FloatingToolbarShell
+      dragTitle="Drag EMA toolbar"
+      grip={<ToolbarGripIcon />}
+      state={toolbar}
     >
-      <button
-        className="annotation-toolbar-grip"
-        onPointerDown={beginToolbarDrag}
-        title="Drag EMA toolbar"
-        type="button"
-      >
-        ::
-      </button>
-      <button className="annotation-toolbar-button" disabled type="button">
+      <ToolbarButton disabled title={`EMA ${emaLine.length}`}>
         <span>EMA {emaLine.length}</span>
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("stroke"))}
+      </ToolbarButton>
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("stroke"))}
         title="Stroke color"
-        type="button"
       >
         <span>Color</span>
         <span
           className="annotation-toolbar-color-bar"
           style={{ backgroundColor: style.strokeColor }}
         />
-      </button>
-      <button
-        className="annotation-toolbar-button annotation-toolbar-width"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("width"))}
+      </ToolbarButton>
+      <ToolbarButton
+        className="annotation-toolbar-width"
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("width"))}
         title="Line width"
-        type="button"
       >
         <LineWidthPreview width={style.lineWidth} />
         <span>{style.lineWidth}px</span>
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("style"))}
+      </ToolbarButton>
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("style"))}
         title="Line style"
-        type="button"
       >
         <LineStylePreview styleKey={style.lineStyle} />
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("opacity"))}
+      </ToolbarButton>
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("opacity"))}
         title="Opacity"
-        type="button"
       >
         <span>{Math.round(style.opacity * 100)}%</span>
-      </button>
-      <button
-        className={style.visible ? "annotation-toolbar-button active" : "annotation-toolbar-button"}
+      </ToolbarButton>
+      <ToolbarButton
+        active={style.visible}
         onPointerDown={(event) =>
-          activateButton(event, () =>
+          toolbar.activateButton(event, () =>
             onEmaStyleChange(emaLine.length, { visible: !style.visible }),
           )
         }
         title="Toggle visibility"
-        type="button"
       >
         <span>{style.visible ? "Shown" : "Hidden"}</span>
-      </button>
+      </ToolbarButton>
 
-      {openPopover === "stroke" ? (
-        <div className="annotation-toolbar-popover annotation-toolbar-popover-wide">
-          <div className="annotation-toolbar-popover-title">EMA Color</div>
-          <div className="annotation-toolbar-color-grid">
-            {ANNOTATION_COLOR_PALETTE.map((color) => (
-              <button
-                className={
-                  color === style.strokeColor
-                    ? "annotation-toolbar-color-swatch active"
-                    : "annotation-toolbar-color-swatch"
-                }
-                key={color}
-                onPointerDown={(event) =>
-                  activateButton(event, () => onEmaStyleChange(emaLine.length, { strokeColor: color }))
-                }
-                style={{ backgroundColor: color }}
-                type="button"
-              />
-            ))}
-          </div>
-        </div>
+      {toolbar.openPopover === "stroke" ? (
+        <ColorPopover
+          colors={ANNOTATION_COLOR_PALETTE}
+          selectedColor={style.strokeColor}
+          title="EMA Color"
+          wide
+          onSelect={(color) => onEmaStyleChange(emaLine.length, { strokeColor: color })}
+        />
       ) : null}
-
-      {openPopover === "width" ? (
+      {toolbar.openPopover === "width" ? (
         <WidthPopover
-          onSelect={(lineWidth) =>
-            onEmaStyleChange(emaLine.length, { lineWidth })
-          }
+          onSelect={(lineWidth) => onEmaStyleChange(emaLine.length, { lineWidth })}
           selectedWidth={style.lineWidth}
         />
       ) : null}
-
-      {openPopover === "style" ? (
+      {toolbar.openPopover === "style" ? (
         <StylePopover
           onSelect={(lineStyle) => onEmaStyleChange(emaLine.length, { lineStyle })}
           selectedStyle={style.lineStyle}
@@ -184,30 +132,22 @@ export function EmaToolbar({
           title="Line Style"
         />
       ) : null}
-
-      {openPopover === "opacity" ? (
-        <div className="annotation-toolbar-popover">
-          <div className="annotation-toolbar-popover-title">Opacity</div>
-          <div className="annotation-toolbar-slider-block">
-            <label className="annotation-toolbar-slider-label" htmlFor="ema-opacity-slider">
-              {Math.round(style.opacity * 100)}%
-            </label>
-            <input
-              id="ema-opacity-slider"
-              max="1"
-              min="0.1"
-              onChange={(event) =>
-                onEmaStyleChange(emaLine.length, {
-                  opacity: Number(event.target.value),
-                })
-              }
-              step="0.05"
-              type="range"
-              value={style.opacity}
-            />
-          </div>
-        </div>
+      {toolbar.openPopover === "opacity" ? (
+        <SliderPopover
+          id="ema-opacity-slider"
+          label={`${Math.round(style.opacity * 100)}%`}
+          max="1"
+          min="0.1"
+          onChange={(value) =>
+            onEmaStyleChange(emaLine.length, {
+              opacity: Number(value),
+            })
+          }
+          step="0.05"
+          title="Opacity"
+          value={style.opacity}
+        />
       ) : null}
-    </div>
+    </FloatingToolbarShell>
   );
 }

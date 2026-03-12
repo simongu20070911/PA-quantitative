@@ -97,7 +97,7 @@ Scope reviewed in this run:
 - Location: `packages/pa_api/src/pa_api/service.py:1107`
 - Dimension: replay/lifecycle correctness
 - Severity: medium
-- What: response metadata reports replay mode with strings like `lifecycle_events_plus_snapshot_objects`, but the actual coverage is kind-specific: pivots are event-backed while legs, `major_lh`, and breakout starts remain snapshot-only.
+- What: response metadata reports replay mode with strings like `lifecycle_events_plus_snapshot_objects`, but the actual coverage is kind-specific and may diverge across families over time.
 - Risk: the inspector and future review tools cannot tell which visible structures are lifecycle-canonical and which are conservative snapshot approximations. That ambiguity makes replay trust harder to reason about and will complicate phased rollout of more event-backed kinds.
 - Suggestion: return replay coverage per kind or per dataset family in metadata, for example a map of `kind_group -> replay_source`, instead of only a single coarse label for the whole response.
 

@@ -27,6 +27,7 @@ Before making changes, read these files in order:
 6. `docs/handoff_protocol.md`
 
 If the requested work touches rule semantics, also read the relevant rulebook document once it exists.
+If the requested work touches a reusable concept with a dedicated definition doc, also read the relevant file under `docs/definitions/` before changing rulebook or implementation behavior.
 If the requested work touches replay behavior, structure lifecycle states, or candidate/confirmed/invalidated emission semantics, also read `docs/replay_lifecycle_spec.md`.
 If the requested work touches the inspector or overlay rendering, also read `docs/inspector_spec.md`.
 If the requested work touches overlay projection or overlay artifacts, also read `docs/overlay_spec.md`.
@@ -65,6 +66,7 @@ Do not move business logic into `pa_api` or `pa_inspector`.
 
 - Keep architecture changes aligned with `docs/canonical_spec.md`.
 - If a change affects canonical schemas, artifact layout, package boundaries, or inspector responsibilities, update the relevant docs in the same task.
+- If a change affects the meaning of a reusable concept, update its definition doc and any affected rulebook docs in the same task.
 - Prefer minimal, explicit data contracts over clever abstractions.
 - New features must declare their alignment: `bar`, `edge`, `segment`, or `structure`.
 - Avoid UI-only annotations that cannot be reproduced from backend artifacts.

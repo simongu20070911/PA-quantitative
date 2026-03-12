@@ -39,7 +39,6 @@ This spec currently covers the initial shipped structure chain:
 - `leg_up`
 - `leg_down`
 - `major_lh`
-- `bearish_breakout_start`
 
 Future overlay families such as `trendline`, `structure_level`, `gap_zone`, and diff-only comparison overlays are deferred.
 
@@ -124,7 +123,6 @@ Current canonical layer mapping:
 - `pivot_high`, `pivot_low` -> layer `pivot`
 - `leg_up`, `leg_down` -> layer `leg`
 - `major_lh` -> layer `major_lh`
-- `bearish_breakout_start` -> layer `breakout_start`
 
 Important rule:
 
@@ -227,23 +225,6 @@ Style guidance:
 - `style_key = major_lh.confirmed` for confirmed rows
 - `style_key = major_lh.candidate` for candidate rows
 
-### `bearish_breakout_start` -> `breakout-marker`
-
-Projection:
-
-- emit one `breakout-marker`
-- anchor bar is `start_bar_id`
-- anchor price is `high[start_bar_id]`
-
-MVP rule:
-
-- the breakout marker anchors to the breakout-start bar only
-- support or break-line overlays are deferred beyond MVP
-
-Style guidance:
-
-- `style_key = breakout.bearish.confirmed`
-
 ## Lifecycle and State Rendering
 
 Overlay rendering must reflect source structure state.
@@ -296,8 +277,7 @@ Canonical MVP z-order from back to front:
 1. `leg-line`
 2. `pivot-marker`
 3. `major-lh-marker`
-4. `breakout-marker`
-5. selected overlay highlight
+4. selected overlay highlight
 
 Within the shared `pivot-marker` geometry family:
 
@@ -334,7 +314,6 @@ Canonical MVP style-key families:
 - `leg.down.candidate`
 - `major_lh.confirmed`
 - `major_lh.candidate`
-- `breakout.bearish.confirmed`
 
 ## Density and Visibility Rules
 

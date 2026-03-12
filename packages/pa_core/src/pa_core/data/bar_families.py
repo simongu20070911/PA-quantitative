@@ -181,6 +181,16 @@ def load_bar_family_candidate_table(
         session_profile=normalized_profile,
         timeframe=timeframe,
     )
+    family = _select_family_window(
+        family_table=family,
+        center_bar_id=center_bar_id,
+        session_date=session_date,
+        start_time=start_time,
+        end_time=end_time,
+        left_bars=left_bars,
+        right_bars=right_bars,
+        buffer_bars=buffer_bars,
+    )
     if columns is not None:
         family = family.select(list(columns))
     return (
@@ -342,6 +352,83 @@ def _derive_bar_family(
         timeframe=timeframe,
         timeframe_minutes=timeframe_minutes,
     )
+
+
+def _select_family_window(
+    *,
+    family_table: pa.Table,
+    center_bar_id: int | None,
+    session_date: int | None,
+    start_time: int | None,
+    end_time: int | None,
+    left_bars: int,
+    right_bars: int,
+    buffer_bars: int,
+) -> pa.Table:
+    if family_table.num_rows == 0:
+        return family_table
+    if center_bar_id is None and session_date is None and start_time is None and end_time is None:
+        return family_table
+
+    bar_ids = family_table.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
+    session_dates = (
+        family_table.column("session_date").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
+    )
+    ts_utc_ns = family_table.column("ts_utc_ns").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
+    start_index, stop_index = _resolve_family_window_bounds(
+        bar_ids=bar_ids,
+        session_dates=session_dates,
+        ts_utc_ns=ts_utc_ns,
+        center_bar_id=center_bar_id,
+        session_date=session_date,
+        start_time=start_time,
+        end_time=end_time,
+        left_bars=left_bars,
+        right_bars=right_bars,
+        buffer_bars=buffer_bars,
+    )
+    return family_table.slice(start_index, max(stop_index - start_index, 0))
+
+
+def _resolve_family_window_bounds(
+    *,
+    bar_ids: np.ndarray,
+    session_dates: np.ndarray,
+    ts_utc_ns: np.ndarray,
+    center_bar_id: int | None,
+    session_date: int | None,
+    start_time: int | None,
+    end_time: int | None,
+    left_bars: int,
+    right_bars: int,
+    buffer_bars: int,
+) -> tuple[int, int]:
+    n = int(bar_ids.shape[0])
+    if n == 0:
+        return (0, 0)
+    if center_bar_id is not None:
+        anchor_index = int(np.searchsorted(bar_ids, center_bar_id))
+        if anchor_index >= n or int(bar_ids[anchor_index]) != center_bar_id:
+            raise ValueError(f"center_bar_id={center_bar_id} was not found.")
+        start = max(anchor_index - left_bars - buffer_bars, 0)
+        stop = min(anchor_index + right_bars + buffer_bars + 1, n)
+        return (start, stop)
+    if session_date is not None:
+        matching = np.flatnonzero(session_dates == session_date)
+        if matching.size == 0:
+            raise ValueError(f"session_date={session_date} was not found.")
+        start = max(int(matching[0]) - left_bars - buffer_bars, 0)
+        stop = min(int(matching[-1]) + right_bars + buffer_bars + 1, n)
+        return (start, stop)
+    if start_time is None or end_time is None:
+        return (0, n)
+    start_ns = int(start_time) * 1_000_000_000
+    end_ns = int(end_time) * 1_000_000_000
+    start_index = int(np.searchsorted(ts_utc_ns, start_ns, side="left"))
+    stop_index = int(np.searchsorted(ts_utc_ns, end_ns, side="right"))
+    if start_index == stop_index:
+        return (start_index, stop_index)
+    return (max(start_index - buffer_bars, 0), min(stop_index + buffer_bars, n))
 
 
 def _session_profile_mask(ts_et_ns: np.ndarray, session_profile: str) -> np.ndarray:

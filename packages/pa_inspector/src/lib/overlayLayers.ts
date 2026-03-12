@@ -6,7 +6,6 @@ export const INITIAL_OVERLAY_LAYERS: Record<OverlayLayer, boolean> = {
   pivot: true,
   leg: true,
   major_lh: true,
-  breakout_start: true,
 };
 
 export const OVERLAY_LAYER_ORDER = Object.keys(
@@ -18,7 +17,6 @@ export const EMPTY_OVERLAY_LAYER_COUNTS: Record<OverlayLayer, number> = {
   pivot: 0,
   leg: 0,
   major_lh: 0,
-  breakout_start: 0,
 };
 
 export const OVERLAY_LAYER_LABELS: Record<OverlayLayer, string> = {
@@ -26,7 +24,6 @@ export const OVERLAY_LAYER_LABELS: Record<OverlayLayer, string> = {
   pivot: "Pivots",
   leg: "Legs",
   major_lh: "Major LH",
-  breakout_start: "Breakouts",
 };
 
 export function overlayToLayer(overlay: Overlay): OverlayLayer | null {

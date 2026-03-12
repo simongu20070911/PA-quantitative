@@ -8,11 +8,6 @@ import pyarrow as pa
 from pa_core.artifacts.structures import StructureArtifactManifest
 from pa_core.common import build_bar_lookup
 from pa_core.schemas import OverlayObject
-from pa_core.structures.breakout_starts import (
-    BREAKOUT_START_KIND_GROUP,
-    BREAKOUT_START_RULEBOOK_VERSION,
-    BREAKOUT_START_STRUCTURE_VERSION,
-)
 from pa_core.structures.legs import LEG_KIND_GROUP, LEG_RULEBOOK_VERSION, LEG_STRUCTURE_VERSION
 from pa_core.structures.major_lh import (
     MAJOR_LH_KIND_GROUP,
@@ -32,14 +27,12 @@ MVP_OVERLAY_DATASET_KINDS = (
     PIVOT_KIND_GROUP,
     LEG_KIND_GROUP,
     MAJOR_LH_KIND_GROUP,
-    BREAKOUT_START_KIND_GROUP,
 )
 
 _OVERLAY_Z_ORDER = {
     "leg-line": 1,
     "pivot-marker": 2,
     "major-lh-marker": 3,
-    "breakout-marker": 4,
 }
 
 
@@ -56,6 +49,17 @@ def build_overlay_id(
     source_structure_id: str,
 ) -> str:
     return f"{overlay_kind}:{overlay_version}:{source_structure_id}"
+
+
+def build_event_overlay_id(
+    *,
+    overlay_kind: str,
+    overlay_version: str,
+    source_structure_id: str,
+    event_type: str,
+    event_bar_id: int,
+) -> str:
+    return f"{overlay_kind}:{overlay_version}:{source_structure_id}:{event_type}:{event_bar_id}"
 
 
 def overlay_z_order(kind: str) -> int:
@@ -99,6 +103,41 @@ def project_overlay_objects(
             row=row,
             bar_lookup=bar_lookup,
             data_version=data_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+        if overlay is not None:
+            overlays.append(overlay)
+    return sorted(
+        overlays,
+        key=lambda overlay: (
+            overlay.anchor_bars[0] if overlay.anchor_bars else -1,
+            overlay.kind,
+            overlay.overlay_id,
+        ),
+    )
+
+
+def project_structure_event_overlay_objects(
+    *,
+    bar_frame: pa.Table,
+    structure_event_rows: Sequence[dict[str, object]],
+    data_version: str,
+    rulebook_version: str,
+    structure_version: str,
+    overlay_version: str = MVP_OVERLAY_VERSION,
+) -> list[OverlayObject]:
+    if not structure_event_rows:
+        return []
+
+    bar_lookup = build_bar_lookup(bar_frame, duplicate_error_context="Overlay projection")
+    overlays = []
+    for row in structure_event_rows:
+        overlay = _project_structure_event_row(
+            row=row,
+            bar_lookup=bar_lookup,
+            data_version=data_version,
+            rulebook_version=rulebook_version,
             structure_version=structure_version,
             overlay_version=overlay_version,
         )
@@ -220,23 +259,73 @@ def _project_structure_row(
             structure_version=structure_version,
             overlay_version=overlay_version,
         )
-    if source_kind == "bearish_breakout_start":
-        if source_state != "confirmed":
-            raise ValueError(
-                "bearish_breakout_start overlays only support confirmed structures in MVP."
-            )
-        anchor_bar_id = int(row["start_bar_id"])
-        return _build_overlay_object(
+    raise ValueError(f"Unsupported structure kind for overlay projection: {source_kind!r}")
+
+
+def _project_structure_event_row(
+    *,
+    row: dict[str, object],
+    bar_lookup: dict[int, dict[str, object]],
+    data_version: str,
+    rulebook_version: str,
+    structure_version: str,
+    overlay_version: str,
+) -> OverlayObject | None:
+    event_type = str(row["event_type"])
+    if event_type not in {"invalidated", "replaced"}:
+        return None
+
+    source_kind = str(row["kind"])
+    anchor_bar_id = int(row["start_bar_id"])
+    if source_kind == "pivot_high":
+        return _build_event_overlay_object(
             row=row,
-            overlay_kind="breakout-marker",
+            overlay_kind="pivot-marker",
             anchor_bars=(anchor_bar_id,),
             anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "high"),),
-            style_key="breakout.bearish.confirmed",
+            style_key=f"pivot.high.{event_type}",
             data_version=data_version,
+            rulebook_version=rulebook_version,
             structure_version=structure_version,
             overlay_version=overlay_version,
         )
-    raise ValueError(f"Unsupported structure kind for overlay projection: {source_kind!r}")
+    if source_kind == "pivot_low":
+        return _build_event_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "low"),),
+            style_key=f"pivot.low.{event_type}",
+            data_version=data_version,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == PIVOT_ST_SPEC.kind_high:
+        return _build_event_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "high"),),
+            style_key=f"pivot_st.high.{event_type}",
+            data_version=data_version,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    if source_kind == PIVOT_ST_SPEC.kind_low:
+        return _build_event_overlay_object(
+            row=row,
+            overlay_kind="pivot-marker",
+            anchor_bars=(anchor_bar_id,),
+            anchor_prices=(_bar_price(bar_lookup, anchor_bar_id, "low"),),
+            style_key=f"pivot_st.low.{event_type}",
+            data_version=data_version,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            overlay_version=overlay_version,
+        )
+    return None
 
 
 def _build_overlay_object(
@@ -270,21 +359,122 @@ def _build_overlay_object(
     )
 
 
+def _build_event_overlay_object(
+    *,
+    row: dict[str, object],
+    overlay_kind: str,
+    anchor_bars: tuple[int, ...],
+    anchor_prices: tuple[float, ...],
+    style_key: str,
+    data_version: str,
+    rulebook_version: str,
+    structure_version: str,
+    overlay_version: str,
+) -> OverlayObject:
+    source_structure_id = str(row["structure_id"])
+    event_type = str(row["event_type"])
+    event_bar_id = int(row["event_bar_id"])
+    return OverlayObject(
+        overlay_id=build_event_overlay_id(
+            overlay_kind=overlay_kind,
+            overlay_version=overlay_version,
+            source_structure_id=source_structure_id,
+            event_type=event_type,
+            event_bar_id=event_bar_id,
+        ),
+        kind=overlay_kind,
+        source_structure_id=source_structure_id,
+        anchor_bars=anchor_bars,
+        anchor_prices=anchor_prices,
+        style_key=style_key,
+        data_version=data_version,
+        rulebook_version=rulebook_version,
+        structure_version=structure_version,
+        overlay_version=overlay_version,
+        meta=_build_event_overlay_meta(row),
+    )
+
+
 def _build_overlay_meta(row: dict[str, object]) -> dict[str, object]:
+    source_kind = str(row["kind"])
+    source_state = str(row["state"])
     meta: dict[str, object] = {
-        "source_kind": str(row["kind"]),
-        "source_state": str(row["state"]),
+        "source_kind": source_kind,
+        "source_state": source_state,
         "session_id": int(row["session_id"]),
         "session_date": int(row["session_date"]),
         "explanation_codes": tuple(str(value) for value in row["explanation_codes"]),
     }
+    display_label = _overlay_display_label(source_kind=source_kind, source_state=source_state)
+    if display_label is not None:
+        meta["display_label"] = display_label
     confirm_bar_id = row["confirm_bar_id"]
     if confirm_bar_id is not None:
         meta["confirm_bar_id"] = int(confirm_bar_id)
     return meta
 
 
+def _build_event_overlay_meta(row: dict[str, object]) -> dict[str, object]:
+    source_kind = str(row["kind"])
+    event_type = str(row["event_type"])
+    meta: dict[str, object] = {
+        "source_kind": source_kind,
+        "source_state": "invalidated",
+        "session_id": int(row["session_id"]),
+        "session_date": int(row["session_date"]),
+        "replay_event_type": event_type,
+        "event_bar_id": int(row["event_bar_id"]),
+        "reason_codes": tuple(str(value) for value in row["reason_codes"]),
+    }
+    display_label = _overlay_display_label(
+        source_kind=source_kind,
+        source_state="invalidated",
+        event_type=event_type,
+    )
+    if display_label is not None:
+        meta["display_label"] = display_label
+    successor_structure_id = row.get("successor_structure_id")
+    if successor_structure_id is not None:
+        meta["successor_structure_id"] = str(successor_structure_id)
+    return meta
+
+
+def _overlay_display_label(
+    *,
+    source_kind: str,
+    source_state: str,
+    event_type: str | None = None,
+) -> str | None:
+    base_labels = {
+        "pivot_st_high": "STH",
+        "pivot_st_low": "STL",
+        "pivot_high": "PH",
+        "pivot_low": "PL",
+        "leg_up": "LU",
+        "leg_down": "LD",
+        "major_lh": "LH",
+        BREAK_LEVEL_SUPPORT_LABEL: "SUP",
+        BREAK_LEVEL_RESISTANCE_LABEL: "RES",
+        BREAKOUT_IMPULSE_BEARISH_LABEL: "BRK-",
+        BREAKOUT_IMPULSE_BULLISH_LABEL: "BRK+",
+        FAILED_BREAKOUT_BEARISH_LABEL: "FAIL-",
+        FAILED_BREAKOUT_BULLISH_LABEL: "FAIL+",
+    }
+    base_label = base_labels.get(source_kind)
+    if base_label is None:
+        return None
+    if event_type == "replaced":
+        return f"{base_label}~"
+    if event_type == "invalidated":
+        return f"{base_label}x"
+    if source_state == "candidate":
+        return f"{base_label}?"
+    return base_label
+
+
 def _overlay_tier_rank(overlay: OverlayObject) -> int:
+    if overlay.meta.get("replay_event_type") is not None:
+        return -1
     if overlay.style_key.startswith("pivot_st."):
         return 0
     if overlay.style_key.startswith("pivot."):

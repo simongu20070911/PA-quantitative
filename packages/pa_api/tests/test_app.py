@@ -17,9 +17,15 @@ from pa_core.artifacts.structure_events import (
 )
 from pa_core.artifacts.structures import STRUCTURE_ARTIFACT_SCHEMA, StructureArtifactWriter
 from pa_core.rulebooks.v0_2 import (
-    BREAKOUT_START_KIND_GROUP,
-    BREAKOUT_START_RULEBOOK_VERSION,
-    BREAKOUT_START_STRUCTURE_VERSION,
+    BREAK_LEVEL_KIND_GROUP,
+    BREAK_LEVEL_RULEBOOK_VERSION,
+    BREAK_LEVEL_STRUCTURE_VERSION,
+    BREAKOUT_IMPULSE_KIND_GROUP,
+    BREAKOUT_IMPULSE_RULEBOOK_VERSION,
+    BREAKOUT_IMPULSE_STRUCTURE_VERSION,
+    FAILED_BREAKOUT_KIND_GROUP,
+    FAILED_BREAKOUT_RULEBOOK_VERSION,
+    FAILED_BREAKOUT_STRUCTURE_VERSION,
     LEG_KIND_GROUP,
     LEG_RULEBOOK_VERSION,
     LEG_STRUCTURE_VERSION,
@@ -34,6 +40,64 @@ from pa_core.structures.pivots_v0_2 import (
     PIVOT_RULEBOOK_VERSION,
     PIVOT_STRUCTURE_VERSION,
     PIVOT_ST_SPEC,
+)
+
+BREAKOUT_PAYLOAD_TEST_SCHEMA = pa.struct(
+    [
+        ("explanation_codes", pa.list_(pa.string())),
+        ("break_level_id", pa.string()),
+        ("attempt_structure_id", pa.string()),
+        ("boundary_kind", pa.string()),
+        ("boundary_side", pa.string()),
+        ("band_low", pa.float64()),
+        ("band_high", pa.float64()),
+        ("anchor_prices", pa.list_(pa.float64())),
+        ("touch_count", pa.int64()),
+        ("tolerance", pa.float64()),
+        ("active_start_bar_id", pa.int64()),
+        ("active_end_bar_id", pa.int64()),
+        ("evaluation_anchor_bar_id", pa.int64()),
+        ("evaluation_anchor_price", pa.float64()),
+        ("evaluation_slope_per_bar", pa.float64()),
+        ("break_direction", pa.string()),
+        ("break_bar_id", pa.int64()),
+        ("boundary_price_at_break", pa.float64()),
+        ("boundary_price_at_failure", pa.float64()),
+        ("break_distance", pa.float64()),
+        ("boundary_quality_score", pa.float64()),
+        ("strength_index", pa.float64()),
+        ("strength_stage", pa.string()),
+        ("strength_components_version", pa.string()),
+        ("pressure_score", pa.float64()),
+        ("displacement_score", pa.float64()),
+        ("acceptance_score", pa.float64()),
+        ("acceptance_window_bars", pa.int64()),
+        ("role", pa.string()),
+        ("failure_mode", pa.string()),
+        ("failure_bar_id", pa.int64()),
+        ("reclaim_bar_id", pa.int64()),
+        (
+            "pressure_evidence",
+            pa.list_(
+                pa.struct(
+                    [
+                        ("label", pa.string()),
+                        ("bar_id", pa.int64()),
+                        ("value", pa.float64()),
+                    ]
+                )
+            ),
+        ),
+        (
+            "displacement_evidence",
+            pa.struct(
+                [
+                    ("close_through_boundary", pa.float64()),
+                    ("expansion_ratio", pa.float64()),
+                ]
+            ),
+        ),
+    ]
 )
 
 
@@ -60,7 +124,7 @@ class ApiAppTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertEqual([bar["bar_id"] for bar in payload["bars"]], [90, 100, 110, 120, 130])
+            self.assertEqual([bar["bar_id"] for bar in payload["bars"]], [90, 110, 120, 130])
             self.assertEqual(
                 {overlay["kind"] for overlay in payload["overlays"]},
                 {"leg-line", "major-lh-marker"},
@@ -98,10 +162,10 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual([line["length"] for line in payload["ema_lines"]], [3, 5])
 
             ema3 = payload["ema_lines"][0]["points"]
-            self.assertEqual([point["bar_id"] for point in ema3], [90, 100, 110, 120, 130])
+            self.assertEqual([point["bar_id"] for point in ema3], [90, 110, 120, 130])
             self.assertAlmostEqual(ema3[0]["value"], 8.2)
-            self.assertAlmostEqual(ema3[1]["value"], 9.1)
-            self.assertAlmostEqual(ema3[-1]["value"], 11.0125)
+            self.assertAlmostEqual(ema3[1]["value"], 11.6)
+            self.assertAlmostEqual(ema3[-1]["value"], 10.9)
 
     def test_chart_window_as_of_bar_hides_future_confirmed_structures(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -214,11 +278,15 @@ class ApiAppTests(unittest.TestCase):
                     (structure["structure_id"], structure["state"])
                     for structure in payload["structures"]
                 ],
-                [("major-lh-110-130", "candidate"), ("pivot-low-130", "candidate")],
+                [
+                    ("break-level-110-130", "confirmed"),
+                    ("major-lh-110-130", "candidate"),
+                    ("pivot-low-130", "candidate"),
+                ],
             )
             self.assertEqual(
                 [(event["event_type"], event["event_bar_id"]) for event in payload["events"]],
-                [("created", 130), ("created", 130)],
+                [("created", 130), ("created", 130), ("created", 130)],
             )
             pivot_event = next(
                 event for event in payload["events"] if event["structure_id"] == "pivot-low-130"
@@ -227,6 +295,65 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(
                 [(overlay["source_structure_id"], overlay["style_key"]) for overlay in payload["overlays"]],
                 [("pivot-low-130", "pivot.low.candidate")],
+            )
+
+    def test_chart_window_without_as_of_still_returns_lifecycle_event_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = _build_client(Path(tmpdir))
+
+            response = client.get(
+                "/chart-window",
+                params=[
+                    ("symbol", "ES"),
+                    ("timeframe", "1m"),
+                    ("session_profile", "eth_full"),
+                    ("data_version", "es_test_v1"),
+                    ("center_bar_id", "130"),
+                    ("left_bars", "0"),
+                    ("right_bars", "0"),
+                    ("buffer_bars", "0"),
+                ],
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertIn("pivot-low-130:created:130", [event["event_id"] for event in payload["events"]])
+            self.assertIn("major-lh-110-130:confirmed:140", [event["event_id"] for event in payload["events"]])
+
+    def test_chart_window_as_of_event_id_resolves_same_bar_intermediate_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = _build_client(Path(tmpdir))
+
+            response = client.get(
+                "/chart-window",
+                params=[
+                    ("symbol", "ES"),
+                    ("timeframe", "1m"),
+                    ("session_profile", "eth_full"),
+                    ("data_version", "es_test_v1"),
+                    ("center_bar_id", "130"),
+                    ("as_of_bar_id", "130"),
+                    ("as_of_event_id", "major-lh-110-130:created:130"),
+                    ("left_bars", "0"),
+                    ("right_bars", "0"),
+                    ("buffer_bars", "0"),
+                ],
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["meta"]["as_of_event_id"], "major-lh-110-130:created:130")
+            self.assertEqual(
+                [(structure["structure_id"], structure["state"]) for structure in payload["structures"]],
+                [("break-level-110-130", "confirmed"), ("major-lh-110-130", "candidate")],
+            )
+            self.assertEqual(
+                [event["event_id"] for event in payload["events"] if event["event_bar_id"] == 130],
+                ["break-level-110-130:created:130", "major-lh-110-130:created:130"],
+            )
+            self.assertEqual(
+                [overlay["source_structure_id"] for overlay in payload["overlays"]],
+                ["major-lh-110-130"],
             )
 
     def test_structure_detail_returns_anchor_and_confirm_bars(self) -> None:
@@ -252,6 +379,68 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(len(payload["feature_refs"]), 4)
             self.assertEqual(len(payload["structure_refs"]), 1)
             self.assertEqual(payload["versions"]["structure_version"], "v2")
+
+    def test_chart_window_as_of_bar_surfaces_structure_payload_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = _build_client(Path(tmpdir))
+
+            response = client.get(
+                "/chart-window",
+                params=[
+                    ("symbol", "ES"),
+                    ("timeframe", "1m"),
+                    ("session_profile", "eth_full"),
+                    ("data_version", "es_test_v1"),
+                    ("center_bar_id", "130"),
+                    ("as_of_bar_id", "130"),
+                    ("left_bars", "0"),
+                    ("right_bars", "0"),
+                    ("buffer_bars", "0"),
+                ],
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            break_level = next(
+                structure
+                for structure in payload["structures"]
+                if structure["structure_id"] == "break-level-110-130"
+            )
+            self.assertEqual(break_level["payload"]["boundary_kind"], "horizontal_band")
+            self.assertEqual(break_level["payload"]["boundary_side"], "support")
+            self.assertEqual(break_level["payload"]["anchor_prices"], [10.0, 6.0])
+            self.assertEqual(break_level["payload"]["touch_count"], 2)
+            self.assertAlmostEqual(break_level["payload"]["band_low"], 6.0)
+            self.assertAlmostEqual(break_level["payload"]["band_high"], 10.0)
+
+    def test_structure_detail_uses_dataset_refs_when_breakout_row_feature_refs_are_null(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = _build_client(Path(tmpdir))
+
+            response = client.get(
+                "/structure/breakout-140",
+                params={
+                    "symbol": "ES",
+                    "timeframe": "1m",
+                    "session_profile": "eth_full",
+                    "data_version": "es_test_v1",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["structure"]["kind"], "breakout_impulse_bearish")
+            self.assertEqual(payload["structure"]["anchor_bar_ids"], [110, 130, 140])
+            self.assertEqual(payload["structure"]["payload"]["break_level_id"], "break-level-110-130")
+            self.assertEqual(payload["structure"]["payload"]["boundary_kind"], "horizontal_band")
+            self.assertEqual(payload["structure"]["payload"]["strength_index"], 71.25)
+            self.assertEqual(
+                payload["structure"]["payload"]["pressure_evidence"],
+                ["pressure_repeated_tests", "pressure_lower_highs"],
+            )
+            self.assertEqual(payload["confirm_bar"]["bar_id"], 140)
+            self.assertEqual(len(payload["feature_refs"]), 4)
+            self.assertEqual(len(payload["structure_refs"]), 1)
 
     def test_structure_detail_respects_as_of_bar_visibility(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -376,12 +565,12 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(payload["meta"]["session_profile"], "eth_full")
             self.assertEqual(payload["meta"]["structure_source"], "runtime_v0_2")
             self.assertEqual(payload["meta"]["overlay_version"], "v1")
-            self.assertEqual(payload["bars"][0]["bar_id"], 1025)
-            self.assertEqual(payload["bars"][-1]["bar_id"], 1080)
+            self.assertEqual(payload["bars"][0]["bar_id"], 1045)
+            self.assertEqual(payload["bars"][-1]["bar_id"], 1065)
             self.assertIn(1055, [bar["bar_id"] for bar in payload["bars"]])
             self.assertEqual(
                 {overlay["kind"] for overlay in payload["overlays"]},
-                {"pivot-marker", "leg-line"},
+                {"pivot-marker"},
             )
             anchor_bar_ids = {
                 bar["bar_id"]
@@ -390,11 +579,11 @@ class ApiAppTests(unittest.TestCase):
             for overlay in payload["overlays"]:
                 self.assertTrue(set(overlay["anchor_bars"]).issubset(anchor_bar_ids))
 
-            leg_overlay = next(
-                overlay for overlay in payload["overlays"] if overlay["kind"] == "leg-line"
+            pivot_overlay = next(
+                overlay for overlay in payload["overlays"] if overlay["kind"] == "pivot-marker"
             )
             detail = client.get(
-                f"/structure/{leg_overlay['source_structure_id']}",
+                f"/structure/{pivot_overlay['source_structure_id']}",
                 params={
                     "symbol": "ES",
                     "timeframe": "5m",
@@ -404,8 +593,8 @@ class ApiAppTests(unittest.TestCase):
             )
             self.assertEqual(detail.status_code, 200)
             detail_payload = detail.json()
-            self.assertEqual(detail_payload["structure"]["kind"], "leg_up")
-            self.assertEqual(detail_payload["structure"]["anchor_bar_ids"], [1025, 1055])
+            self.assertEqual(detail_payload["structure"]["kind"], "pivot_st_high")
+            self.assertEqual(detail_payload["structure"]["anchor_bar_ids"], [1055])
 
     def test_chart_window_runtime_5m_replay_uses_pivot_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -439,10 +628,53 @@ class ApiAppTests(unittest.TestCase):
                 for structure in payload["structures"]
                 if structure["kind"].startswith("pivot")
             }
-            self.assertIn(("pivot_low", "confirmed", 1025), pivot_structures)
             self.assertIn(("pivot_high", "candidate", 1055), pivot_structures)
             self.assertTrue(
-                any(event["event_type"] == "created" and event["kind"] == "pivot_high" for event in payload["events"])
+                any(event["event_type"] == "replaced" and event["kind"] == "pivot_high" for event in payload["events"])
+            )
+
+    def test_chart_window_runtime_5m_can_return_backend_replay_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_native_5m_source_bars(root)
+            service = ChartApiService(ChartApiConfig(artifacts_root=root, data_version="es_test_v1"))
+            client = TestClient(create_app(service=service))
+
+            response = client.get(
+                "/chart-window",
+                params={
+                    "symbol": "ES",
+                    "timeframe": "5m",
+                    "session_profile": "eth_full",
+                    "data_version": "es_test_v1",
+                    "center_bar_id": "1055",
+                    "left_bars": "6",
+                    "right_bars": "2",
+                    "buffer_bars": "0",
+                    "overlay_layer": "pivot",
+                    "include_replay_sequence": "true",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            replay_sequence = payload["replay_sequence"]
+            self.assertIsNotNone(replay_sequence)
+            self.assertIsNone(replay_sequence["base"]["as_of_bar_id"])
+            self.assertTrue(
+                any(
+                    delta["event_type"] == "replaced"
+                    and delta["structure_id"].startswith("pivot_high-1050")
+                    for delta in replay_sequence["deltas"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    delta["event_type"] == "created"
+                    and delta["structure_id"].startswith("pivot_high-1055")
+                    and delta["upsert_overlays"]
+                    for delta in replay_sequence["deltas"]
+                )
             )
 
     def test_structure_detail_runtime_5m_replay_hides_not_yet_visible_future_pivot(self) -> None:
@@ -460,7 +692,7 @@ class ApiAppTests(unittest.TestCase):
                     "data_version": "es_test_v1",
                     "center_bar_id": "1055",
                     "as_of_bar_id": "1055",
-                    "left_bars": "2",
+                    "left_bars": "6",
                     "right_bars": "2",
                     "buffer_bars": "0",
                     "overlay_layer": "pivot",
@@ -636,12 +868,38 @@ def _write_structure_artifacts(root: Path) -> None:
         structure_version=MAJOR_LH_STRUCTURE_VERSION,
         input_ref=major_lh_input_ref,
     )
-    breakout_input_ref = build_structure_input_ref(
+    break_level_input_ref = build_structure_input_ref(
         data_version="es_test_v1",
         feature_version="v1",
         feature_params_hash="44136fa355b3678a",
         feature_refs=feature_refs,
-        structure_refs=(leg_ref, major_lh_ref),
+        structure_refs=(pivot_ref,),
+    )
+    break_level_ref = build_structure_ref(
+        kind=BREAK_LEVEL_KIND_GROUP,
+        rulebook_version=BREAK_LEVEL_RULEBOOK_VERSION,
+        structure_version=BREAK_LEVEL_STRUCTURE_VERSION,
+        input_ref=break_level_input_ref,
+    )
+    breakout_impulse_input_ref = build_structure_input_ref(
+        data_version="es_test_v1",
+        feature_version="v1",
+        feature_params_hash="44136fa355b3678a",
+        feature_refs=feature_refs,
+        structure_refs=(break_level_ref,),
+    )
+    breakout_impulse_ref = build_structure_ref(
+        kind=BREAKOUT_IMPULSE_KIND_GROUP,
+        rulebook_version=BREAKOUT_IMPULSE_RULEBOOK_VERSION,
+        structure_version=BREAKOUT_IMPULSE_STRUCTURE_VERSION,
+        input_ref=breakout_impulse_input_ref,
+    )
+    failed_breakout_input_ref = build_structure_input_ref(
+        data_version="es_test_v1",
+        feature_version="v1",
+        feature_params_hash="44136fa355b3678a",
+        feature_refs=feature_refs,
+        structure_refs=(breakout_impulse_ref,),
     )
 
     _write_structure_dataset(
@@ -1002,53 +1260,239 @@ def _write_structure_artifacts(root: Path) -> None:
     )
     _write_structure_dataset(
         root=root,
-        kind=BREAKOUT_START_KIND_GROUP,
-        structure_version=BREAKOUT_START_STRUCTURE_VERSION,
-        rulebook_version=BREAKOUT_START_RULEBOOK_VERSION,
-        input_ref=breakout_input_ref,
-        structure_refs=(leg_ref, major_lh_ref),
+        kind=BREAK_LEVEL_KIND_GROUP,
+        structure_version=BREAK_LEVEL_STRUCTURE_VERSION,
+        rulebook_version=BREAK_LEVEL_RULEBOOK_VERSION,
+        input_ref=break_level_input_ref,
+        structure_refs=(pivot_ref,),
         rows=[
             {
-                "structure_id": "breakout-140",
-                "kind": "bearish_breakout_start",
+                "structure_id": "break-level-110-130",
+                "kind": "break_level_support",
                 "state": "confirmed",
-                "start_bar_id": 140,
-                "end_bar_id": 140,
-                "confirm_bar_id": 140,
+                "start_bar_id": 110,
+                "end_bar_id": 130,
+                "confirm_bar_id": 130,
                 "session_id": 20240102,
                 "session_date": 20240102,
-                "anchor_bar_ids": (130, 120, 140),
+                "anchor_bar_ids": (110, 130),
                 "feature_refs": feature_refs,
-                "rulebook_version": BREAKOUT_START_RULEBOOK_VERSION,
-                "explanation_codes": ("breakout_start",),
+                "rulebook_version": BREAK_LEVEL_RULEBOOK_VERSION,
+                "explanation_codes": ("support_shelf", "pivot_low_cluster"),
             }
         ],
         feature_refs=feature_refs,
     )
     _write_structure_event_dataset(
         root=root,
-        kind=BREAKOUT_START_KIND_GROUP,
-        structure_version=BREAKOUT_START_STRUCTURE_VERSION,
-        rulebook_version=BREAKOUT_START_RULEBOOK_VERSION,
-        input_ref=breakout_input_ref,
+        kind=BREAK_LEVEL_KIND_GROUP,
+        structure_version=BREAK_LEVEL_STRUCTURE_VERSION,
+        rulebook_version=BREAK_LEVEL_RULEBOOK_VERSION,
+        input_ref=break_level_input_ref,
         feature_refs=feature_refs,
+        payload_schema=BREAKOUT_PAYLOAD_TEST_SCHEMA,
+        rows=[
+            {
+                "event_id": "break-level-110-130:created:130",
+                "structure_id": "break-level-110-130",
+                "kind": "break_level_support",
+                "event_type": "created",
+                "event_bar_id": 130,
+                "event_order": 0,
+                "state_after_event": "confirmed",
+                "reason_codes": ("break_level_visible",),
+                "start_bar_id": 110,
+                "end_bar_id": 130,
+                "confirm_bar_id": 130,
+                "anchor_bar_ids": (110, 130),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {
+                    "explanation_codes": ("support_shelf", "pivot_low_cluster"),
+                    "boundary_kind": "horizontal_band",
+                    "boundary_side": "support",
+                    "anchor_prices": (10.0, 9.0),
+                    "touch_count": 2,
+                    "tolerance": 1.0,
+                    "active_start_bar_id": 110,
+                    "active_end_bar_id": 130,
+                    "band_low": 8.0,
+                    "band_high": 11.0,
+                    "evaluation_anchor_bar_id": 110,
+                    "evaluation_anchor_price": 9.5,
+                    "evaluation_slope_per_bar": 0.0,
+                },
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+        ],
+    )
+    _write_structure_dataset(
+        root=root,
+        kind=BREAKOUT_IMPULSE_KIND_GROUP,
+        structure_version=BREAKOUT_IMPULSE_STRUCTURE_VERSION,
+        rulebook_version=BREAKOUT_IMPULSE_RULEBOOK_VERSION,
+        input_ref=breakout_impulse_input_ref,
+        structure_refs=(break_level_ref,),
+        rows=[
+            {
+                "structure_id": "breakout-140",
+                "kind": "breakout_impulse_bearish",
+                "state": "confirmed",
+                "start_bar_id": 140,
+                "end_bar_id": 140,
+                "confirm_bar_id": 140,
+                "session_id": 20240102,
+                "session_date": 20240102,
+                "anchor_bar_ids": (110, 130, 140),
+                "feature_refs": None,
+                "rulebook_version": BREAKOUT_IMPULSE_RULEBOOK_VERSION,
+                "explanation_codes": ("support_break", "pressure_present", "displacement_present"),
+            }
+        ],
+        feature_refs=feature_refs,
+    )
+    _write_structure_event_dataset(
+        root=root,
+        kind=BREAKOUT_IMPULSE_KIND_GROUP,
+        structure_version=BREAKOUT_IMPULSE_STRUCTURE_VERSION,
+        rulebook_version=BREAKOUT_IMPULSE_RULEBOOK_VERSION,
+        input_ref=breakout_impulse_input_ref,
+        feature_refs=feature_refs,
+        payload_schema=BREAKOUT_PAYLOAD_TEST_SCHEMA,
         rows=[
             {
                 "event_id": "breakout-140:created:140",
                 "structure_id": "breakout-140",
-                "kind": "bearish_breakout_start",
+                "kind": "breakout_impulse_bearish",
                 "event_type": "created",
                 "event_bar_id": 140,
                 "event_order": 0,
                 "state_after_event": "confirmed",
-                "reason_codes": ("breakout_start_visible",),
+                "reason_codes": ("breakout_impulse_visible",),
                 "start_bar_id": 140,
                 "end_bar_id": 140,
                 "confirm_bar_id": 140,
-                "anchor_bar_ids": (130, 120, 140),
+                "anchor_bar_ids": (110, 130, 140),
                 "predecessor_structure_id": None,
                 "successor_structure_id": None,
-                "payload_after": {"explanation_codes": ("breakout_start",)},
+                "payload_after": {
+                    "explanation_codes": (
+                        "support_break",
+                        "pressure_present",
+                        "displacement_present",
+                    ),
+                    "break_level_id": "break-level-110-130",
+                    "boundary_kind": "horizontal_band",
+                    "boundary_side": "support",
+                    "anchor_prices": (10.0, 9.0),
+                    "touch_count": 2,
+                    "tolerance": 1.0,
+                    "active_start_bar_id": 110,
+                    "active_end_bar_id": 130,
+                    "band_low": 8.0,
+                    "band_high": 11.0,
+                    "break_direction": "bearish",
+                    "break_bar_id": 140,
+                    "boundary_price_at_break": 9.5,
+                    "break_distance": 2.0,
+                    "pressure_evidence": ("pressure_repeated_tests", "pressure_lower_highs"),
+                    "displacement_evidence": (
+                        "displacement_range_expansion",
+                        "displacement_body_expansion",
+                        "displacement_close_near_low",
+                    ),
+                    "acceptance_window_bars": 2,
+                    "boundary_quality_score": 0.5,
+                    "pressure_score": 0.5,
+                    "displacement_score": 0.75,
+                    "acceptance_score": 1.0,
+                    "strength_index": 71.25,
+                    "strength_stage": "final",
+                    "strength_components_version": "v1",
+                    "role": "continuation_attempt",
+                },
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+        ],
+    )
+    _write_structure_dataset(
+        root=root,
+        kind=FAILED_BREAKOUT_KIND_GROUP,
+        structure_version=FAILED_BREAKOUT_STRUCTURE_VERSION,
+        rulebook_version=FAILED_BREAKOUT_RULEBOOK_VERSION,
+        input_ref=failed_breakout_input_ref,
+        structure_refs=(breakout_impulse_ref,),
+        rows=[
+            {
+                "structure_id": "failed-breakout-160",
+                "kind": "failed_breakout_bearish",
+                "state": "confirmed",
+                "start_bar_id": 150,
+                "end_bar_id": 160,
+                "confirm_bar_id": 160,
+                "session_id": 20240102,
+                "session_date": 20240102,
+                "anchor_bar_ids": (130, 150, 160),
+                "feature_refs": feature_refs,
+                "rulebook_version": FAILED_BREAKOUT_RULEBOOK_VERSION,
+                "explanation_codes": ("failed_breakout", "level_reclaimed"),
+            }
+        ],
+        feature_refs=feature_refs,
+    )
+    _write_structure_event_dataset(
+        root=root,
+        kind=FAILED_BREAKOUT_KIND_GROUP,
+        structure_version=FAILED_BREAKOUT_STRUCTURE_VERSION,
+        rulebook_version=FAILED_BREAKOUT_RULEBOOK_VERSION,
+        input_ref=failed_breakout_input_ref,
+        feature_refs=feature_refs,
+        payload_schema=BREAKOUT_PAYLOAD_TEST_SCHEMA,
+        rows=[
+            {
+                "event_id": "failed-breakout-160:created:160",
+                "structure_id": "failed-breakout-160",
+                "kind": "failed_breakout_bearish",
+                "event_type": "created",
+                "event_bar_id": 160,
+                "event_order": 0,
+                "state_after_event": "confirmed",
+                "reason_codes": ("failed_breakout_visible",),
+                "start_bar_id": 150,
+                "end_bar_id": 160,
+                "confirm_bar_id": 160,
+                "anchor_bar_ids": (130, 150, 160),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {
+                    "explanation_codes": ("failed_breakout", "level_reclaimed"),
+                    "attempt_structure_id": "breakout-150",
+                    "break_level_id": "break-level-110-130",
+                    "boundary_kind": "horizontal_band",
+                    "boundary_side": "support",
+                    "break_direction": "bearish",
+                    "failure_mode": "boundary_reclaim",
+                    "failure_bar_id": 160,
+                    "reclaim_bar_id": 160,
+                    "anchor_prices": (10.0, 9.0),
+                    "touch_count": 2,
+                    "tolerance": 1.0,
+                    "band_low": 8.0,
+                    "band_high": 11.0,
+                    "boundary_price_at_failure": 9.5,
+                    "break_distance": 1.25,
+                    "boundary_quality_score": 0.5,
+                    "pressure_score": 0.75,
+                    "displacement_score": 0.5,
+                    "acceptance_score": 0.0,
+                    "strength_index": 47.5,
+                    "strength_stage": "final",
+                    "role": "reversal_attempt",
+                },
                 "changed_fields": (),
                 "session_id": 20240102,
                 "session_date": 20240102,

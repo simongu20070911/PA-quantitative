@@ -15,7 +15,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "pa_inspector.workspace.v1";
-const STORAGE_VERSION = 5;
+const STORAGE_VERSION = 7;
 
 export interface PersistedInspectorState {
   apiBaseUrl: string;
@@ -40,6 +40,7 @@ export interface PersistedInspectorState {
   emaToolbarPosition: FloatingPosition | null;
   emaToolbarOpenPopover: AnnotationToolbarPopover;
   autoViewportFetch: boolean;
+  showReplayRetiredOverlays: boolean;
   overlayLayers: Record<OverlayLayer, boolean>;
   annotations: ChartAnnotation[];
   annotationTool: AnnotationTool;
@@ -48,6 +49,7 @@ export interface PersistedInspectorState {
   detailAnchor: ScreenPoint | null;
   confirmationGuide: ConfirmationGuide | null;
   replayCursorBarId: number | null;
+  replayCursorEventId: string | null;
   replaySpeed: number;
   toolbarHidden: boolean;
   toolbarOpenPanel: InspectorToolbarPanel;
@@ -56,91 +58,262 @@ export interface PersistedInspectorState {
   annotationToolbarOpenPopover: AnnotationToolbarPopover;
   inspectorPanelPosition: FloatingPosition;
   inspectorPanelManualPosition: boolean;
-  viewport:
-    | {
-        familyKey: string;
-        centerBarId: number;
-        span: number;
-      }
-    | null;
+  viewport: PersistedViewportState | null;
+}
+
+export interface PersistedViewportState {
+  familyKey: string;
+  centerBarId: number;
+  span: number;
 }
 
 interface PersistedInspectorEnvelope extends PersistedInspectorState {
   version: number;
 }
 
-const BASE_DEFAULT_INSPECTOR_STATE = {
-  structureSource: "runtime_v0_2",
-  symbol: "ES",
-  timeframe: "1m",
-  sessionProfile: "eth_full",
-  inspectorMode: "explore",
-  selectorMode: "session_date",
-  sessionDate: "20251117",
-  centerBarId: "29390399",
-  startTime: "",
-  endTime: "",
-  leftBars: "240",
-  rightBars: "240",
-  bufferBars: "120",
-  emaLengths: "",
-  emaEnabled: false,
-  emaStyles: {},
-  selectedEmaLength: null,
-  emaToolbarPosition: null,
-  emaToolbarOpenPopover: null,
-  autoViewportFetch: false,
-  annotations: [],
-  annotationTool: "none",
-  selectedAnnotationId: null,
-  selectedOverlayId: null,
-  detailAnchor: null,
-  confirmationGuide: null,
-  replayCursorBarId: null,
-  replaySpeed: 1,
-  toolbarHidden: false,
-  toolbarOpenPanel: null,
-  annotationToolbarPosition: null,
-  annotationToolbarOpenPopover: null,
-  inspectorPanelManualPosition: false,
-  viewport: null,
-} satisfies Omit<
-  PersistedInspectorState,
-  | "apiBaseUrl"
-  | "dataVersion"
-  | "overlayLayers"
-  | "annotationRailPosition"
-  | "inspectorPanelPosition"
->;
-
-type PersistedInspectorFieldValidators = {
-  [Key in keyof PersistedInspectorState]: (
-    value: unknown,
-  ) => value is PersistedInspectorState[Key];
-};
-
-type PersistedInspectorFieldMigrators = Partial<{
-  [Key in keyof PersistedInspectorState]: (
-    value: PersistedInspectorState[Key],
-    defaults: PersistedInspectorState,
-  ) => PersistedInspectorState[Key];
-}>;
-
-export function buildDefaultInspectorState(args: {
+interface PersistedInspectorDefaultsArgs {
   apiBaseUrl: string;
   dataVersion: string;
   overlayLayers: Record<OverlayLayer, boolean>;
   annotationRailPosition: FloatingPosition;
   inspectorPanelPosition: FloatingPosition;
-}): PersistedInspectorState {
-  return {
-    ...BASE_DEFAULT_INSPECTOR_STATE,
-    apiBaseUrl: args.apiBaseUrl,
-    dataVersion: args.dataVersion,
-    overlayLayers: args.overlayLayers,
-    annotationRailPosition: args.annotationRailPosition,
-    inspectorPanelPosition: args.inspectorPanelPosition,
-  };
+}
+
+type PersistedInspectorFieldSpec<Key extends keyof PersistedInspectorState> = {
+  key: Key;
+  defaultValue: (
+    args: PersistedInspectorDefaultsArgs,
+  ) => PersistedInspectorState[Key];
+  validate: (value: unknown) => value is PersistedInspectorState[Key];
+  migrate?: (
+    value: PersistedInspectorState[Key],
+    defaults: PersistedInspectorState,
+  ) => PersistedInspectorState[Key];
+};
+
+const PERSISTED_INSPECTOR_FIELD_SPECS = [
+  field({
+    key: "apiBaseUrl",
+    defaultValue: (args) => args.apiBaseUrl,
+    validate: isString,
+  }),
+  field({
+    key: "dataVersion",
+    defaultValue: (args) => args.dataVersion,
+    validate: isString,
+  }),
+  field({
+    key: "structureSource",
+    defaultValue: () => "runtime_v0_2",
+    validate: isStructureSourceProfile,
+    migrate: (value) =>
+      value === "auto" || value === "artifact_v0_2" ? "runtime_v0_2" : value,
+  }),
+  field({
+    key: "symbol",
+    defaultValue: () => "ES",
+    validate: isString,
+  }),
+  field({
+    key: "timeframe",
+    defaultValue: () => "1m",
+    validate: isString,
+  }),
+  field({
+    key: "sessionProfile",
+    defaultValue: () => "eth_full",
+    validate: isSessionProfile,
+  }),
+  field({
+    key: "inspectorMode",
+    defaultValue: () => "explore",
+    validate: isInspectorMode,
+  }),
+  field({
+    key: "selectorMode",
+    defaultValue: () => "session_date",
+    validate: isSelectorMode,
+  }),
+  field({
+    key: "sessionDate",
+    defaultValue: () => "20251117",
+    validate: isString,
+  }),
+  field({
+    key: "centerBarId",
+    defaultValue: () => "29390399",
+    validate: isString,
+  }),
+  field({
+    key: "startTime",
+    defaultValue: () => "",
+    validate: isString,
+  }),
+  field({
+    key: "endTime",
+    defaultValue: () => "",
+    validate: isString,
+  }),
+  field({
+    key: "leftBars",
+    defaultValue: () => "240",
+    validate: isString,
+  }),
+  field({
+    key: "rightBars",
+    defaultValue: () => "240",
+    validate: isString,
+  }),
+  field({
+    key: "bufferBars",
+    defaultValue: () => "120",
+    validate: isString,
+  }),
+  field({
+    key: "emaLengths",
+    defaultValue: () => "",
+    validate: isString,
+  }),
+  field({
+    key: "emaEnabled",
+    defaultValue: () => false,
+    validate: isBoolean,
+  }),
+  field({
+    key: "emaStyles",
+    defaultValue: () => ({}),
+    validate: isEmaStylesRecord,
+  }),
+  field({
+    key: "selectedEmaLength",
+    defaultValue: () => null,
+    validate: isNullableFiniteNumber,
+  }),
+  field({
+    key: "emaToolbarPosition",
+    defaultValue: () => null,
+    validate: isNullableFloatingPosition,
+  }),
+  field({
+    key: "emaToolbarOpenPopover",
+    defaultValue: () => null,
+    validate: isAnnotationToolbarPopover,
+  }),
+  field({
+    key: "autoViewportFetch",
+    defaultValue: () => false,
+    validate: isBoolean,
+  }),
+  field({
+    key: "showReplayRetiredOverlays",
+    defaultValue: () => true,
+    validate: isBoolean,
+  }),
+  field({
+    key: "overlayLayers",
+    defaultValue: (args) => args.overlayLayers,
+    validate: isOverlayLayerState,
+  }),
+  field({
+    key: "annotations",
+    defaultValue: () => [],
+    validate: isChartAnnotations,
+  }),
+  field({
+    key: "annotationTool",
+    defaultValue: () => "none",
+    validate: isAnnotationTool,
+  }),
+  field({
+    key: "selectedAnnotationId",
+    defaultValue: () => null,
+    validate: isNullableString,
+  }),
+  field({
+    key: "selectedOverlayId",
+    defaultValue: () => null,
+    validate: isNullableString,
+  }),
+  field({
+    key: "detailAnchor",
+    defaultValue: () => null,
+    validate: isNullableScreenPoint,
+  }),
+  field({
+    key: "confirmationGuide",
+    defaultValue: () => null,
+    validate: isNullableConfirmationGuide,
+  }),
+  field({
+    key: "replayCursorBarId",
+    defaultValue: () => null,
+    validate: isNullableFiniteNumber,
+  }),
+  field({
+    key: "replayCursorEventId",
+    defaultValue: () => null,
+    validate: isNullableString,
+  }),
+  field({
+    key: "replaySpeed",
+    defaultValue: () => 1,
+    validate: isReplaySpeed,
+  }),
+  field({
+    key: "toolbarHidden",
+    defaultValue: () => false,
+    validate: isBoolean,
+  }),
+  field({
+    key: "toolbarOpenPanel",
+    defaultValue: () => null,
+    validate: isInspectorToolbarPanel,
+  }),
+  field({
+    key: "annotationRailPosition",
+    defaultValue: (args) => args.annotationRailPosition,
+    validate: isFloatingPosition,
+  }),
+  field({
+    key: "annotationToolbarPosition",
+    defaultValue: () => null,
+    validate: isNullableFloatingPosition,
+  }),
+  field({
+    key: "annotationToolbarOpenPopover",
+    defaultValue: () => null,
+    validate: isAnnotationToolbarPopover,
+  }),
+  field({
+    key: "inspectorPanelPosition",
+    defaultValue: (args) => args.inspectorPanelPosition,
+    validate: isFloatingPosition,
+  }),
+  field({
+    key: "inspectorPanelManualPosition",
+    defaultValue: () => false,
+    validate: isBoolean,
+  }),
+  field({
+    key: "viewport",
+    defaultValue: () => null,
+    validate: isNullableViewportState,
+  }),
+] as const;
+
+export function buildDefaultInspectorState(
+  args: PersistedInspectorDefaultsArgs,
+): PersistedInspectorState {
+  const state = {} as PersistedInspectorState;
+  const writableState =
+    state as Record<
+      keyof PersistedInspectorState,
+      PersistedInspectorState[keyof PersistedInspectorState]
+    >;
+  for (const spec of listFieldSpecs()) {
+    writableState[spec.key] = spec.defaultValue(args);
+  }
+  return state;
 }
 
 export function loadPersistedInspectorState(
@@ -181,102 +354,51 @@ export function savePersistedInspectorState(state: PersistedInspectorState) {
 }
 
 function isPersistedEnvelope(value: unknown): value is PersistedInspectorEnvelope {
-  if (!isRecord(value)) {
-    return false;
-  }
   return (
+    isRecord(value) &&
     value.version === STORAGE_VERSION &&
-    PERSISTED_INSPECTOR_STATE_KEYS.every((key) =>
-      PERSISTED_INSPECTOR_FIELD_VALIDATORS[key](value[key]),
-    )
+    PERSISTED_INSPECTOR_FIELD_SPECS.every((spec) => spec.validate(value[spec.key]))
   );
 }
-
-const PERSISTED_INSPECTOR_FIELD_VALIDATORS: PersistedInspectorFieldValidators = {
-  apiBaseUrl: isString,
-  dataVersion: isString,
-  structureSource: isStructureSourceProfile,
-  symbol: isString,
-  timeframe: isString,
-  sessionProfile: isSessionProfile,
-  inspectorMode: isInspectorMode,
-  selectorMode: isSelectorMode,
-  sessionDate: isString,
-  centerBarId: isString,
-  startTime: isString,
-  endTime: isString,
-  leftBars: isString,
-  rightBars: isString,
-  bufferBars: isString,
-  emaLengths: isString,
-  emaEnabled: isBoolean,
-  emaStyles: isEmaStylesRecord,
-  selectedEmaLength: isNullableFiniteNumber,
-  emaToolbarPosition: isNullableFloatingPosition,
-  emaToolbarOpenPopover: isAnnotationToolbarPopover,
-  autoViewportFetch: isBoolean,
-  overlayLayers: isOverlayLayerState,
-  annotations: isChartAnnotations,
-  annotationTool: isAnnotationTool,
-  selectedAnnotationId: isNullableString,
-  selectedOverlayId: isNullableString,
-  detailAnchor: isNullableScreenPoint,
-  confirmationGuide: isNullableConfirmationGuide,
-  replayCursorBarId: isNullableFiniteNumber,
-  replaySpeed: isReplaySpeed,
-  toolbarHidden: isBoolean,
-  toolbarOpenPanel: isInspectorToolbarPanel,
-  annotationRailPosition: isFloatingPosition,
-  annotationToolbarPosition: isNullableFloatingPosition,
-  annotationToolbarOpenPopover: isAnnotationToolbarPopover,
-  inspectorPanelPosition: isFloatingPosition,
-  inspectorPanelManualPosition: isBoolean,
-  viewport: isNullableViewportState,
-};
-
-const PERSISTED_INSPECTOR_FIELD_MIGRATORS: PersistedInspectorFieldMigrators = {
-  structureSource: (value) =>
-    value === "auto" || value === "artifact_v0_2" ? "runtime_v0_2" : value,
-};
-
-const PERSISTED_INSPECTOR_STATE_KEYS = Object.keys(
-  PERSISTED_INSPECTOR_FIELD_VALIDATORS,
-) as Array<keyof PersistedInspectorState>;
 
 function restorePersistedInspectorState(
   envelope: PersistedInspectorEnvelope,
   defaults: PersistedInspectorState,
 ): PersistedInspectorState {
   const restored = { ...defaults };
-  for (const key of PERSISTED_INSPECTOR_STATE_KEYS) {
-    assignRestoredInspectorField(restored, envelope, defaults, key);
+  const writableRestored =
+    restored as Record<
+      keyof PersistedInspectorState,
+      PersistedInspectorState[keyof PersistedInspectorState]
+    >;
+  for (const spec of listFieldSpecs()) {
+    const value = envelope[spec.key];
+    writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
   }
   return restored;
 }
 
-function assignRestoredInspectorField<Key extends keyof PersistedInspectorState>(
-  restored: PersistedInspectorState,
-  envelope: PersistedInspectorEnvelope,
-  defaults: PersistedInspectorState,
-  key: Key,
-): void {
-  const value = envelope[key];
-  const migrate = PERSISTED_INSPECTOR_FIELD_MIGRATORS[key];
-  restored[key] = migrate ? migrate(value, defaults) : value;
+function field<Key extends keyof PersistedInspectorState>(
+  spec: PersistedInspectorFieldSpec<Key>,
+): PersistedInspectorFieldSpec<Key> {
+  return spec;
+}
+
+function listFieldSpecs() {
+  return PERSISTED_INSPECTOR_FIELD_SPECS as ReadonlyArray<
+    PersistedInspectorFieldSpec<keyof PersistedInspectorState>
+  >;
 }
 
 function isOverlayLayerState(
   value: unknown,
 ): value is Record<OverlayLayer, boolean> {
-  if (!isRecord(value)) {
-    return false;
-  }
   return (
+    isRecord(value) &&
     typeof value.pivot_st === "boolean" &&
     typeof value.pivot === "boolean" &&
     typeof value.leg === "boolean" &&
-    typeof value.major_lh === "boolean" &&
-    typeof value.breakout_start === "boolean"
+    typeof value.major_lh === "boolean"
   );
 }
 
@@ -297,16 +419,11 @@ function isEmaStylesRecord(value: unknown): value is Record<string, EmaStyle> {
 }
 
 function isStructureSourceProfile(value: unknown): value is StructureSourceProfile {
-  return (
-    value === "auto" ||
-    value === "artifact_v0_1" ||
-    value === "artifact_v0_2" ||
-    value === "runtime_v0_2"
-  );
+  return isOneOf(value, ["auto", "artifact_v0_1", "artifact_v0_2", "runtime_v0_2"]);
 }
 
 function isInspectorMode(value: unknown): value is InspectorMode {
-  return value === "explore" || value === "replay";
+  return isOneOf(value, ["explore", "replay"]);
 }
 
 function isReplaySpeed(value: unknown): value is number {
@@ -318,10 +435,8 @@ function isReplaySpeed(value: unknown): value is number {
 }
 
 function isChartAnnotation(value: unknown): value is ChartAnnotation {
-  if (!isRecord(value)) {
-    return false;
-  }
   return (
+    isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.familyKey === "string" &&
     isAnnotationKind(value.kind) &&
@@ -348,9 +463,7 @@ function isAnnotationStyle(value: unknown): value is ChartAnnotation["style"] {
     typeof value.fillColor === "string" &&
     typeof value.lineWidth === "number" &&
     Number.isFinite(value.lineWidth) &&
-    (value.lineStyle === "solid" ||
-      value.lineStyle === "dashed" ||
-      value.lineStyle === "dotted") &&
+    isOneOf(value.lineStyle, ["solid", "dashed", "dotted"]) &&
     typeof value.opacity === "number" &&
     Number.isFinite(value.opacity) &&
     typeof value.locked === "boolean"
@@ -363,9 +476,7 @@ function isEmaStyle(value: unknown): value is EmaStyle {
     typeof value.strokeColor === "string" &&
     typeof value.lineWidth === "number" &&
     Number.isFinite(value.lineWidth) &&
-    (value.lineStyle === "solid" ||
-      value.lineStyle === "dashed" ||
-      value.lineStyle === "dotted") &&
+    isOneOf(value.lineStyle, ["solid", "dashed", "dotted"]) &&
     typeof value.opacity === "number" &&
     Number.isFinite(value.opacity) &&
     typeof value.visible === "boolean"
@@ -373,7 +484,7 @@ function isEmaStyle(value: unknown): value is EmaStyle {
 }
 
 function isAnnotationKind(value: unknown): value is ChartAnnotation["kind"] {
-  return value === "line" || value === "box" || value === "fib50";
+  return isOneOf(value, ["line", "box", "fib50"]);
 }
 
 function isAnnotationTool(value: unknown): value is AnnotationTool {
@@ -381,26 +492,19 @@ function isAnnotationTool(value: unknown): value is AnnotationTool {
 }
 
 function isSessionProfile(value: unknown): value is SessionProfile {
-  return value === "eth_full" || value === "rth";
+  return isOneOf(value, ["eth_full", "rth"]);
 }
 
 function isSelectorMode(value: unknown): value is SelectorMode {
-  return value === "session_date" || value === "center_bar_id" || value === "time_range";
+  return isOneOf(value, ["session_date", "center_bar_id", "time_range"]);
 }
 
 function isInspectorToolbarPanel(value: unknown): value is InspectorToolbarPanel {
-  return value === null || value === "jump" || value === "display" || value === "layers" || value === "data";
+  return isOneOf(value, ["jump", "display", "layers", "versions", "data", null]);
 }
 
 function isAnnotationToolbarPopover(value: unknown): value is AnnotationToolbarPopover {
-  return (
-    value === null ||
-    value === "stroke" ||
-    value === "fill" ||
-    value === "width" ||
-    value === "style" ||
-    value === "opacity"
-  );
+  return isOneOf(value, ["stroke", "fill", "width", "style", "opacity", null]);
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -451,9 +555,7 @@ function isNullableConfirmationGuide(value: unknown): value is ConfirmationGuide
   );
 }
 
-function isNullableViewportState(
-  value: unknown,
-): value is PersistedInspectorState["viewport"] {
+function isNullableViewportState(value: unknown): value is PersistedViewportState | null {
   return (
     value === null ||
     (isRecord(value) &&
@@ -467,4 +569,11 @@ function isNullableViewportState(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isOneOf<const Values extends readonly unknown[]>(
+  value: unknown,
+  values: Values,
+): value is Values[number] {
+  return values.includes(value);
 }

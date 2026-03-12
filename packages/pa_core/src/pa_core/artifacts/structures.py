@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -18,6 +16,7 @@ from .layout import (
     structure_manifest_path,
     structure_part_path,
 )
+from .partitioned import YearPartitionedDatasetWriter, load_manifest, write_manifest
 
 STRUCTURE_ARTIFACT_COLUMNS = (
     "structure_id",
@@ -138,32 +137,37 @@ class StructureArtifactWriter:
             kind=kind,
             dataset=dataset_class,
         )
+        self._dataset_writer = YearPartitionedDatasetWriter(
+            dataset_root=self.dataset_root,
+            required_columns=STRUCTURE_ARTIFACT_COLUMNS,
+            part_path_builder=lambda year, part_index: structure_part_path(
+                artifacts_root=self.artifacts_root,
+                rulebook_version=self.rulebook_version,
+                structure_version=self.structure_version,
+                input_ref=self.input_ref,
+                kind=self.kind,
+                year=year,
+                part_index=part_index,
+                dataset=self.dataset_class,
+            ),
+        )
         self._row_count = 0
         self._candidate_count = 0
         self._confirmed_count = 0
         self._invalidated_count = 0
-        self._years: set[int] = set()
-        self._part_paths: list[str] = []
-        self._part_index_by_year: dict[int, int] = {}
         self._min_start_bar_id: int | None = None
         self._max_start_bar_id: int | None = None
         self._min_session_date: int | None = None
         self._max_session_date: int | None = None
-        self._reset_output_root()
 
     def write_chunk(self, structures: Any) -> None:
         table = _coerce_structure_table(structures)
-        if table.num_rows == 0:
+        chunk = self._dataset_writer.prepare_chunk(table)
+        if chunk is None:
             return
-        missing_columns = [
-            column for column in STRUCTURE_ARTIFACT_COLUMNS if column not in table.column_names
-        ]
-        if missing_columns:
-            raise ValueError(f"Structure chunk is missing columns: {missing_columns}")
-
-        ordered = table.select(list(STRUCTURE_ARTIFACT_COLUMNS)).combine_chunks()
+        ordered = chunk.table
         session_dates = np.asarray(
-            ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
+            chunk.session_dates,
             dtype=np.int64,
         )
         start_bar_ids = np.asarray(
@@ -171,25 +175,6 @@ class StructureArtifactWriter:
             dtype=np.int64,
         )
         state_values = ordered.column("state").combine_chunks().to_pylist()
-        partition_years = session_dates // 10_000
-        for year in np.unique(partition_years):
-            indices = np.nonzero(partition_years == year)[0]
-            part_index = self._part_index_by_year.get(int(year), 0)
-            part_path = structure_part_path(
-                artifacts_root=self.artifacts_root,
-                rulebook_version=self.rulebook_version,
-                structure_version=self.structure_version,
-                input_ref=self.input_ref,
-                kind=self.kind,
-                year=int(year),
-                part_index=part_index,
-                dataset=self.dataset_class,
-            )
-            year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
-            write_table(year_chunk, part_path)
-            self._part_index_by_year[int(year)] = part_index + 1
-            self._part_paths.append(part_path.relative_to(self.dataset_root).as_posix())
-            self._years.add(int(year))
 
         self._row_count += ordered.num_rows
         self._candidate_count += sum(1 for value in state_values if value == "candidate")
@@ -242,28 +227,21 @@ class StructureArtifactWriter:
             max_start_bar_id=int(self._max_start_bar_id),
             min_session_date=int(self._min_session_date),
             max_session_date=int(self._max_session_date),
-            years=tuple(sorted(self._years)),
-            parts=tuple(self._part_paths),
+            years=self._dataset_writer.years,
+            parts=self._dataset_writer.part_paths,
         )
-        manifest_path = structure_manifest_path(
-            artifacts_root=self.artifacts_root,
-            rulebook_version=self.rulebook_version,
-            structure_version=self.structure_version,
-            input_ref=self.input_ref,
-            kind=self.kind,
-            dataset=self.dataset_class,
-        )
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        write_manifest(
+            structure_manifest_path(
+                artifacts_root=self.artifacts_root,
+                rulebook_version=self.rulebook_version,
+                structure_version=self.structure_version,
+                input_ref=self.input_ref,
+                kind=self.kind,
+                dataset=self.dataset_class,
+            ),
+            manifest.to_dict(),
         )
         return manifest
-
-    def _reset_output_root(self) -> None:
-        if self.dataset_root.exists():
-            shutil.rmtree(self.dataset_root)
-        self.dataset_root.mkdir(parents=True, exist_ok=True)
 
 
 def load_structure_manifest(
@@ -275,7 +253,7 @@ def load_structure_manifest(
     kind: str,
     dataset_class: str = "objects",
 ) -> StructureArtifactManifest:
-    manifest = structure_manifest_path(
+    manifest_path = structure_manifest_path(
         artifacts_root=artifacts_root,
         rulebook_version=rulebook_version,
         structure_version=structure_version,
@@ -283,8 +261,8 @@ def load_structure_manifest(
         kind=kind,
         dataset=dataset_class,
     )
-    if not manifest.exists() and dataset_class == "objects":
-        manifest = structure_manifest_path(
+    if not manifest_path.exists() and dataset_class == "objects":
+        manifest_path = structure_manifest_path(
             artifacts_root=artifacts_root,
             rulebook_version=rulebook_version,
             structure_version=structure_version,
@@ -292,10 +270,11 @@ def load_structure_manifest(
             kind=kind,
             dataset=None,
         )
-    if not manifest.exists():
-        raise FileNotFoundError(f"Structure manifest not found: {manifest}")
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    return StructureArtifactManifest.from_dict(payload)
+    return load_manifest(
+        path=manifest_path,
+        missing_error="Structure manifest not found",
+        manifest_factory=StructureArtifactManifest.from_dict,
+    )
 
 
 def list_structure_kinds(

@@ -33,14 +33,3 @@ MAJOR_LH_BAR_FINALIZATION = "closed_bar_only"
 MAJOR_LH_LOWER_HIGH_CODE = "lower_high"
 MAJOR_LH_BREAK_CODE = "down_leg_break_prior_low"
 MAJOR_LH_CROSS_SESSION_CODE = "cross_session_sequence"
-
-BREAKOUT_START_KIND_GROUP = "breakout_start"
-BREAKOUT_START_RULEBOOK_VERSION = "v0_1"
-BREAKOUT_START_STRUCTURE_VERSION = "v1"
-BREAKOUT_START_TIMING_SEMANTICS = "available_on_close_of_bar"
-BREAKOUT_START_BAR_FINALIZATION = "closed_bar_only"
-BREAKOUT_START_EXPLANATION_CODES = (
-    "major_lh_context",
-    "break_prior_support",
-    LEG_STRENGTH_PASS_CODE,
-)

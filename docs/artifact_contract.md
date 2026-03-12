@@ -75,7 +75,6 @@ Current initial structure implementation:
 - current pivot artifacts emit `state = candidate` only for surviving dataset-tail pivots with incomplete right context
 - current leg artifacts live under `.../input_ref=<bars+features ref>__structures-6d3f685c/kind=leg/`
 - current `major_lh` artifacts live under `.../input_ref=<bars+features ref>__structures-1d288a0e/kind=major_lh/`
-- current breakout-start artifacts live under `.../input_ref=<bars+features ref>__structures-9f778392/kind=breakout_start/`
 
 ## Structure Dataset Classes
 
@@ -134,7 +133,7 @@ Relationship fields such as `predecessor_structure_id` and `successor_structure_
 
 Shared provenance policy:
 
-- keep `rulebook_version`, `structure_version`, `feature_refs`, `structure_refs`, `input_ref`, and other dataset-wide provenance in manifests by default
+- keep `definition_family`, `definition_version`, `rulebook_version`, `structure_version`, `feature_refs`, `structure_refs`, `input_ref`, and other dataset-wide provenance in manifests by default
 - keep the event dataset's typed `payload_after` schema in the manifest so artifact readers and replay resolvers can rebuild the correct nested schema
 - duplicate shared provenance into event rows only when a dataset version explicitly prefers fully standalone rows
 
@@ -163,6 +162,7 @@ IDs must not depend on UI state.
 Every artifact family must carry explicit versions where relevant:
 
 - `data_version`
+- `definition_version`
 - `feature_version`
 - `rulebook_version`
 - `structure_version`
@@ -170,6 +170,12 @@ Every artifact family must carry explicit versions where relevant:
 - `review_version`
 
 No unlabeled artifact is considered canonical.
+
+Definition provenance rules:
+
+- use `definition_version` when a reusable concept has a dedicated semantic definition document
+- use `definition_family` to identify which concept family the artifact instantiates when that is not already obvious from the artifact family and `kind`
+- rulebook versions do not replace definition provenance; they answer which parameterized legality slice instantiated the concept
 
 Current canonical bars `data_version` convention:
 
@@ -229,6 +235,5 @@ The first derived artifacts to build are:
    - `pivot`
    - `leg`
    - `major_lh`
-   - `breakout_start`
 
 This is the minimum viable artifact chain for the first usable inspector.

@@ -5,6 +5,7 @@ const SPEED_OPTIONS = [0.5, 1, 2, 4] as const;
 export interface ReplayTransportProps {
   visible: boolean;
   hasBars: boolean;
+  hasEvents: boolean;
   cursorBar: ChartBar | null;
   playing: boolean;
   speed: number;
@@ -41,8 +42,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
         <div className="replay-transport-controls">
           <button
             className="transport-button"
-            disabled
-            title="Replay event stepping will activate once backend lifecycle reads are wired."
+            disabled={!props.hasEvents || !props.backendResolved}
             type="button"
             onClick={() => props.onStepEvent(-1)}
           >
@@ -50,7 +50,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled={!props.cursorBar}
+            disabled={!props.cursorBar || !props.backendResolved}
             type="button"
             onClick={() => props.onStepBar(-1)}
           >
@@ -58,7 +58,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button transport-button-primary"
-            disabled={!props.cursorBar}
+            disabled={!props.cursorBar || !props.backendResolved}
             type="button"
             onClick={props.onTogglePlaying}
           >
@@ -66,7 +66,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled={!props.cursorBar}
+            disabled={!props.cursorBar || !props.backendResolved}
             type="button"
             onClick={() => props.onStepBar(1)}
           >
@@ -74,8 +74,7 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </button>
           <button
             className="transport-button"
-            disabled
-            title="Replay event stepping will activate once backend lifecycle reads are wired."
+            disabled={!props.hasEvents || !props.backendResolved}
             type="button"
             onClick={() => props.onStepEvent(1)}
           >
@@ -113,11 +112,11 @@ export function ReplayTransport(props: ReplayTransportProps) {
       </div>
 
       <p className="replay-transport-note">
-        {props.backendResolved
-          ? "Replay is showing backend-resolved structure state, and future bars are hidden after the active cursor."
-          : props.cursorBar
-            ? "Replay is waiting for the backend-resolved cursor load. Future bars will stay hidden once the replay snapshot arrives."
-            : "Click empty chart space to choose a replay start point. Future bars stay visible only while you are choosing the cursor."}
+        {!props.cursorBar
+          ? "Click empty chart space to choose a replay start point. Future bars stay visible only while you are choosing the cursor."
+          : props.backendResolved
+            ? "Replay is showing backend-authored event frames, and future bars are hidden after the active cursor."
+            : "Replay is waiting for backend replay frames for this window. Future bars will stay hidden once the replay view is ready."}
       </p>
     </div>
   );

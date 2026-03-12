@@ -7,11 +7,6 @@ from typing import Sequence
 from pa_core.artifacts.features import load_feature_manifest
 from pa_core.features.edge_features import EDGE_FEATURE_KEYS
 from pa_core.rulebooks.v0_1 import (
-    BREAKOUT_START_BAR_FINALIZATION as BREAKOUT_START_V0_1_BAR_FINALIZATION,
-    BREAKOUT_START_KIND_GROUP as BREAKOUT_START_V0_1_KIND_GROUP,
-    BREAKOUT_START_RULEBOOK_VERSION as BREAKOUT_START_V0_1_RULEBOOK_VERSION,
-    BREAKOUT_START_STRUCTURE_VERSION as BREAKOUT_START_V0_1_STRUCTURE_VERSION,
-    BREAKOUT_START_TIMING_SEMANTICS as BREAKOUT_START_V0_1_TIMING_SEMANTICS,
     LEG_BAR_FINALIZATION as LEG_V0_1_BAR_FINALIZATION,
     LEG_KIND_GROUP as LEG_V0_1_KIND_GROUP,
     LEG_RULEBOOK_VERSION as LEG_V0_1_RULEBOOK_VERSION,
@@ -24,11 +19,6 @@ from pa_core.rulebooks.v0_1 import (
     MAJOR_LH_TIMING_SEMANTICS as MAJOR_LH_V0_1_TIMING_SEMANTICS,
 )
 from pa_core.rulebooks.v0_2 import (
-    BREAKOUT_START_BAR_FINALIZATION as BREAKOUT_START_V0_2_BAR_FINALIZATION,
-    BREAKOUT_START_KIND_GROUP as BREAKOUT_START_V0_2_KIND_GROUP,
-    BREAKOUT_START_RULEBOOK_VERSION as BREAKOUT_START_V0_2_RULEBOOK_VERSION,
-    BREAKOUT_START_STRUCTURE_VERSION as BREAKOUT_START_V0_2_STRUCTURE_VERSION,
-    BREAKOUT_START_TIMING_SEMANTICS as BREAKOUT_START_V0_2_TIMING_SEMANTICS,
     LEG_BAR_FINALIZATION as LEG_V0_2_BAR_FINALIZATION,
     LEG_KIND_GROUP as LEG_V0_2_KIND_GROUP,
     LEG_RULEBOOK_VERSION as LEG_V0_2_RULEBOOK_VERSION,
@@ -98,6 +88,59 @@ class ResolvedStructureDatasetSpec:
     has_events: bool
 
 
+def _build_structure_source_profile(
+    *,
+    source: str,
+    nodes: Sequence[StructureChainNode],
+    display_rulebook_version: str | None,
+    display_structure_version: str | None,
+) -> StructureSourceProfileSpec:
+    return StructureSourceProfileSpec(
+        source=source,
+        nodes=tuple(nodes),
+        display_rulebook_version=display_rulebook_version,
+        display_structure_version=display_structure_version,
+    )
+
+
+_V0_2_CHAIN_NODES: tuple[StructureChainNode, ...] = (
+    StructureChainNode(
+        kind=PIVOT_ST_SPEC.kind_group,
+        rulebook_version=PIVOT_ST_SPEC.rulebook_version,
+        structure_version=PIVOT_ST_SPEC.structure_version,
+        timing_semantics=PIVOT_ST_SPEC.timing_semantics,
+        bar_finalization=PIVOT_ST_SPEC.bar_finalization,
+        has_events=True,
+    ),
+    StructureChainNode(
+        kind=PIVOT_V0_2_KIND_GROUP,
+        rulebook_version=PIVOT_V0_2_RULEBOOK_VERSION,
+        structure_version=PIVOT_V0_2_STRUCTURE_VERSION,
+        timing_semantics=PIVOT_SPEC.timing_semantics,
+        bar_finalization=PIVOT_SPEC.bar_finalization,
+        has_events=True,
+    ),
+    StructureChainNode(
+        kind=LEG_V0_2_KIND_GROUP,
+        rulebook_version=LEG_V0_2_RULEBOOK_VERSION,
+        structure_version=LEG_V0_2_STRUCTURE_VERSION,
+        timing_semantics=LEG_V0_2_TIMING_SEMANTICS,
+        bar_finalization=LEG_V0_2_BAR_FINALIZATION,
+        depends_on=(PIVOT_V0_2_KIND_GROUP,),
+        has_events=True,
+    ),
+    StructureChainNode(
+        kind=MAJOR_LH_V0_2_KIND_GROUP,
+        rulebook_version=MAJOR_LH_V0_2_RULEBOOK_VERSION,
+        structure_version=MAJOR_LH_V0_2_STRUCTURE_VERSION,
+        timing_semantics=MAJOR_LH_V0_2_TIMING_SEMANTICS,
+        bar_finalization=MAJOR_LH_V0_2_BAR_FINALIZATION,
+        depends_on=(LEG_V0_2_KIND_GROUP,),
+        has_events=True,
+    ),
+)
+
+
 _STRUCTURE_SOURCE_PROFILES: dict[str, StructureSourceProfileSpec] = {
     "artifact_v0_1": StructureSourceProfileSpec(
         source="artifact_v0_1",
@@ -125,115 +168,19 @@ _STRUCTURE_SOURCE_PROFILES: dict[str, StructureSourceProfileSpec] = {
                 bar_finalization=MAJOR_LH_V0_1_BAR_FINALIZATION,
                 depends_on=(LEG_V0_1_KIND_GROUP,),
             ),
-            StructureChainNode(
-                kind=BREAKOUT_START_V0_1_KIND_GROUP,
-                rulebook_version=BREAKOUT_START_V0_1_RULEBOOK_VERSION,
-                structure_version=BREAKOUT_START_V0_1_STRUCTURE_VERSION,
-                timing_semantics=BREAKOUT_START_V0_1_TIMING_SEMANTICS,
-                bar_finalization=BREAKOUT_START_V0_1_BAR_FINALIZATION,
-                depends_on=(LEG_V0_1_KIND_GROUP, MAJOR_LH_V0_1_KIND_GROUP),
-            ),
         ),
         display_rulebook_version=PIVOT_V0_1_RULEBOOK_VERSION,
         display_structure_version=PIVOT_V0_1_STRUCTURE_VERSION,
     ),
-    "artifact_v0_2": StructureSourceProfileSpec(
+    "artifact_v0_2": _build_structure_source_profile(
         source="artifact_v0_2",
-        nodes=(
-            StructureChainNode(
-                kind=PIVOT_ST_SPEC.kind_group,
-                rulebook_version=PIVOT_ST_SPEC.rulebook_version,
-                structure_version=PIVOT_ST_SPEC.structure_version,
-                timing_semantics=PIVOT_ST_SPEC.timing_semantics,
-                bar_finalization=PIVOT_ST_SPEC.bar_finalization,
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=PIVOT_V0_2_KIND_GROUP,
-                rulebook_version=PIVOT_V0_2_RULEBOOK_VERSION,
-                structure_version=PIVOT_V0_2_STRUCTURE_VERSION,
-                timing_semantics=PIVOT_SPEC.timing_semantics,
-                bar_finalization=PIVOT_SPEC.bar_finalization,
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=LEG_V0_2_KIND_GROUP,
-                rulebook_version=LEG_V0_2_RULEBOOK_VERSION,
-                structure_version=LEG_V0_2_STRUCTURE_VERSION,
-                timing_semantics=LEG_V0_2_TIMING_SEMANTICS,
-                bar_finalization=LEG_V0_2_BAR_FINALIZATION,
-                depends_on=(PIVOT_V0_2_KIND_GROUP,),
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=MAJOR_LH_V0_2_KIND_GROUP,
-                rulebook_version=MAJOR_LH_V0_2_RULEBOOK_VERSION,
-                structure_version=MAJOR_LH_V0_2_STRUCTURE_VERSION,
-                timing_semantics=MAJOR_LH_V0_2_TIMING_SEMANTICS,
-                bar_finalization=MAJOR_LH_V0_2_BAR_FINALIZATION,
-                depends_on=(LEG_V0_2_KIND_GROUP,),
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=BREAKOUT_START_V0_2_KIND_GROUP,
-                rulebook_version=BREAKOUT_START_V0_2_RULEBOOK_VERSION,
-                structure_version=BREAKOUT_START_V0_2_STRUCTURE_VERSION,
-                timing_semantics=BREAKOUT_START_V0_2_TIMING_SEMANTICS,
-                bar_finalization=BREAKOUT_START_V0_2_BAR_FINALIZATION,
-                depends_on=(LEG_V0_2_KIND_GROUP, MAJOR_LH_V0_2_KIND_GROUP),
-                has_events=True,
-            ),
-        ),
+        nodes=_V0_2_CHAIN_NODES,
         display_rulebook_version=PIVOT_V0_2_RULEBOOK_VERSION,
         display_structure_version=PIVOT_V0_2_STRUCTURE_VERSION,
     ),
-    "runtime_v0_2": StructureSourceProfileSpec(
+    "runtime_v0_2": _build_structure_source_profile(
         source="runtime_v0_2",
-        nodes=(
-            StructureChainNode(
-                kind=PIVOT_ST_SPEC.kind_group,
-                rulebook_version=PIVOT_ST_SPEC.rulebook_version,
-                structure_version=PIVOT_ST_SPEC.structure_version,
-                timing_semantics=PIVOT_ST_SPEC.timing_semantics,
-                bar_finalization=PIVOT_ST_SPEC.bar_finalization,
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=PIVOT_V0_2_KIND_GROUP,
-                rulebook_version=PIVOT_V0_2_RULEBOOK_VERSION,
-                structure_version=PIVOT_V0_2_STRUCTURE_VERSION,
-                timing_semantics=PIVOT_SPEC.timing_semantics,
-                bar_finalization=PIVOT_SPEC.bar_finalization,
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=LEG_V0_2_KIND_GROUP,
-                rulebook_version=LEG_V0_2_RULEBOOK_VERSION,
-                structure_version=LEG_V0_2_STRUCTURE_VERSION,
-                timing_semantics=LEG_V0_2_TIMING_SEMANTICS,
-                bar_finalization=LEG_V0_2_BAR_FINALIZATION,
-                depends_on=(PIVOT_V0_2_KIND_GROUP,),
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=MAJOR_LH_V0_2_KIND_GROUP,
-                rulebook_version=MAJOR_LH_V0_2_RULEBOOK_VERSION,
-                structure_version=MAJOR_LH_V0_2_STRUCTURE_VERSION,
-                timing_semantics=MAJOR_LH_V0_2_TIMING_SEMANTICS,
-                bar_finalization=MAJOR_LH_V0_2_BAR_FINALIZATION,
-                depends_on=(LEG_V0_2_KIND_GROUP,),
-                has_events=True,
-            ),
-            StructureChainNode(
-                kind=BREAKOUT_START_V0_2_KIND_GROUP,
-                rulebook_version=BREAKOUT_START_V0_2_RULEBOOK_VERSION,
-                structure_version=BREAKOUT_START_V0_2_STRUCTURE_VERSION,
-                timing_semantics=BREAKOUT_START_V0_2_TIMING_SEMANTICS,
-                bar_finalization=BREAKOUT_START_V0_2_BAR_FINALIZATION,
-                depends_on=(LEG_V0_2_KIND_GROUP, MAJOR_LH_V0_2_KIND_GROUP),
-                has_events=True,
-            ),
-        ),
+        nodes=_V0_2_CHAIN_NODES,
         display_rulebook_version=PIVOT_V0_2_RULEBOOK_VERSION,
         display_structure_version=PIVOT_V0_2_STRUCTURE_VERSION,
     ),

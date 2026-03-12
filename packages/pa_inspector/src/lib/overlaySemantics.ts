@@ -11,7 +11,6 @@ type OverlayGeometryKind =
   | "leg-line"
   | "pivot-marker"
   | "major-lh-marker"
-  | "breakout-marker"
   | null;
 
 export function resolveOverlaySemantics(overlay: Overlay): OverlaySemantics {
@@ -47,14 +46,6 @@ export function resolveOverlaySemantics(overlay: Overlay): OverlaySemantics {
     return {
       geometryKind,
       layer: "major_lh",
-      pivotDirection: null,
-      pivotTier: null,
-    };
-  }
-  if (sourceKind === "bearish_breakout_start") {
-    return {
-      geometryKind,
-      layer: "breakout_start",
       pivotDirection: null,
       pivotTier: null,
     };
@@ -107,14 +98,6 @@ export function resolveOverlaySemantics(overlay: Overlay): OverlaySemantics {
       pivotTier: null,
     };
   }
-  if (geometryKind === "breakout-marker") {
-    return {
-      geometryKind,
-      layer: "breakout_start",
-      pivotDirection: null,
-      pivotTier: null,
-    };
-  }
   return {
     geometryKind,
     layer: null,
@@ -131,8 +114,7 @@ function resolveOverlayGeometryKind(overlay: Overlay): OverlayGeometryKind {
   if (
     overlay.kind === "leg-line" ||
     overlay.kind === "pivot-marker" ||
-    overlay.kind === "major-lh-marker" ||
-    overlay.kind === "breakout-marker"
+    overlay.kind === "major-lh-marker"
   ) {
     return overlay.kind;
   }

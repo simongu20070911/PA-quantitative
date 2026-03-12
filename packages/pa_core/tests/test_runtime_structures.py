@@ -37,7 +37,9 @@ class RuntimeStructureChainTests(unittest.TestCase):
             pivot_frame = frames["pivot"]
             leg_frame = frames["leg"]
             major_frame = frames["major_lh"]
-            breakout_frame = frames["breakout_start"]
+            break_level_frame = frames["break_level"]
+            breakout_impulse_frame = frames["breakout_impulse"]
+            failed_breakout_frame = frames["failed_breakout"]
             self.assertIn("pivot_st", event_frames)
             self.assertIn("pivot", event_frames)
             self.assertGreater(event_frames["pivot_st"].num_rows, 0)
@@ -62,7 +64,9 @@ class RuntimeStructureChainTests(unittest.TestCase):
                 {("leg_up", 1025, 1055, "confirmed"), ("leg_down", 1055, 1080, "candidate")},
             )
             self.assertEqual(major_frame.num_rows, 0)
-            self.assertEqual(breakout_frame.num_rows, 0)
+            self.assertEqual(break_level_frame.num_rows, 0)
+            self.assertEqual(breakout_impulse_frame.num_rows, 0)
+            self.assertEqual(failed_breakout_frame.num_rows, 0)
             specs_by_kind = {
                 spec.kind: spec
                 for spec in resolve_structure_dataset_specs(

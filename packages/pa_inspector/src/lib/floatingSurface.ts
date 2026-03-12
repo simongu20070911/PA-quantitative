@@ -2,9 +2,16 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 
 import type { FloatingPosition } from "./types";
 
-interface UseFloatingSurfacePositionArgs {
-  initialPosition: FloatingPosition;
-  onPositionChange: (position: FloatingPosition) => void;
+export interface FloatingSurfaceBounds {
+  minLeft: number;
+  maxLeft: number;
+  minTop: number;
+  maxTop: number;
+}
+
+interface UseFloatingSurfacePositionArgs<Position extends FloatingPosition | null> {
+  initialPosition: Position;
+  onPositionChange: (position: Position) => void;
 }
 
 interface UseDraggableFloatingSurfaceArgs<
@@ -13,18 +20,18 @@ interface UseDraggableFloatingSurfaceArgs<
 > {
   handleRef: RefObject<HandleElement | null>;
   surfaceRef: RefObject<SurfaceElement | null>;
-  clampInset: number;
   setPosition: (position: FloatingPosition) => void;
+  boundsResolver?: (surface: SurfaceElement) => FloatingSurfaceBounds | null;
   onDragStart?: () => void;
   canStartDrag?: (event: PointerEvent) => boolean;
 }
 
-export function useFloatingSurfacePosition({
+export function useFloatingSurfacePosition<Position extends FloatingPosition | null>({
   initialPosition,
   onPositionChange,
-}: UseFloatingSurfacePositionArgs) {
+}: UseFloatingSurfacePositionArgs<Position>) {
   const onPositionChangeRef = useRef(onPositionChange);
-  const [position, setPosition] = useState(initialPosition);
+  const [position, setPosition] = useState<Position>(initialPosition);
 
   useEffect(() => {
     onPositionChangeRef.current = onPositionChange;
@@ -43,8 +50,8 @@ export function useDraggableFloatingSurface<
 >({
   handleRef,
   surfaceRef,
-  clampInset,
   setPosition,
+  boundsResolver,
   onDragStart,
   canStartDrag,
 }: UseDraggableFloatingSurfaceArgs<HandleElement, SurfaceElement>) {
@@ -62,6 +69,12 @@ export function useDraggableFloatingSurface<
       if (canStartDrag && !canStartDrag(event)) {
         return;
       }
+      const bounds =
+        boundsResolver?.(surface) ?? resolveOffsetParentBounds(surface);
+      if (!bounds) {
+        return;
+      }
+
       const parent = surface.offsetParent;
       if (!(parent instanceof HTMLElement)) {
         return;
@@ -75,20 +88,14 @@ export function useDraggableFloatingSurface<
       handle.setPointerCapture(event.pointerId);
 
       const onPointerMove = (moveEvent: PointerEvent) => {
-        const nextLeft = moveEvent.clientX - parentRect.left - offsetX;
-        const nextTop = moveEvent.clientY - parentRect.top - offsetY;
-        setPosition({
-          left: clamp(
-            nextLeft,
-            clampInset,
-            Math.max(clampInset, parentRect.width - surfaceRect.width - clampInset),
-          ),
-          top: clamp(
-            nextTop,
-            clampInset,
-            Math.max(clampInset, parentRect.height - surfaceRect.height - clampInset),
-          ),
-        });
+        const nextPosition = clampFloatingPosition(
+          {
+            left: moveEvent.clientX - parentRect.left - offsetX,
+            top: moveEvent.clientY - parentRect.top - offsetY,
+          },
+          bounds,
+        );
+        setPosition(nextPosition);
       };
 
       const stopDrag = (endEvent: PointerEvent) => {
@@ -109,7 +116,68 @@ export function useDraggableFloatingSurface<
     return () => {
       handle.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [canStartDrag, clampInset, handleRef, onDragStart, setPosition, surfaceRef]);
+  }, [boundsResolver, canStartDrag, handleRef, onDragStart, setPosition, surfaceRef]);
+}
+
+export function resolveFloatingSurfaceBounds(
+  container: HTMLElement | null,
+  {
+    surfaceWidth,
+    surfaceHeight,
+    clampInset,
+  }: {
+    surfaceWidth: number;
+    surfaceHeight: number;
+    clampInset: number;
+  },
+): FloatingSurfaceBounds {
+  const containerWidth = Math.max(container?.clientWidth ?? 0, 0);
+  const containerHeight = Math.max(container?.clientHeight ?? 0, 0);
+  return {
+    minLeft: clampInset,
+    maxLeft: Math.max(clampInset, containerWidth - surfaceWidth - clampInset),
+    minTop: clampInset,
+    maxTop: Math.max(clampInset, containerHeight - surfaceHeight - clampInset),
+  };
+}
+
+export function clampFloatingPosition(
+  position: FloatingPosition,
+  bounds: FloatingSurfaceBounds,
+): FloatingPosition {
+  return {
+    left: clamp(position.left, bounds.minLeft, bounds.maxLeft),
+    top: clamp(position.top, bounds.minTop, bounds.maxTop),
+  };
+}
+
+export function resolveFloatingSurfaceDefaultPosition(
+  bounds: FloatingSurfaceBounds,
+  alignment: {
+    horizontal?: "start" | "end";
+    vertical?: "start" | "end";
+  } = {},
+): FloatingPosition {
+  return {
+    left: alignment.horizontal === "start" ? bounds.minLeft : bounds.maxLeft,
+    top: alignment.vertical === "end" ? bounds.maxTop : bounds.minTop,
+  };
+}
+
+function resolveOffsetParentBounds(
+  surface: HTMLElement,
+  clampInset = 0,
+): FloatingSurfaceBounds | null {
+  const parent = surface.offsetParent;
+  if (!(parent instanceof HTMLElement)) {
+    return null;
+  }
+  return {
+    minLeft: clampInset,
+    maxLeft: Math.max(clampInset, parent.clientWidth - surface.offsetWidth - clampInset),
+    minTop: clampInset,
+    maxTop: Math.max(clampInset, parent.clientHeight - surface.offsetHeight - clampInset),
+  };
 }
 
 function clamp(value: number, min: number, max: number) {

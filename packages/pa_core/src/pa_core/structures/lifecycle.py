@@ -26,22 +26,29 @@ class LifecycleTransitionError(ValueError):
 def resolve_structure_states_from_lifecycle_events(
     event_rows: Sequence[Mapping[str, object] | StructureLifecycleEvent],
     *,
-    as_of_bar_id: int,
+    as_of_bar_id: int | None = None,
+    as_of_event_id: str | None = None,
     allow_initial_confirmed: bool = False,
 ) -> dict[str, ResolvedStructureState]:
+    if as_of_bar_id is None and as_of_event_id is None:
+        raise ValueError("Provide as_of_bar_id or as_of_event_id when resolving lifecycle state.")
+    sorted_events = sorted(
+        (coerce_structure_lifecycle_event(event_row) for event_row in event_rows),
+        key=_event_sort_key,
+    )
+    event_cursor = (
+        None
+        if as_of_event_id is None
+        else _resolve_event_cursor_position(sorted_events, as_of_event_id)
+    )
     active_by_structure_id: dict[str, ResolvedStructureState] = {}
-    for event in sorted(
-        (
-            coerce_structure_lifecycle_event(event_row)
-            for event_row in event_rows
-            if int(_mapping_or_event_value(event_row, "event_bar_id")) <= as_of_bar_id
-        ),
-        key=lambda event: (
-            event.event_bar_id,
-            event.event_order,
-            event.event_id,
-        ),
-    ):
+    for event in sorted_events:
+        if not _event_is_visible_at_cursor(
+            event,
+            as_of_bar_id=as_of_bar_id,
+            event_cursor=event_cursor,
+        ):
+            continue
         current = active_by_structure_id.get(event.structure_id)
         _validate_lifecycle_transition(
             event=event,
@@ -59,7 +66,8 @@ def resolve_structure_states_from_lifecycle_events(
 def resolve_structure_rows_from_lifecycle_events(
     event_rows: Sequence[Mapping[str, object] | StructureLifecycleEvent],
     *,
-    as_of_bar_id: int,
+    as_of_bar_id: int | None = None,
+    as_of_event_id: str | None = None,
     allow_initial_confirmed: bool = False,
 ) -> dict[str, dict[str, object]]:
     return {
@@ -67,6 +75,7 @@ def resolve_structure_rows_from_lifecycle_events(
         for structure_id, state in resolve_structure_states_from_lifecycle_events(
             event_rows,
             as_of_bar_id=as_of_bar_id,
+            as_of_event_id=as_of_event_id,
             allow_initial_confirmed=allow_initial_confirmed,
         ).items()
     }
@@ -300,10 +309,45 @@ def _mapping_or_event_value(
     if isinstance(value, StructureLifecycleEvent):
         return getattr(value, field_name)
     return value[field_name]
+
+
 def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _event_sort_key(
+    event: StructureLifecycleEvent,
+) -> tuple[int, int, str]:
+    return (
+        event.event_bar_id,
+        event.event_order,
+        event.event_id,
+    )
+
+
+def _resolve_event_cursor_position(
+    events: Sequence[StructureLifecycleEvent],
+    as_of_event_id: str,
+) -> tuple[int, int, str]:
+    for event in events:
+        if event.event_id == as_of_event_id:
+            return _event_sort_key(event)
+    raise KeyError(as_of_event_id)
+
+
+def _event_is_visible_at_cursor(
+    event: StructureLifecycleEvent,
+    *,
+    as_of_bar_id: int | None,
+    event_cursor: tuple[int, int, str] | None,
+) -> bool:
+    if event_cursor is not None:
+        return _event_sort_key(event) <= event_cursor
+    if as_of_bar_id is None:
+        return False
+    return event.event_bar_id <= as_of_bar_id
 
 
 def _normalize_payload_after(value: object) -> dict[str, Any] | None:

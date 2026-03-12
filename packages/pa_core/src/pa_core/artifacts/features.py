@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -18,6 +17,7 @@ from .layout import (
     feature_manifest_path,
     feature_part_path,
 )
+from .partitioned import YearPartitionedDatasetWriter, load_manifest, write_manifest
 
 FEATURE_ARTIFACT_COLUMNS = (
     "bar_id",
@@ -142,53 +142,38 @@ class FeatureArtifactWriter:
             input_ref=input_ref,
             params_hash=params_hash,
         )
-        self._row_count = 0
-        self._years: set[int] = set()
-        self._part_paths: list[str] = []
-        self._part_index_by_year: dict[int, int] = {}
-        self._min_bar_id: int | None = None
-        self._max_bar_id: int | None = None
-        self._min_session_date: int | None = None
-        self._max_session_date: int | None = None
-        self._reset_output_root()
-
-    def write_chunk(self, features: pa.Table) -> None:
-        if features.num_rows == 0:
-            return
-        missing_columns = [
-            column for column in FEATURE_ARTIFACT_COLUMNS if column not in features.column_names
-        ]
-        if missing_columns:
-            raise ValueError(f"Feature chunk is missing columns: {missing_columns}")
-
-        ordered = features.select(list(FEATURE_ARTIFACT_COLUMNS)).combine_chunks()
-        bar_ids = np.asarray(
-            ordered.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False),
-            dtype=np.int64,
-        )
-        session_dates = np.asarray(
-            ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
-            dtype=np.int64,
-        )
-        partition_years = session_dates // 10_000
-
-        for year in np.unique(partition_years):
-            indices = np.nonzero(partition_years == year)[0]
-            part_index = self._part_index_by_year.get(int(year), 0)
-            part_path = feature_part_path(
+        self._dataset_writer = YearPartitionedDatasetWriter(
+            dataset_root=self.dataset_root,
+            required_columns=FEATURE_ARTIFACT_COLUMNS,
+            part_path_builder=lambda year, part_index: feature_part_path(
                 artifacts_root=self.artifacts_root,
                 feature_key=self.feature_key,
                 feature_version=self.feature_version,
                 input_ref=self.input_ref,
                 params_hash=self.params_hash,
-                year=int(year),
+                year=year,
                 part_index=part_index,
-            )
-            year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
-            write_table(year_chunk, part_path)
-            self._part_index_by_year[int(year)] = part_index + 1
-            self._part_paths.append(part_path.relative_to(self.dataset_root).as_posix())
-            self._years.add(int(year))
+            ),
+        )
+        self._row_count = 0
+        self._min_bar_id: int | None = None
+        self._max_bar_id: int | None = None
+        self._min_session_date: int | None = None
+        self._max_session_date: int | None = None
+
+    def write_chunk(self, features: pa.Table) -> None:
+        chunk = self._dataset_writer.prepare_chunk(features)
+        if chunk is None:
+            return
+        ordered = chunk.table
+        bar_ids = np.asarray(
+            ordered.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False),
+            dtype=np.int64,
+        )
+        session_dates = np.asarray(
+            chunk.session_dates,
+            dtype=np.int64,
+        )
 
         chunk_min_bar_id = int(bar_ids.min())
         chunk_max_bar_id = int(bar_ids.max())
@@ -232,27 +217,20 @@ class FeatureArtifactWriter:
             max_bar_id=int(self._max_bar_id),
             min_session_date=int(self._min_session_date),
             max_session_date=int(self._max_session_date),
-            years=tuple(sorted(self._years)),
-            parts=tuple(self._part_paths),
+            years=self._dataset_writer.years,
+            parts=self._dataset_writer.part_paths,
         )
-        manifest_path = feature_manifest_path(
-            artifacts_root=self.artifacts_root,
-            feature_key=self.feature_key,
-            feature_version=self.feature_version,
-            input_ref=self.input_ref,
-            params_hash=self.params_hash,
-        )
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        write_manifest(
+            feature_manifest_path(
+                artifacts_root=self.artifacts_root,
+                feature_key=self.feature_key,
+                feature_version=self.feature_version,
+                input_ref=self.input_ref,
+                params_hash=self.params_hash,
+            ),
+            manifest.to_dict(),
         )
         return manifest
-
-    def _reset_output_root(self) -> None:
-        if self.dataset_root.exists():
-            shutil.rmtree(self.dataset_root)
-        self.dataset_root.mkdir(parents=True, exist_ok=True)
 
 
 def load_feature_manifest(
@@ -263,17 +241,17 @@ def load_feature_manifest(
     input_ref: str,
     params_hash: str,
 ) -> FeatureArtifactManifest:
-    manifest = feature_manifest_path(
-        artifacts_root=artifacts_root,
-        feature_key=feature_key,
-        feature_version=feature_version,
-        input_ref=input_ref,
-        params_hash=params_hash,
+    return load_manifest(
+        path=feature_manifest_path(
+            artifacts_root=artifacts_root,
+            feature_key=feature_key,
+            feature_version=feature_version,
+            input_ref=input_ref,
+            params_hash=params_hash,
+        ),
+        missing_error="Feature manifest not found",
+        manifest_factory=FeatureArtifactManifest.from_dict,
     )
-    if not manifest.exists():
-        raise FileNotFoundError(f"Feature manifest not found: {manifest}")
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    return FeatureArtifactManifest.from_dict(payload)
 
 
 def list_feature_keys(artifacts_root: Path) -> list[str]:

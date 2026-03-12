@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-OverlayLayer = Literal["pivot_st", "pivot", "leg", "major_lh", "breakout_start"]
+OverlayLayer = Literal["pivot_st", "pivot", "leg", "major_lh"]
 SessionProfile = Literal["eth_full", "rth"]
 StructureSourceProfile = Literal["auto", "artifact_v0_1", "artifact_v0_2", "runtime_v0_2"]
 
@@ -54,6 +54,7 @@ class StructureSummaryModel(BaseModel):
     confirm_bar_id: int | None
     anchor_bar_ids: list[int]
     explanation_codes: list[str]
+    payload: dict[str, Any] | None = None
 
 
 class StructureEventModel(BaseModel):
@@ -75,6 +76,29 @@ class StructureEventModel(BaseModel):
     changed_fields: list[str] = Field(default_factory=list)
 
 
+class ReplayBaseModel(BaseModel):
+    as_of_bar_id: int | None = None
+    structures: list["StructureSummaryModel"] = Field(default_factory=list)
+    overlays: list["OverlayModel"] = Field(default_factory=list)
+
+
+class ReplayDeltaModel(BaseModel):
+    event_id: str
+    event_bar_id: int
+    event_order: int
+    event_type: str
+    structure_id: str
+    remove_structure_ids: list[str] = Field(default_factory=list)
+    upsert_structures: list["StructureSummaryModel"] = Field(default_factory=list)
+    remove_overlay_ids: list[str] = Field(default_factory=list)
+    upsert_overlays: list["OverlayModel"] = Field(default_factory=list)
+
+
+class ReplaySequenceModel(BaseModel):
+    base: ReplayBaseModel
+    deltas: list[ReplayDeltaModel] = Field(default_factory=list)
+
+
 class ChartWindowMetaModel(BaseModel):
     data_version: str
     source_data_version: str
@@ -89,6 +113,7 @@ class ChartWindowMetaModel(BaseModel):
     overlay_version: str | None
     ema_lengths: list[int] = Field(default_factory=list)
     as_of_bar_id: int | None = None
+    as_of_event_id: str | None = None
     replay_source: str | None = None
     replay_completeness: str | None = None
 
@@ -99,6 +124,7 @@ class ChartWindowResponse(BaseModel):
     structures: list[StructureSummaryModel] = Field(default_factory=list)
     events: list[StructureEventModel] = Field(default_factory=list)
     overlays: list[OverlayModel]
+    replay_sequence: ReplaySequenceModel | None = None
     meta: ChartWindowMetaModel
 
 

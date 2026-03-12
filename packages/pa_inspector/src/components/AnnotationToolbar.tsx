@@ -1,7 +1,4 @@
-import {
-  useEffect,
-  type RefObject,
-} from "react";
+import { type RefObject } from "react";
 
 import {
   ANNOTATION_COLOR_PALETTE,
@@ -9,11 +6,14 @@ import {
 } from "../lib/annotationStyle";
 import {
   ColorPopover,
+  FloatingToolbarShell,
   LineStylePreview,
   LineWidthPreview,
+  SliderPopover,
   StylePopover,
+  ToolbarButton,
+  ToolbarGripIcon,
   WidthPopover,
-  lineStyleLabel,
   useFloatingToolbar,
 } from "./toolbarShared";
 import type {
@@ -24,7 +24,6 @@ import type {
 } from "../lib/types";
 
 interface AnnotationToolbarProps {
-  hostRef: RefObject<HTMLElement | null>;
   surfaceRef: RefObject<HTMLDivElement | null>;
   annotation: ChartAnnotation | null;
   initialPosition: FloatingPosition | null;
@@ -43,7 +42,6 @@ const TOOLBAR_WIDTH = 496;
 const TOOLBAR_HEIGHT = 52;
 
 export function AnnotationToolbar({
-  hostRef,
   surfaceRef,
   annotation,
   initialPosition,
@@ -55,20 +53,8 @@ export function AnnotationToolbar({
   onDeleteSelectedAnnotation,
 }: AnnotationToolbarProps) {
   const style = annotation ? getAnnotationStyle(annotation) : null;
-  const {
-    toolbarRef,
-    openPopover,
-    setOpenPopover,
-    left,
-    top,
-    beginToolbarDrag,
-    togglePopover,
-    swallowPointer,
-    activateButton,
-    onToolbarPointerDown,
-  } = useFloatingToolbar({
+  const toolbar = useFloatingToolbar({
     active: annotation !== null,
-    hostRef,
     surfaceRef,
     toolbarWidth: TOOLBAR_WIDTH,
     toolbarHeight: TOOLBAR_HEIGHT,
@@ -84,42 +70,25 @@ export function AnnotationToolbar({
   }
 
   return (
-    <div
-      className="annotation-toolbar"
-      onClick={swallowPointer}
-      onDoubleClick={swallowPointer}
-      onPointerDown={onToolbarPointerDown}
-      onPointerMove={swallowPointer}
-      onPointerUp={swallowPointer}
-      ref={toolbarRef}
-      style={{ left: `${left}px`, top: `${top}px` }}
+    <FloatingToolbarShell
+      dragTitle="Drag annotation toolbar"
+      grip={<ToolbarGripIcon />}
+      state={toolbar}
     >
-      <button
-        className="annotation-toolbar-grip"
-        onPointerDown={beginToolbarDrag}
-        title="Drag annotation toolbar"
-        type="button"
-      >
-        <GripDotsIcon />
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("stroke"))}
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("stroke"))}
         title="Stroke color"
-        type="button"
       >
         <StrokeIcon />
         <span
           className="annotation-toolbar-color-bar"
           style={{ backgroundColor: style.strokeColor }}
         />
-      </button>
-      <button
-        className="annotation-toolbar-button"
+      </ToolbarButton>
+      <ToolbarButton
         disabled={annotation.kind !== "box"}
-        onPointerDown={(event) => activateButton(event, () => togglePopover("fill"))}
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("fill"))}
         title="Fill color"
-        type="button"
       >
         <FillIcon />
         <span
@@ -128,74 +97,60 @@ export function AnnotationToolbar({
             backgroundColor: annotation.kind === "box" ? style.fillColor : "#cbd5e1",
           }}
         />
-      </button>
-      <button
-        className="annotation-toolbar-button annotation-toolbar-width"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("width"))}
+      </ToolbarButton>
+      <ToolbarButton
+        className="annotation-toolbar-width"
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("width"))}
         title="Line width"
-        type="button"
       >
         <LineWidthPreview width={style.lineWidth} />
         <span>{style.lineWidth}px</span>
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("style"))}
+      </ToolbarButton>
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("style"))}
         title="Line style"
-        type="button"
       >
         <LineStylePreview styleKey={style.lineStyle} />
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, () => togglePopover("opacity"))}
+      </ToolbarButton>
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, () => toolbar.togglePopover("opacity"))}
         title="Opacity"
-        type="button"
       >
         <OpacityIcon />
         <span>{Math.round(style.opacity * 100)}%</span>
-      </button>
-      <button
-        className="annotation-toolbar-button"
+      </ToolbarButton>
+      <ToolbarButton
         onPointerDown={(event) =>
-          activateButton(event, () => {
+          toolbar.activateButton(event, () => {
             const duplicateId = onAnnotationDuplicate(annotation.id);
             if (duplicateId) {
-              setOpenPopover(null);
+              toolbar.setOpenPopover(null);
             }
           })
         }
         title="Duplicate"
-        type="button"
       >
         <DuplicateIcon />
-      </button>
-      <button
-        className={
-          style.locked
-            ? "annotation-toolbar-button active"
-            : "annotation-toolbar-button"
-        }
+      </ToolbarButton>
+      <ToolbarButton
+        active={style.locked}
         onPointerDown={(event) =>
-          activateButton(event, () =>
+          toolbar.activateButton(event, () =>
             onAnnotationStyleChange(annotation.id, { locked: !style.locked }),
           )
         }
         title={style.locked ? "Unlock drawing" : "Lock drawing"}
-        type="button"
       >
         <LockIcon locked={style.locked} />
-      </button>
-      <button
-        className="annotation-toolbar-button"
-        onPointerDown={(event) => activateButton(event, onDeleteSelectedAnnotation)}
+      </ToolbarButton>
+      <ToolbarButton
+        onPointerDown={(event) => toolbar.activateButton(event, onDeleteSelectedAnnotation)}
         title="Delete"
-        type="button"
       >
         <TrashIcon />
-      </button>
+      </ToolbarButton>
 
-      {openPopover === "stroke" ? (
+      {toolbar.openPopover === "stroke" ? (
         <ColorPopover
           colors={ANNOTATION_COLOR_PALETTE}
           selectedColor={style.strokeColor}
@@ -203,7 +158,7 @@ export function AnnotationToolbar({
           onSelect={(color) => onAnnotationStyleChange(annotation.id, { strokeColor: color })}
         />
       ) : null}
-      {openPopover === "fill" && annotation.kind === "box" ? (
+      {toolbar.openPopover === "fill" && annotation.kind === "box" ? (
         <ColorPopover
           colors={ANNOTATION_COLOR_PALETTE}
           selectedColor={style.fillColor}
@@ -211,55 +166,33 @@ export function AnnotationToolbar({
           onSelect={(color) => onAnnotationStyleChange(annotation.id, { fillColor: color })}
         />
       ) : null}
-      {openPopover === "width" ? (
+      {toolbar.openPopover === "width" ? (
         <WidthPopover
-          onSelect={(lineWidth) =>
-            onAnnotationStyleChange(annotation.id, { lineWidth })
-          }
+          onSelect={(lineWidth) => onAnnotationStyleChange(annotation.id, { lineWidth })}
           selectedWidth={style.lineWidth}
         />
       ) : null}
-      {openPopover === "style" ? (
+      {toolbar.openPopover === "style" ? (
         <StylePopover
-          onSelect={(lineStyle) =>
-            onAnnotationStyleChange(annotation.id, { lineStyle })
-          }
+          onSelect={(lineStyle) => onAnnotationStyleChange(annotation.id, { lineStyle })}
           selectedStyle={style.lineStyle}
         />
       ) : null}
-      {openPopover === "opacity" ? (
-        <div className="annotation-toolbar-popover annotation-toolbar-popover-wide">
-          <div className="annotation-toolbar-slider-block">
-            <label className="annotation-toolbar-slider-label" htmlFor="annotation-opacity">
-              Opacity
-            </label>
-            <input
-              id="annotation-opacity"
-              max="100"
-              min="10"
-              onPointerDownCapture={(event) => event.stopPropagation()}
-              onChange={(event) =>
-                onAnnotationStyleChange(annotation.id, {
-                  opacity: Number(event.target.value) / 100,
-                })
-              }
-              type="range"
-              value={Math.round(style.opacity * 100)}
-            />
-          </div>
-        </div>
+      {toolbar.openPopover === "opacity" ? (
+        <SliderPopover
+          id="annotation-opacity"
+          label="Opacity"
+          max="100"
+          min="10"
+          onChange={(value) =>
+            onAnnotationStyleChange(annotation.id, { opacity: Number(value) / 100 })
+          }
+          title="Opacity"
+          value={Math.round(style.opacity * 100)}
+          wide
+        />
       ) : null}
-    </div>
-  );
-}
-
-function GripDotsIcon() {
-  return (
-    <svg aria-hidden="true" className="annotation-toolbar-icon" viewBox="0 0 16 16">
-      {[3, 8, 13].flatMap((y) => [4, 8, 12].map((x) => (
-        <circle cx={x} cy={y} fill="currentColor" key={`${x}-${y}`} r="1" />
-      )))}
-    </svg>
+    </FloatingToolbarShell>
   );
 }
 

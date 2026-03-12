@@ -2,8 +2,7 @@ export type OverlayLayer =
   | "pivot_st"
   | "pivot"
   | "leg"
-  | "major_lh"
-  | "breakout_start";
+  | "major_lh";
 export type SelectorMode = "session_date" | "center_bar_id" | "time_range";
 export type SessionProfile = "eth_full" | "rth";
 export type InspectorMode = "explore" | "replay";
@@ -133,14 +132,60 @@ export interface ChartWindowMeta {
   overlay_version: string | null;
   ema_lengths: number[];
   as_of_bar_id?: number | null;
+  as_of_event_id?: string | null;
   replay_source?: string | null;
   replay_completeness?: string | null;
+}
+
+export interface StructureEvent {
+  event_id: string;
+  structure_id: string;
+  kind: string;
+  event_type: string;
+  event_bar_id: number;
+  event_order: number;
+  state_after_event: string;
+  reason_codes: string[];
+  start_bar_id: number;
+  end_bar_id: number | null;
+  confirm_bar_id: number | null;
+  anchor_bar_ids: number[];
+  predecessor_structure_id?: string | null;
+  successor_structure_id?: string | null;
+  payload_after?: Record<string, unknown> | null;
+  changed_fields: string[];
+}
+
+export interface ReplayBase {
+  as_of_bar_id?: number | null;
+  structures: StructureSummary[];
+  overlays: Overlay[];
+}
+
+export interface ReplayDelta {
+  event_id: string;
+  event_bar_id: number;
+  event_order: number;
+  event_type: string;
+  structure_id: string;
+  remove_structure_ids: string[];
+  upsert_structures: StructureSummary[];
+  remove_overlay_ids: string[];
+  upsert_overlays: Overlay[];
+}
+
+export interface ReplaySequence {
+  base: ReplayBase;
+  deltas: ReplayDelta[];
 }
 
 export interface ChartWindowResponse {
   bars: ChartBar[];
   ema_lines: EmaLine[];
+  structures: StructureSummary[];
+  events: StructureEvent[];
   overlays: Overlay[];
+  replay_sequence?: ReplaySequence | null;
   meta: ChartWindowMeta;
 }
 
@@ -153,6 +198,7 @@ export interface StructureSummary {
   confirm_bar_id: number | null;
   anchor_bar_ids: number[];
   explanation_codes: string[];
+  payload?: Record<string, unknown> | null;
 }
 
 export interface StructureDetailResponse {
@@ -176,7 +222,9 @@ export interface ChartWindowRequest {
   overlayVersion?: string;
   emaLengths?: number[];
   selectorMode: SelectorMode;
+  includeReplaySequence?: boolean;
   asOfBarId?: number | null;
+  asOfEventId?: string | null;
   centerBarId?: string;
   sessionDate?: string;
   startTime?: string;

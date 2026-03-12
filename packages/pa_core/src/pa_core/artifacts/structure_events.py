@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import base64
-import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -12,6 +10,7 @@ import pyarrow as pa
 
 from .arrow import concat_tables, empty_table, read_table, sort_table, write_table
 from .layout import structure_dataset_root, structure_manifest_path, structure_part_path
+from .partitioned import YearPartitionedDatasetWriter, load_manifest, write_manifest
 
 STRUCTURE_EVENT_ARTIFACT_COLUMNS = (
     "event_id",
@@ -167,6 +166,20 @@ class StructureEventArtifactWriter:
             kind=kind,
             dataset="events",
         )
+        self._dataset_writer = YearPartitionedDatasetWriter(
+            dataset_root=self.dataset_root,
+            required_columns=STRUCTURE_EVENT_ARTIFACT_COLUMNS,
+            part_path_builder=lambda year, part_index: structure_part_path(
+                artifacts_root=self.artifacts_root,
+                rulebook_version=self.rulebook_version,
+                structure_version=self.structure_version,
+                input_ref=self.input_ref,
+                kind=self.kind,
+                year=year,
+                part_index=part_index,
+                dataset="events",
+            ),
+        )
         self._row_count = 0
         self._event_counts = {
             "created": 0,
@@ -175,28 +188,19 @@ class StructureEventArtifactWriter:
             "invalidated": 0,
             "replaced": 0,
         }
-        self._years: set[int] = set()
-        self._part_paths: list[str] = []
-        self._part_index_by_year: dict[int, int] = {}
         self._min_event_bar_id: int | None = None
         self._max_event_bar_id: int | None = None
         self._min_session_date: int | None = None
         self._max_session_date: int | None = None
-        self._reset_output_root()
 
     def write_chunk(self, events: Any) -> None:
         table = _coerce_event_table(events, schema=self.schema)
-        if table.num_rows == 0:
+        chunk = self._dataset_writer.prepare_chunk(table)
+        if chunk is None:
             return
-        missing = [
-            column for column in STRUCTURE_EVENT_ARTIFACT_COLUMNS if column not in table.column_names
-        ]
-        if missing:
-            raise ValueError(f"Structure event chunk is missing columns: {missing}")
-
-        ordered = table.select(list(STRUCTURE_EVENT_ARTIFACT_COLUMNS)).combine_chunks().cast(self.schema)
+        ordered = chunk.table.cast(self.schema)
         session_dates = np.asarray(
-            ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
+            chunk.session_dates,
             dtype=np.int64,
         )
         event_bar_ids = np.asarray(
@@ -204,25 +208,6 @@ class StructureEventArtifactWriter:
             dtype=np.int64,
         )
         event_types = [str(value) for value in ordered.column("event_type").combine_chunks().to_pylist()]
-        partition_years = session_dates // 10_000
-        for year in np.unique(partition_years):
-            indices = np.nonzero(partition_years == year)[0]
-            part_index = self._part_index_by_year.get(int(year), 0)
-            part_path = structure_part_path(
-                artifacts_root=self.artifacts_root,
-                rulebook_version=self.rulebook_version,
-                structure_version=self.structure_version,
-                input_ref=self.input_ref,
-                kind=self.kind,
-                year=int(year),
-                part_index=part_index,
-                dataset="events",
-            )
-            year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
-            write_table(year_chunk, part_path)
-            self._part_index_by_year[int(year)] = part_index + 1
-            self._part_paths.append(part_path.relative_to(self.dataset_root).as_posix())
-            self._years.add(int(year))
 
         self._row_count += ordered.num_rows
         for event_type in event_types:
@@ -278,28 +263,21 @@ class StructureEventArtifactWriter:
             max_event_bar_id=int(self._max_event_bar_id),
             min_session_date=int(self._min_session_date),
             max_session_date=int(self._max_session_date),
-            years=tuple(sorted(self._years)),
-            parts=tuple(self._part_paths),
+            years=self._dataset_writer.years,
+            parts=self._dataset_writer.part_paths,
         )
-        manifest_path = structure_manifest_path(
-            artifacts_root=self.artifacts_root,
-            rulebook_version=self.rulebook_version,
-            structure_version=self.structure_version,
-            input_ref=self.input_ref,
-            kind=self.kind,
-            dataset="events",
-        )
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        write_manifest(
+            structure_manifest_path(
+                artifacts_root=self.artifacts_root,
+                rulebook_version=self.rulebook_version,
+                structure_version=self.structure_version,
+                input_ref=self.input_ref,
+                kind=self.kind,
+                dataset="events",
+            ),
+            manifest.to_dict(),
         )
         return manifest
-
-    def _reset_output_root(self) -> None:
-        if self.dataset_root.exists():
-            shutil.rmtree(self.dataset_root)
-        self.dataset_root.mkdir(parents=True, exist_ok=True)
 
 
 def load_structure_event_manifest(
@@ -310,18 +288,17 @@ def load_structure_event_manifest(
     input_ref: str,
     kind: str,
 ) -> StructureEventArtifactManifest:
-    manifest_path = structure_manifest_path(
-        artifacts_root=artifacts_root,
-        rulebook_version=rulebook_version,
-        structure_version=structure_version,
-        input_ref=input_ref,
-        kind=kind,
-        dataset="events",
-    )
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"Structure event manifest not found: {manifest_path}")
-    return StructureEventArtifactManifest.from_dict(
-        json.loads(manifest_path.read_text(encoding="utf-8"))
+    return load_manifest(
+        path=structure_manifest_path(
+            artifacts_root=artifacts_root,
+            rulebook_version=rulebook_version,
+            structure_version=structure_version,
+            input_ref=input_ref,
+            kind=kind,
+            dataset="events",
+        ),
+        missing_error="Structure event manifest not found",
+        manifest_factory=StructureEventArtifactManifest.from_dict,
     )
 
 

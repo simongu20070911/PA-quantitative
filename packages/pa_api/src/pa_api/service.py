@@ -13,16 +13,20 @@ from pa_core.chart_reads import (
     ChartContext,
     ChartReadConfig,
     ChartWindowSelectionError,
+    ReplayWindowSequence,
+    build_replay_window_sequence,
     load_chart_context,
+    project_structure_event_rows_to_overlays,
     project_structure_rows_to_overlays,
     resolve_structure_detail,
     resolve_structure_events_for_window,
     resolve_structure_rows_for_window,
+    validate_as_of_event_id,
     validate_as_of_bar_id,
     validate_symbol_and_timeframe,
 )
 from pa_core.features.ema import compute_ema_values
-from pa_core.overlays import MVP_OVERLAY_VERSION
+from pa_core.overlays import MVP_OVERLAY_VERSION, sort_overlay_objects_for_render
 from pa_core.schemas import OverlayObject
 
 from .models import (
@@ -33,6 +37,9 @@ from .models import (
     EmaPointModel,
     OverlayLayer,
     OverlayModel,
+    ReplayBaseModel,
+    ReplayDeltaModel,
+    ReplaySequenceModel,
     StructureDetailResponse,
     StructureEventModel,
     StructureSourceProfile,
@@ -73,10 +80,12 @@ class ChartApiService:
         start_time: int | None,
         end_time: int | None,
         as_of_bar_id: int | None,
+        as_of_event_id: str | None,
         left_bars: int,
         right_bars: int,
         buffer_bars: int,
         overlay_layers: Sequence[OverlayLayer] | None,
+        include_replay_sequence: bool = False,
         data_version: str | None = None,
         structure_source: StructureSourceProfile = DEFAULT_STRUCTURE_SOURCE,
         feature_version: str | None = None,
@@ -128,18 +137,22 @@ class ChartApiService:
         max_bar_id = None if stop_index <= start_index else int(context.bar_ids[stop_index - 1])
         if as_of_bar_id is not None:
             validate_as_of_bar_id(context=context, as_of_bar_id=as_of_bar_id)
+        if as_of_event_id is not None:
+            validate_as_of_event_id(context=context, as_of_event_id=as_of_event_id)
         structure_rows = resolve_structure_rows_for_window(
             structure_records=context.structure_records,
             structure_event_records=context.structure_event_records,
             min_bar_id=min_bar_id,
             max_bar_id=max_bar_id,
             as_of_bar_id=as_of_bar_id,
+            as_of_event_id=as_of_event_id,
         )
         events = resolve_structure_events_for_window(
             structure_event_records=context.structure_event_records,
             min_bar_id=min_bar_id,
             max_bar_id=max_bar_id,
             as_of_bar_id=as_of_bar_id,
+            as_of_event_id=as_of_event_id,
         )
         start_index, stop_index = _expand_window_for_structure_anchors(
             bar_ids=context.bar_ids,
@@ -163,15 +176,42 @@ class ChartApiService:
             max_bar_id=bars[-1].bar_id if bars else None,
             overlay_layers=overlay_layers,
         )
+        if as_of_bar_id is not None and events:
+            overlays = sort_overlay_objects_for_render(
+                [
+                    *overlays,
+                    *project_structure_event_rows_to_overlays(
+                        structure_event_rows=events,
+                        context=context,
+                        min_bar_id=bars[0].bar_id if bars else None,
+                        max_bar_id=bars[-1].bar_id if bars else None,
+                        overlay_layers=overlay_layers,
+                    ),
+                ]
+            )
+        replay_sequence = (
+            _replay_sequence_to_model(
+                build_replay_window_sequence(
+                    context=context,
+                    min_bar_id=bars[0].bar_id if bars else None,
+                    max_bar_id=bars[-1].bar_id if bars else None,
+                    overlay_layers=overlay_layers,
+                )
+            )
+            if include_replay_sequence and as_of_bar_id is None and as_of_event_id is None
+            else None
+        )
         return ChartWindowResponse(
             bars=bars,
             ema_lines=ema_lines,
             structures=structures,
             events=[_structure_event_row_to_model(row) for row in events],
             overlays=[_overlay_to_model(overlay) for overlay in overlays],
+            replay_sequence=replay_sequence,
             meta=_context_meta(
                 context,
                 as_of_bar_id=as_of_bar_id,
+                as_of_event_id=as_of_event_id,
                 has_lifecycle_events=bool(context.structure_event_records),
             ),
         )
@@ -183,7 +223,15 @@ class ChartApiService:
         symbol: str,
         timeframe: str,
         session_profile: str,
+        center_bar_id: int | None = None,
+        session_date: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
         as_of_bar_id: int | None = None,
+        as_of_event_id: str | None = None,
+        left_bars: int = 0,
+        right_bars: int = 0,
+        buffer_bars: int = 0,
         data_version: str | None = None,
         structure_source: StructureSourceProfile = DEFAULT_STRUCTURE_SOURCE,
         feature_version: str | None = None,
@@ -195,13 +243,13 @@ class ChartApiService:
             symbol=symbol,
             timeframe=timeframe,
             session_profile=session_profile,
-            center_bar_id=None,
-            session_date=None,
-            start_time=None,
-            end_time=None,
-            left_bars=0,
-            right_bars=0,
-            buffer_bars=0,
+            center_bar_id=center_bar_id,
+            session_date=session_date,
+            start_time=start_time,
+            end_time=end_time,
+            left_bars=left_bars,
+            right_bars=right_bars,
+            buffer_bars=buffer_bars,
             data_version=data_version,
             structure_source=structure_source,
             feature_version=feature_version,
@@ -212,11 +260,14 @@ class ChartApiService:
         validate_symbol_and_timeframe(context=context, symbol=symbol, timeframe=timeframe)
         if as_of_bar_id is not None:
             validate_as_of_bar_id(context=context, as_of_bar_id=as_of_bar_id)
+        if as_of_event_id is not None:
+            validate_as_of_event_id(context=context, as_of_event_id=as_of_event_id)
         try:
             detail = resolve_structure_detail(
                 context=context,
                 structure_id=structure_id,
                 as_of_bar_id=as_of_bar_id,
+                as_of_event_id=as_of_event_id,
             )
         except KeyError as exc:
             raise StructureNotFoundError(structure_id) from exc
@@ -231,16 +282,7 @@ class ChartApiService:
             else _bar_row_to_model(context.bar_rows_by_id[int(confirm_bar_id)])
         )
         return StructureDetailResponse(
-            structure=StructureSummaryModel(
-                structure_id=str(row["structure_id"]),
-                kind=str(row["kind"]),
-                state=str(row["state"]),
-                start_bar_id=int(row["start_bar_id"]),
-                end_bar_id=None if row["end_bar_id"] is None else int(row["end_bar_id"]),
-                confirm_bar_id=None if confirm_bar_id is None else int(confirm_bar_id),
-                anchor_bar_ids=anchor_bar_ids,
-                explanation_codes=[str(value) for value in row["explanation_codes"]],
-            ),
+            structure=_structure_row_to_summary_model(row),
             anchor_bars=anchor_bars,
             confirm_bar=confirm_bar,
             feature_refs=list(detail.feature_refs),
@@ -248,6 +290,7 @@ class ChartApiService:
             versions=_context_meta(
                 context,
                 as_of_bar_id=as_of_bar_id,
+                as_of_event_id=as_of_event_id,
                 has_lifecycle_events=bool(context.structure_event_records),
             ),
         )
@@ -452,6 +495,7 @@ def _structure_row_to_summary_model(row: dict[str, object]) -> StructureSummaryM
         confirm_bar_id=None if row["confirm_bar_id"] is None else int(row["confirm_bar_id"]),
         anchor_bar_ids=[int(value) for value in row["anchor_bar_ids"]],
         explanation_codes=[str(value) for value in row["explanation_codes"]],
+        payload=_payload_scalar_to_python(row.get("payload")),
     )
 
 
@@ -479,6 +523,38 @@ def _structure_event_row_to_model(row: dict[str, object]) -> StructureEventModel
         ),
         payload_after=_payload_scalar_to_python(row["payload_after"]),
         changed_fields=[str(value) for value in row["changed_fields"] or []],
+    )
+
+
+def _replay_sequence_to_model(sequence: ReplayWindowSequence | None) -> ReplaySequenceModel | None:
+    if sequence is None:
+        return None
+    return ReplaySequenceModel(
+        base=ReplayBaseModel(
+            as_of_bar_id=sequence.base.as_of_bar_id,
+            structures=[
+                _structure_row_to_summary_model(row)
+                for row in sequence.base.structure_rows
+            ],
+            overlays=[_overlay_to_model(overlay) for overlay in sequence.base.overlays],
+        ),
+        deltas=[
+            ReplayDeltaModel(
+                event_id=delta.event_id,
+                event_bar_id=delta.event_bar_id,
+                event_order=delta.event_order,
+                event_type=delta.event_type,
+                structure_id=delta.structure_id,
+                remove_structure_ids=list(delta.remove_structure_ids),
+                upsert_structures=[
+                    _structure_row_to_summary_model(row)
+                    for row in delta.upsert_structure_rows
+                ],
+                remove_overlay_ids=list(delta.remove_overlay_ids),
+                upsert_overlays=[_overlay_to_model(overlay) for overlay in delta.upsert_overlays],
+            )
+            for delta in sequence.deltas
+        ],
     )
 
 
@@ -535,6 +611,7 @@ def _context_meta(
     context: ChartContext,
     *,
     as_of_bar_id: int | None,
+    as_of_event_id: str | None,
     has_lifecycle_events: bool,
 ) -> ChartWindowMetaModel:
     return ChartWindowMetaModel(
@@ -551,14 +628,15 @@ def _context_meta(
         overlay_version=context.overlay_version if context.rulebook_version is not None else None,
         ema_lengths=list(context.ema_lengths),
         as_of_bar_id=as_of_bar_id,
+        as_of_event_id=as_of_event_id,
         replay_source=(
             None
-            if as_of_bar_id is None
+            if as_of_bar_id is None and as_of_event_id is None
             else ("lifecycle_events" if has_lifecycle_events else "as_of_objects")
         ),
         replay_completeness=(
             None
-            if as_of_bar_id is None
+            if as_of_bar_id is None and as_of_event_id is None
             else (
                 "lifecycle_events_complete_chain"
                 if has_lifecycle_events and context.replay_chain_complete

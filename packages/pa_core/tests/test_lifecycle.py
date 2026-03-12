@@ -203,6 +203,82 @@ class LifecycleReducerTests(unittest.TestCase):
         self.assertEqual(set(resolved), {"pivot-101"})
         self.assertEqual(resolved["pivot-101"]["state"], "candidate")
 
+    def test_as_of_event_id_resolves_intermediate_same_bar_state(self) -> None:
+        rows = [
+            {
+                "event_id": "pivot-100:created:100",
+                "structure_id": "pivot-100",
+                "kind": "pivot_high",
+                "event_type": "created",
+                "event_bar_id": 100,
+                "event_order": 0,
+                "state_after_event": "candidate",
+                "reason_codes": ("visible",),
+                "start_bar_id": 100,
+                "end_bar_id": None,
+                "confirm_bar_id": None,
+                "anchor_bar_ids": (100,),
+                "predecessor_structure_id": None,
+                "successor_structure_id": None,
+                "payload_after": {"explanation_codes": ("left_window_3",)},
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+            {
+                "event_id": "pivot-100:replaced:101",
+                "structure_id": "pivot-100",
+                "kind": "pivot_high",
+                "event_type": "replaced",
+                "event_bar_id": 101,
+                "event_order": 0,
+                "state_after_event": "invalidated",
+                "reason_codes": ("replaced",),
+                "start_bar_id": 100,
+                "end_bar_id": None,
+                "confirm_bar_id": None,
+                "anchor_bar_ids": (100,),
+                "predecessor_structure_id": None,
+                "successor_structure_id": "pivot-101",
+                "payload_after": None,
+                "changed_fields": ("successor_structure_id",),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+            {
+                "event_id": "pivot-101:created:101",
+                "structure_id": "pivot-101",
+                "kind": "pivot_high",
+                "event_type": "created",
+                "event_bar_id": 101,
+                "event_order": 1,
+                "state_after_event": "candidate",
+                "reason_codes": ("visible",),
+                "start_bar_id": 101,
+                "end_bar_id": None,
+                "confirm_bar_id": None,
+                "anchor_bar_ids": (101,),
+                "predecessor_structure_id": "pivot-100",
+                "successor_structure_id": None,
+                "payload_after": {"explanation_codes": ("left_window_3",)},
+                "changed_fields": (),
+                "session_id": 20240102,
+                "session_date": 20240102,
+            },
+        ]
+
+        after_replacement = resolve_structure_rows_from_lifecycle_events(
+            rows,
+            as_of_event_id="pivot-100:replaced:101",
+        )
+        after_successor_creation = resolve_structure_rows_from_lifecycle_events(
+            rows,
+            as_of_event_id="pivot-101:created:101",
+        )
+
+        self.assertEqual(after_replacement, {})
+        self.assertEqual(set(after_successor_creation), {"pivot-101"})
+
     def test_initial_non_created_events_raise_by_default(self) -> None:
         base_row = {
             "event_id": "pivot-100:first:100",

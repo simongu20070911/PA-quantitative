@@ -286,7 +286,6 @@ export function ChartPane({
         ) : null}
       </div>
       <AnnotationToolbar
-        hostRef={shellRef}
         surfaceRef={containerRef}
         annotation={selectedAnnotation}
         initialPosition={annotationToolbarPosition}
@@ -298,7 +297,6 @@ export function ChartPane({
         onDeleteSelectedAnnotation={onDeleteSelectedAnnotation}
       />
       <EmaToolbar
-        hostRef={shellRef}
         surfaceRef={containerRef}
         emaLine={selectedEmaLine}
         initialPosition={emaToolbarPosition}

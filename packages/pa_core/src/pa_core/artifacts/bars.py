@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -12,6 +10,7 @@ import pyarrow as pa
 
 from .arrow import concat_tables, empty_table, read_table, sort_table, write_table
 from .layout import bar_dataset_root, bar_manifest_path, bar_part_path
+from .partitioned import YearPartitionedDatasetWriter, load_manifest, write_manifest
 
 BAR_ARTIFACT_COLUMNS = (
     "bar_id",
@@ -129,51 +128,38 @@ class BarArtifactWriter:
         self.timeframe = timeframe
         self.parquet_engine = parquet_engine
         self.dataset_root = bar_dataset_root(artifacts_root, data_version)
+        self._dataset_writer = YearPartitionedDatasetWriter(
+            dataset_root=self.dataset_root,
+            required_columns=BAR_ARTIFACT_COLUMNS,
+            part_path_builder=lambda year, part_index: bar_part_path(
+                self.artifacts_root,
+                self.data_version,
+                self.symbol,
+                self.timeframe,
+                year,
+                part_index,
+            ),
+        )
         self._row_count = 0
         self._session_dates: set[int] = set()
-        self._years: set[int] = set()
-        self._part_paths: list[str] = []
-        self._part_index_by_year: dict[int, int] = {}
         self._min_bar_id: int | None = None
         self._max_bar_id: int | None = None
         self._min_session_date: int | None = None
         self._max_session_date: int | None = None
-        self._reset_output_root()
 
     def write_chunk(self, bars: pa.Table) -> None:
-        if bars.num_rows == 0:
+        chunk = self._dataset_writer.prepare_chunk(bars)
+        if chunk is None:
             return
-        missing_columns = [column for column in BAR_ARTIFACT_COLUMNS if column not in bars.column_names]
-        if missing_columns:
-            raise ValueError(f"Canonical bar chunk is missing columns: {missing_columns}")
-
-        ordered = bars.select(list(BAR_ARTIFACT_COLUMNS)).combine_chunks()
+        ordered = chunk.table
         session_dates = np.asarray(
-            ordered.column("session_date").combine_chunks().to_numpy(zero_copy_only=False),
+            chunk.session_dates,
             dtype=np.int64,
         )
         bar_ids = np.asarray(
             ordered.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False),
             dtype=np.int64,
         )
-        partition_years = session_dates // 10_000
-
-        for year in np.unique(partition_years):
-            indices = np.nonzero(partition_years == year)[0]
-            part_index = self._part_index_by_year.get(int(year), 0)
-            part_path = bar_part_path(
-                self.artifacts_root,
-                self.data_version,
-                self.symbol,
-                self.timeframe,
-                int(year),
-                part_index,
-            )
-            year_chunk = ordered.take(pa.array(indices, type=pa.int64()))
-            write_table(year_chunk, part_path)
-            self._part_index_by_year[int(year)] = part_index + 1
-            self._part_paths.append(part_path.relative_to(self.dataset_root).as_posix())
-            self._years.add(int(year))
 
         self._row_count += ordered.num_rows
         self._session_dates.update(np.unique(session_dates).tolist())
@@ -212,29 +198,22 @@ class BarArtifactWriter:
             max_bar_id=int(self._max_bar_id),
             min_session_date=int(self._min_session_date),
             max_session_date=int(self._max_session_date),
-            years=tuple(sorted(self._years)),
-            parts=tuple(self._part_paths),
+            years=self._dataset_writer.years,
+            parts=self._dataset_writer.part_paths,
         )
-        manifest_path = bar_manifest_path(self.artifacts_root, self.data_version)
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        write_manifest(
+            bar_manifest_path(self.artifacts_root, self.data_version),
+            manifest.to_dict(),
         )
         return manifest
 
-    def _reset_output_root(self) -> None:
-        if self.dataset_root.exists():
-            shutil.rmtree(self.dataset_root)
-        self.dataset_root.mkdir(parents=True, exist_ok=True)
-
 
 def load_bar_manifest(artifacts_root: Path, data_version: str) -> BarArtifactManifest:
-    manifest = bar_manifest_path(artifacts_root, data_version)
-    if not manifest.exists():
-        raise FileNotFoundError(f"Bar manifest not found for data_version={data_version}: {manifest}")
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    return BarArtifactManifest.from_dict(payload)
+    return load_manifest(
+        path=bar_manifest_path(artifacts_root, data_version),
+        missing_error=f"Bar manifest not found for data_version={data_version}",
+        manifest_factory=BarArtifactManifest.from_dict,
+    )
 
 
 def list_bar_data_versions(artifacts_root: Path) -> list[str]:

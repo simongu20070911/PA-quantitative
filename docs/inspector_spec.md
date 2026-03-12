@@ -60,7 +60,6 @@ The initial overlay family is restricted to the current shipped backend artifact
 - `pivot`
 - `leg`
 - `major_lh`
-- `breakout_start`
 
 Future overlay families such as `trendline`, `structure_level`, and `gap_zone` are explicitly out of scope for MVP unless added by later spec update.
 
@@ -118,6 +117,7 @@ Required replay rules:
 
 - the inspector must not infer `candidate`, `confirmed`, `invalidated`, or replacement behavior by rescanning visible bars
 - replay views must be driven by backend lifecycle events or backend-resolved `as_of` structure state
+- when replay is served as backend replay frames, the inspector may only apply backend-authored add/remove ops; it must not reconstruct lifecycle legality itself
 - if replay is served as an `as_of` snapshot instead of raw events, it must be semantically equivalent to applying lifecycle events through the replay cursor
 - replay uses the selected bar family and its finalization rules, not raw wall-clock time alone
 
@@ -317,7 +317,7 @@ Default visibility policy:
 
 - `pivot` is on by default
 - `pivot_st` is off by default
-- `leg`, `major_lh`, and `breakout_start` remain on by default
+- `leg` and `major_lh` remain on by default
 - replay keeps the same default as explore: structural pivots on, short-term pivots opt-in
 
 Presentation policy:
@@ -666,7 +666,7 @@ The inspector MVP is complete when a human can:
 
 - load ES candles over a continuous historical range
 - jump to a known date or `bar_id`
-- view `pivot`, `leg`, `major_lh`, and `breakout_start` overlays
+- view `pivot`, `leg`, and `major_lh` overlays
 - toggle these layers independently
 - click a visible object and inspect provenance in a side panel
 - navigate without the UI feeling obviously sluggish under normal use
@@ -690,7 +690,7 @@ Recommended implementation order:
 2. windowed bar and overlay read endpoint in `pa_api`
 3. `pa_inspector` shell and chart substrate
 4. primitive-based overlay rendering for `pivot` and `leg`
-5. `major_lh` and `breakout_start` marker rendering
+5. `major_lh` marker rendering
 6. selection and side-panel evidence loading
 7. viewport cache and adjacent-window prefetch
 

@@ -37,6 +37,7 @@ class DerivedLifecycleReasons:
 
 
 BuildFamilyFrame = Callable[[Mapping[str, pa.Table]], pa.Table]
+PayloadAfterBuilder = Callable[[Mapping[str, object]], dict[str, object] | None]
 
 
 def build_lifecycle_frames_from_upstream_events(
@@ -45,9 +46,12 @@ def build_lifecycle_frames_from_upstream_events(
     dependency_event_frames: Mapping[str, pa.Table],
     build_family_frame: BuildFamilyFrame,
     reasons: DerivedLifecycleReasons,
+    payload_schema: pa.DataType = EXPLANATION_CODES_PAYLOAD_SCHEMA,
+    payload_after_builder: PayloadAfterBuilder | None = None,
 ) -> DerivedLifecycleFrames:
     object_schema = STRUCTURE_ARTIFACT_SCHEMA
-    event_schema = build_structure_event_artifact_schema(EXPLANATION_CODES_PAYLOAD_SCHEMA)
+    payload_builder = payload_after_builder or _payload_after_for_row
+    event_schema = build_structure_event_artifact_schema(payload_schema)
     if not dependency_event_frames:
         return DerivedLifecycleFrames(
             object_frame=pa.Table.from_pylist([], schema=object_schema),
@@ -99,6 +103,7 @@ def build_lifecycle_frames_from_upstream_events(
                 event_bar_id=event_bar_id,
                 bar_lookup=bar_lookup,
                 reasons=reasons,
+                payload_after_builder=payload_builder,
             )
         )
         previous_rows_by_id = current_rows_by_id
@@ -123,6 +128,7 @@ def _diff_structure_rows(
     event_bar_id: int,
     bar_lookup: dict[int, dict[str, object]],
     reasons: DerivedLifecycleReasons,
+    payload_after_builder: PayloadAfterBuilder,
 ) -> list[dict[str, object]]:
     bar_row = bar_lookup[event_bar_id]
     session_id = int(bar_row["session_id"])
@@ -162,7 +168,7 @@ def _diff_structure_rows(
                     state_after_event="confirmed",
                     event_bar_id=event_bar_id,
                     reason_codes=(reasons.confirmed,),
-                    payload_after=_payload_after_for_row(current)
+                    payload_after=payload_after_builder(current)
                     if tuple(current["explanation_codes"]) != tuple(previous["explanation_codes"])
                     else None,
                     changed_fields=_changed_fields(previous, current),
@@ -178,7 +184,7 @@ def _diff_structure_rows(
                 state_after_event=current_state,
                 event_bar_id=event_bar_id,
                 reason_codes=(reasons.updated,),
-                payload_after=_payload_after_for_row(current),
+                payload_after=payload_after_builder(current),
                 changed_fields=_changed_fields(previous, current),
                 session_id=session_id,
                 session_date=session_date,
@@ -196,7 +202,7 @@ def _diff_structure_rows(
                 state_after_event=state,
                 event_bar_id=event_bar_id,
                 reason_codes=((reasons.confirmed,) if state == "confirmed" else (reasons.created,)),
-                payload_after=_payload_after_for_row(current),
+                payload_after=payload_after_builder(current),
                 changed_fields=(),
                 session_id=session_id,
                 session_date=session_date,
@@ -206,6 +212,12 @@ def _diff_structure_rows(
 
 
 def _payload_after_for_row(row: Mapping[str, object]) -> dict[str, object]:
+    explicit_payload = row.get("_payload_after")
+    if explicit_payload is not None:
+        return {
+            str(key): explicit_payload[key]
+            for key in explicit_payload
+        }
     return {
         "explanation_codes": [str(value) for value in row["explanation_codes"]],
     }

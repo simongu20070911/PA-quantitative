@@ -8,20 +8,16 @@ from typing import Literal, Sequence
 
 import pyarrow as pa
 
-from pa_core.artifacts.bars import load_bar_manifest
 from pa_core.artifacts.features import EMPTY_FEATURE_PARAMS_HASH
 from pa_core.artifacts.layout import default_artifacts_root
 from pa_core.artifacts.structure_events import (
     build_structure_event_artifact_schema,
     StructureEventArtifactManifest,
-    StructureEventArtifactWriter,
 )
 from pa_core.artifacts.structures import (
     STRUCTURE_ARTIFACT_SCHEMA,
     StructureArtifactManifest,
-    StructureArtifactWriter,
 )
-from pa_core.features.edge_features import EDGE_FEATURE_KEYS
 from pa_core.rulebooks.v0_2 import (
     PIVOT_BAR_FINALIZATION,
     PIVOT_BASE_EXPLANATION_CODES,
@@ -51,11 +47,13 @@ from pa_core.rulebooks.v0_2 import (
     PIVOT_TIMING_SEMANTICS,
 )
 from pa_core.common import resolve_latest_bar_data_version
-from pa_core.structures.ids import build_structure_id
-from pa_core.structures.input import (
-    StructureInputs,
-    iter_structure_input_part_frames,
-    structure_inputs_from_arrays,
+from pa_core.structures.input import StructureInputs
+from pa_core.structures.row_builders import build_structure_row
+from pa_core.structures.streaming import (
+    build_direct_structure_event_writer,
+    build_direct_structure_writer,
+    filter_nonfinal_rows_by_index,
+    iter_windowed_structure_inputs,
 )
 
 PivotSide = Literal["high", "low"]
@@ -188,16 +186,22 @@ def build_pivot_tier_frames(
             confirm_bar_id = (
                 int(bar_arrays.bar_id[confirm_index]) if confirm_index < n else None
             )
-            structure_id = build_structure_id(
+            object_row = build_structure_row(
                 kind=kind,
+                state="candidate",
                 start_bar_id=start_bar_id,
                 end_bar_id=None,
                 confirm_bar_id=confirm_bar_id,
+                session_id=int(bar_arrays.session_id[anchor_index]),
+                session_date=int(bar_arrays.session_date[anchor_index]),
                 anchor_bar_ids=anchor_bar_ids,
+                feature_refs=structure_inputs.feature_refs,
                 rulebook_version=tier_spec.rulebook_version,
                 structure_version=tier_spec.structure_version,
-                scope_ref=structure_scope,
+                explanation_codes=(),
+                structure_scope=structure_scope,
             )
+            structure_id = str(object_row["structure_id"])
 
             explanation_codes = list(tier_spec.base_explanation_codes)
             crosses_session_boundary = _cross_session_window(
@@ -246,18 +250,21 @@ def build_pivot_tier_frames(
             object_rows.append(
                 {
                     "_anchor_index": anchor_index,
-                    "structure_id": structure_id,
-                    "kind": kind,
-                    "state": final_state,
-                    "start_bar_id": start_bar_id,
-                    "end_bar_id": None,
-                    "confirm_bar_id": confirm_bar_id if final_state == "confirmed" else None,
-                    "session_id": int(bar_arrays.session_id[anchor_index]),
-                    "session_date": int(bar_arrays.session_date[anchor_index]),
-                    "anchor_bar_ids": anchor_bar_ids,
-                    "feature_refs": structure_inputs.feature_refs,
-                    "rulebook_version": tier_spec.rulebook_version,
-                    "explanation_codes": tuple(explanation_codes),
+                    **build_structure_row(
+                        kind=kind,
+                        state=final_state,
+                        start_bar_id=start_bar_id,
+                        end_bar_id=None,
+                        confirm_bar_id=confirm_bar_id if final_state == "confirmed" else None,
+                        session_id=int(bar_arrays.session_id[anchor_index]),
+                        session_date=int(bar_arrays.session_date[anchor_index]),
+                        anchor_bar_ids=anchor_bar_ids,
+                        feature_refs=structure_inputs.feature_refs,
+                        rulebook_version=tier_spec.rulebook_version,
+                        structure_version=tier_spec.structure_version,
+                        explanation_codes=explanation_codes,
+                        structure_scope=structure_scope,
+                    ),
                 }
             )
             event_rows.append(
@@ -309,19 +316,26 @@ def build_pivot_tier_frames(
                 successor_structure_id = None
                 if replacement_kind is not None:
                     successor_bar_id = int(bar_arrays.bar_id[replacement_bar_index])
-                    successor_structure_id = build_structure_id(
-                        kind=replacement_kind,
-                        start_bar_id=successor_bar_id,
-                        end_bar_id=None,
-                        confirm_bar_id=(
-                            int(bar_arrays.bar_id[replacement_bar_index + tier_spec.right_window])
-                            if replacement_bar_index + tier_spec.right_window < n
-                            else None
-                        ),
-                        anchor_bar_ids=(successor_bar_id,),
-                        rulebook_version=tier_spec.rulebook_version,
-                        structure_version=tier_spec.structure_version,
-                        scope_ref=structure_scope,
+                    successor_structure_id = str(
+                        build_structure_row(
+                            kind=replacement_kind,
+                            state="candidate",
+                            start_bar_id=successor_bar_id,
+                            end_bar_id=None,
+                            confirm_bar_id=(
+                                int(bar_arrays.bar_id[replacement_bar_index + tier_spec.right_window])
+                                if replacement_bar_index + tier_spec.right_window < n
+                                else None
+                            ),
+                            session_id=int(bar_arrays.session_id[replacement_bar_index]),
+                            session_date=int(bar_arrays.session_date[replacement_bar_index]),
+                            anchor_bar_ids=(successor_bar_id,),
+                            feature_refs=structure_inputs.feature_refs,
+                            rulebook_version=tier_spec.rulebook_version,
+                            structure_version=tier_spec.structure_version,
+                            explanation_codes=(),
+                            structure_scope=structure_scope,
+                        )["structure_id"]
                     )
                 event_rows.append(
                     _build_event_row(
@@ -384,41 +398,20 @@ def materialize_pivot_tier(
     tier_spec: PivotTierSpec,
 ) -> PivotTierMaterializationResult:
     data_version = config.data_version or resolve_latest_bar_data_version(config.artifacts_root)
-    bar_manifest = load_bar_manifest(config.artifacts_root, data_version)
-    object_writer: StructureArtifactWriter | None = None
-    event_writer: StructureEventArtifactWriter | None = None
-    carry_bar_arrays = None
-    carry_feature_arrays = None
+    object_writer = None
+    event_writer = None
     carry_bars = max(tier_spec.left_window, tier_spec.right_window)
-
-    part_iter = iter_structure_input_part_frames(
+    for chunk in iter_windowed_structure_inputs(
         artifacts_root=config.artifacts_root,
         data_version=data_version,
         feature_version=config.feature_version,
         feature_params_hash=config.feature_params_hash,
-        feature_keys=EDGE_FEATURE_KEYS,
+        carry_bars=carry_bars,
         parquet_engine=config.parquet_engine,
-    )
-    for part_index, (bar_arrays, feature_arrays) in enumerate(part_iter):
-        is_final = part_index == len(bar_manifest.parts) - 1
-        combined_bar_arrays = (
-            carry_bar_arrays.concat(bar_arrays) if carry_bar_arrays is not None else bar_arrays
-        )
-        combined_feature_arrays = (
-            carry_feature_arrays.concat(feature_arrays)
-            if carry_feature_arrays is not None
-            else feature_arrays
-        )
-        structure_inputs = structure_inputs_from_arrays(
-            bar_arrays=combined_bar_arrays,
-            feature_arrays=combined_feature_arrays,
-            data_version=data_version,
-            feature_version=config.feature_version,
-            feature_params_hash=config.feature_params_hash,
-            feature_keys=EDGE_FEATURE_KEYS,
-        )
+    ):
+        structure_inputs = chunk.structure_inputs
         if object_writer is None:
-            object_writer = StructureArtifactWriter(
+            object_writer = build_direct_structure_writer(
                 artifacts_root=config.artifacts_root,
                 kind=tier_spec.kind_group,
                 structure_version=tier_spec.structure_version,
@@ -428,11 +421,10 @@ def materialize_pivot_tier(
                 input_ref=structure_inputs.input_ref,
                 data_version=data_version,
                 feature_refs=structure_inputs.feature_refs,
-                dataset_class="objects",
                 parquet_engine=config.parquet_engine,
             )
         if event_writer is None:
-            event_writer = StructureEventArtifactWriter(
+            event_writer = build_direct_structure_event_writer(
                 artifacts_root=config.artifacts_root,
                 kind=tier_spec.kind_group,
                 structure_version=tier_spec.structure_version,
@@ -452,33 +444,22 @@ def materialize_pivot_tier(
         )
         object_frame = frames.object_frame
         event_frame = frames.event_frame
-        if not is_final:
+        if not chunk.is_final:
             cutoff_anchor_index = max(len(structure_inputs.bar_arrays) - tier_spec.right_window, 0)
-            if object_frame.num_rows:
-                keep_mask = pa.array(
-                    [
-                        int(index) < cutoff_anchor_index
-                        for index in object_frame.column("_anchor_index").to_pylist()
-                    ],
-                    type=pa.bool_(),
-                )
-                object_frame = object_frame.filter(keep_mask)
-            if event_frame.num_rows:
-                keep_mask = pa.array(
-                    [
-                        int(index) < cutoff_anchor_index
-                        for index in event_frame.column("_anchor_index").to_pylist()
-                    ],
-                    type=pa.bool_(),
-                )
-                event_frame = event_frame.filter(keep_mask)
+            object_frame = filter_nonfinal_rows_by_index(
+                object_frame,
+                index_column="_anchor_index",
+                cutoff_index=cutoff_anchor_index,
+            )
+            event_frame = filter_nonfinal_rows_by_index(
+                event_frame,
+                index_column="_anchor_index",
+                cutoff_index=cutoff_anchor_index,
+            )
         if object_frame.num_rows:
             object_writer.write_chunk(object_frame.drop(["_anchor_index"]))
         if event_frame.num_rows:
             event_writer.write_chunk(event_frame.drop(["_anchor_index"]))
-
-        carry_bar_arrays = combined_bar_arrays.tail(carry_bars)
-        carry_feature_arrays = combined_feature_arrays.tail(carry_bars)
 
     if object_writer is None or event_writer is None:
         raise ValueError("No bar parts were available for pivot tier materialization.")

@@ -27,7 +27,15 @@ class StructureRegistryTests(unittest.TestCase):
 
         self.assertEqual(
             [spec.kind for spec in specs],
-            ["pivot_st", "pivot", "leg", "major_lh", "breakout_start"],
+            [
+                "pivot_st",
+                "pivot",
+                "leg",
+                "major_lh",
+                "break_level",
+                "breakout_impulse",
+                "failed_breakout",
+            ],
         )
         by_kind = {spec.kind: spec for spec in specs}
         self.assertEqual(by_kind["pivot_st"].structure_refs, ())
@@ -35,14 +43,24 @@ class StructureRegistryTests(unittest.TestCase):
         self.assertEqual(by_kind["leg"].structure_refs, (by_kind["pivot"].ref,))
         self.assertEqual(by_kind["major_lh"].structure_refs, (by_kind["leg"].ref,))
         self.assertEqual(
-            by_kind["breakout_start"].structure_refs,
-            (by_kind["leg"].ref, by_kind["major_lh"].ref),
+            by_kind["break_level"].structure_refs,
+            (by_kind["pivot"].ref, by_kind["leg"].ref),
+        )
+        self.assertEqual(
+            by_kind["breakout_impulse"].structure_refs,
+            (by_kind["break_level"].ref, by_kind["leg"].ref),
+        )
+        self.assertEqual(
+            by_kind["failed_breakout"].structure_refs,
+            (by_kind["breakout_impulse"].ref,),
         )
         self.assertTrue(by_kind["pivot_st"].has_events)
         self.assertTrue(by_kind["pivot"].has_events)
         self.assertTrue(by_kind["leg"].has_events)
         self.assertTrue(by_kind["major_lh"].has_events)
-        self.assertTrue(by_kind["breakout_start"].has_events)
+        self.assertTrue(by_kind["break_level"].has_events)
+        self.assertTrue(by_kind["breakout_impulse"].has_events)
+        self.assertTrue(by_kind["failed_breakout"].has_events)
 
     def test_source_versions_are_registry_owned(self) -> None:
         self.assertEqual(structure_source_versions("artifact_v0_1"), ("v0_1", "v1"))

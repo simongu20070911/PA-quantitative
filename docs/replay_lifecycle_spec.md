@@ -204,6 +204,7 @@ Rules:
 - replay must not expose candidate, confirmation, or invalidation knowledge before the bar close that legally publishes that transition
 - replay uses the selected bar family's own finalization rules
 - if a backend serves replay via `as_of` object snapshots, the snapshot at cursor `C` must equal the state produced by applying all lifecycle events with `event_bar_id <= C`
+- a backend may also serve replay as one base window snapshot plus ordered replay ops keyed by `event_id`, but those ops must be backend-authored and semantically equivalent to applying the lifecycle events through the same cursor
 - replay must not depend on frontend-visible zoom level, viewport width, or screen coordinates
 
 ## Relationship To Structure Object Datasets
@@ -253,7 +254,7 @@ Current shipped publication is split by rulebook version, but no longer mixed wi
 Current status:
 
 - `v0.1` structure datasets remain latest-state snapshots only
-- the active `v0.2` structure chain now publishes both latest-state `objects` datasets and sparse lifecycle `events` datasets for `pivot_st`, `pivot`, `leg`, `major_lh`, and breakout-start families
+- the active `v0.2` structure chain now publishes both latest-state `objects` datasets and sparse lifecycle `events` datasets for `pivot_st`, `pivot`, `leg`, and `major_lh`
 - backend chart-window and structure-detail reads now resolve the full `v0.2` chain from lifecycle events when those datasets are present, including replay-visible structures that do not survive in the latest-state object datasets
 
 Implication:

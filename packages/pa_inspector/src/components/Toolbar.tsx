@@ -75,6 +75,8 @@ export interface ToolbarProps {
   onEmaSelect: (length: number | null) => void;
   autoViewportFetch: boolean;
   onAutoViewportFetchChange: (value: boolean) => void;
+  showReplayRetiredOverlays: boolean;
+  onShowReplayRetiredOverlaysChange: (value: boolean) => void;
   overlayLayerCounts: Record<OverlayLayer, number>;
   overlayLayers: Record<OverlayLayer, boolean>;
   onOverlayLayerChange: (layer: OverlayLayer, enabled: boolean) => void;
@@ -277,6 +279,11 @@ export function Toolbar(props: ToolbarProps) {
               {props.emaEnabled ? props.emaLengths.trim() || "EMA On" : "EMA Off"}
             </span>
             <span className="toolbar-pill">Auto Fetch {props.autoViewportFetch ? "On" : "Off"}</span>
+            {props.inspectorMode === "replay" ? (
+              <span className="toolbar-pill">
+                Cancelled Pivots {props.showReplayRetiredOverlays ? "On" : "Off"}
+              </span>
+            ) : null}
           </div>
           <div className="toolbar-strip-group">
             <span className="toolbar-strip-label">Status</span>
@@ -446,6 +453,26 @@ export function Toolbar(props: ToolbarProps) {
               <span>Auto Fetch On Pan</span>
             </label>
           </div>
+
+          {props.inspectorMode === "replay" ? (
+            <div className="compact-row">
+              <span className="mode-label">Replay</span>
+              <label
+                className={
+                  props.showReplayRetiredOverlays ? "layer-pill active" : "layer-pill"
+                }
+              >
+                <input
+                  checked={props.showReplayRetiredOverlays}
+                  onChange={(event) =>
+                    props.onShowReplayRetiredOverlaysChange(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>Show Cancelled Pivots</span>
+              </label>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

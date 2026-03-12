@@ -3,10 +3,18 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type RefObject,
   type SyntheticEvent,
 } from "react";
 
+import {
+  clampFloatingPosition,
+  resolveFloatingSurfaceBounds,
+  resolveFloatingSurfaceDefaultPosition,
+  useDraggableFloatingSurface,
+  useFloatingSurfacePosition,
+} from "../lib/floatingSurface";
 import {
   ANNOTATION_LINE_STYLES,
   ANNOTATION_LINE_WIDTHS,
@@ -20,7 +28,6 @@ import type {
 
 interface UseFloatingToolbarArgs {
   active: boolean;
-  hostRef: RefObject<HTMLElement | null>;
   surfaceRef: RefObject<HTMLDivElement | null>;
   toolbarWidth: number;
   toolbarHeight: number;
@@ -29,11 +36,24 @@ interface UseFloatingToolbarArgs {
   onPositionChange: (position: FloatingPosition | null) => void;
   onOpenPopoverChange: (popover: AnnotationToolbarPopover) => void;
   dragFromContainerBackground?: boolean;
+  clampInset?: number;
 }
+
+export interface FloatingToolbarState {
+  toolbarRef: RefObject<HTMLDivElement | null>;
+  openPopover: AnnotationToolbarPopover;
+  setOpenPopover: (popover: AnnotationToolbarPopover) => void;
+  left: number;
+  top: number;
+  togglePopover: (key: AnnotationToolbarPopover) => void;
+  swallowPointer: (event: SyntheticEvent<HTMLElement>) => void;
+  activateButton: (event: ReactToolbarPointerEvent, action: () => void) => void;
+}
+
+type ReactToolbarPointerEvent = ReactPointerEvent<HTMLElement>;
 
 export function useFloatingToolbar({
   active,
-  hostRef,
   surfaceRef,
   toolbarWidth,
   toolbarHeight,
@@ -42,18 +62,16 @@ export function useFloatingToolbar({
   onPositionChange,
   onOpenPopoverChange,
   dragFromContainerBackground = false,
-}: UseFloatingToolbarArgs) {
+  clampInset = 8,
+}: UseFloatingToolbarArgs): FloatingToolbarState {
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const dragCleanupRef = useRef<(() => void) | null>(null);
-  const onPositionChangeRef = useRef(onPositionChange);
   const onOpenPopoverChangeRef = useRef(onOpenPopoverChange);
-  const [position, setPosition] = useState<FloatingPosition | null>(initialPosition);
+  const { position, setPosition } = useFloatingSurfacePosition({
+    initialPosition,
+    onPositionChange,
+  });
   const [openPopover, setOpenPopover] =
     useState<AnnotationToolbarPopover>(initialOpenPopover);
-
-  useEffect(() => {
-    onPositionChangeRef.current = onPositionChange;
-  }, [onPositionChange]);
 
   useEffect(() => {
     onOpenPopoverChangeRef.current = onOpenPopoverChange;
@@ -66,40 +84,20 @@ export function useFloatingToolbar({
   }, [active]);
 
   useEffect(() => {
-    onPositionChangeRef.current(position);
-  }, [position]);
-
-  useEffect(() => {
     onOpenPopoverChangeRef.current(openPopover);
   }, [openPopover]);
 
   useEffect(() => {
-    const host = hostRef.current;
-    const surface = surfaceRef.current;
-    if (!host || !surface) {
-      return;
-    }
-    const bounds = resolveToolbarBounds(surface, toolbarWidth, toolbarHeight);
-    const nextDefault = {
-      left: bounds.maxLeft,
-      top: bounds.minTop,
-    };
+    const bounds = resolveFloatingSurfaceBounds(surfaceRef.current, {
+      surfaceWidth: toolbarWidth,
+      surfaceHeight: toolbarHeight,
+      clampInset,
+    });
+    const defaultPosition = resolveFloatingSurfaceDefaultPosition(bounds);
     setPosition((current) =>
-      current
-        ? {
-            left: clamp(current.left, bounds.minLeft, bounds.maxLeft),
-            top: clamp(current.top, bounds.minTop, bounds.maxTop),
-          }
-        : nextDefault,
+      current === null ? defaultPosition : clampFloatingPosition(current, bounds),
     );
-  }, [active, hostRef, surfaceRef, toolbarHeight, toolbarWidth]);
-
-  useEffect(() => {
-    return () => {
-      dragCleanupRef.current?.();
-      dragCleanupRef.current = null;
-    };
-  }, []);
+  }, [active, clampInset, setPosition, surfaceRef, toolbarHeight, toolbarWidth]);
 
   useEffect(() => {
     if (!openPopover) {
@@ -118,101 +116,140 @@ export function useFloatingToolbar({
     };
   }, [openPopover]);
 
-  const bounds = resolveToolbarBounds(
-    surfaceRef.current,
-    toolbarWidth,
-    toolbarHeight,
-  );
-  const left = clamp(position?.left ?? bounds.maxLeft, bounds.minLeft, bounds.maxLeft);
-  const top = clamp(position?.top ?? bounds.minTop, bounds.minTop, bounds.maxTop);
-
-  const beginToolbarDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const origin = { x: event.clientX, y: event.clientY };
-    const startPosition = { left, top };
-    event.preventDefault();
-    event.stopPropagation();
-    dragCleanupRef.current?.();
-
-    let activeDrag = true;
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      if (!activeDrag || moveEvent.buttons === 0) {
-        stopDrag();
-        return;
+  useDraggableFloatingSurface({
+    handleRef: toolbarRef,
+    surfaceRef: toolbarRef,
+    setPosition,
+    boundsResolver: () =>
+      resolveFloatingSurfaceBounds(surfaceRef.current, {
+        surfaceWidth: toolbarWidth,
+        surfaceHeight: toolbarHeight,
+        clampInset,
+      }),
+    canStartDrag: (event) => {
+      const toolbar = toolbarRef.current;
+      if (!toolbar) {
+        return false;
       }
-      setPosition({
-        left: clamp(
-          startPosition.left + (moveEvent.clientX - origin.x),
-          bounds.minLeft,
-          bounds.maxLeft,
-        ),
-        top: clamp(
-          startPosition.top + (moveEvent.clientY - origin.y),
-          bounds.minTop,
-          bounds.maxTop,
-        ),
-      });
-    };
-
-    const stopDrag = () => {
-      if (!activeDrag) {
-        return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return false;
       }
-      activeDrag = false;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", stopDrag);
-      window.removeEventListener("pointercancel", stopDrag);
-      window.removeEventListener("mouseup", stopDrag);
-      window.removeEventListener("blur", stopDrag);
-      dragCleanupRef.current = null;
-    };
+      if (target.closest("[data-floating-surface-interactive='true']")) {
+        return false;
+      }
+      if (target.closest("[data-floating-surface-drag-handle='true']")) {
+        return true;
+      }
+      return dragFromContainerBackground && target === toolbar;
+    },
+  });
 
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", stopDrag);
-    window.addEventListener("pointercancel", stopDrag);
-    window.addEventListener("mouseup", stopDrag);
-    window.addEventListener("blur", stopDrag);
-    dragCleanupRef.current = stopDrag;
-  };
-
-  const togglePopover = (key: AnnotationToolbarPopover) => {
-    setOpenPopover((current) => (current === key ? null : key));
-  };
-
-  const swallowPointer = (event: SyntheticEvent<HTMLElement>) => {
-    event.stopPropagation();
-  };
-
-  const activateButton = (
-    event: ReactPointerEvent<HTMLElement>,
-    action: () => void,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    action();
-  };
-
-  const onToolbarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    if (dragFromContainerBackground && event.target === event.currentTarget) {
-      beginToolbarDrag(event);
-    }
-  };
+  const bounds = resolveFloatingSurfaceBounds(surfaceRef.current, {
+    surfaceWidth: toolbarWidth,
+    surfaceHeight: toolbarHeight,
+    clampInset,
+  });
+  const nextPosition = clampFloatingPosition(position ?? resolveFloatingSurfaceDefaultPosition(bounds), bounds);
 
   return {
     toolbarRef,
     openPopover,
     setOpenPopover,
-    left,
-    top,
-    beginToolbarDrag,
-    togglePopover,
-    swallowPointer,
-    activateButton,
-    onToolbarPointerDown,
+    left: nextPosition.left,
+    top: nextPosition.top,
+    togglePopover: (key) => {
+      setOpenPopover((current) => (current === key ? null : key));
+    },
+    swallowPointer: (event) => {
+      event.stopPropagation();
+    },
+    activateButton: (event, action) => {
+      event.preventDefault();
+      event.stopPropagation();
+      action();
+    },
   };
+}
+
+export function FloatingToolbarShell({
+  state,
+  dragTitle,
+  grip,
+  children,
+}: {
+  state: FloatingToolbarState;
+  dragTitle: string;
+  grip: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="annotation-toolbar"
+      onClick={state.swallowPointer}
+      onDoubleClick={state.swallowPointer}
+      onPointerDown={state.swallowPointer}
+      onPointerMove={state.swallowPointer}
+      onPointerUp={state.swallowPointer}
+      ref={state.toolbarRef}
+      style={{ left: `${state.left}px`, top: `${state.top}px` }}
+    >
+      <button
+        className="annotation-toolbar-grip"
+        data-floating-surface-drag-handle="true"
+        title={dragTitle}
+        type="button"
+      >
+        {grip}
+      </button>
+      {children}
+    </div>
+  );
+}
+
+export function ToolbarGripIcon() {
+  return (
+    <svg aria-hidden="true" className="annotation-toolbar-icon" viewBox="0 0 16 16">
+      {[3, 8, 13].flatMap((y) =>
+        [4, 8, 12].map((x) => (
+          <circle cx={x} cy={y} fill="currentColor" key={`${x}-${y}`} r="1" />
+        )),
+      )}
+    </svg>
+  );
+}
+
+export function ToolbarButton({
+  className,
+  active = false,
+  disabled = false,
+  title,
+  onPointerDown,
+  children,
+}: {
+  className?: string;
+  active?: boolean;
+  disabled?: boolean;
+  title: string;
+  onPointerDown?: (event: ReactToolbarPointerEvent) => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      className={
+        active
+          ? ["annotation-toolbar-button", className, "active"].filter(Boolean).join(" ")
+          : ["annotation-toolbar-button", className].filter(Boolean).join(" ")
+      }
+      data-floating-surface-interactive="true"
+      disabled={disabled}
+      onPointerDown={onPointerDown}
+      title={title}
+      type="button"
+    >
+      {children}
+    </button>
+  );
 }
 
 export function ColorPopover({
@@ -235,6 +272,7 @@ export function ColorPopover({
           ? "annotation-toolbar-popover annotation-toolbar-popover-wide"
           : "annotation-toolbar-popover"
       }
+      data-floating-surface-interactive="true"
     >
       <div className="annotation-toolbar-popover-title">{title}</div>
       <div className="annotation-toolbar-color-grid">
@@ -245,6 +283,7 @@ export function ColorPopover({
                 ? "annotation-toolbar-color-swatch active"
                 : "annotation-toolbar-color-swatch"
             }
+            data-floating-surface-interactive="true"
             key={color}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -268,7 +307,7 @@ export function WidthPopover({
   onSelect: (width: number) => void;
 }) {
   return (
-    <div className="annotation-toolbar-popover">
+    <div className="annotation-toolbar-popover" data-floating-surface-interactive="true">
       <div className="annotation-toolbar-menu">
         {ANNOTATION_LINE_WIDTHS.map((widthValue) => (
           <button
@@ -277,6 +316,7 @@ export function WidthPopover({
                 ? "annotation-toolbar-menu-item active"
                 : "annotation-toolbar-menu-item"
             }
+            data-floating-surface-interactive="true"
             key={widthValue}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -306,7 +346,7 @@ export function StylePopover({
   title?: string;
 }) {
   return (
-    <div className="annotation-toolbar-popover">
+    <div className="annotation-toolbar-popover" data-floating-surface-interactive="true">
       {title ? <div className="annotation-toolbar-popover-title">{title}</div> : null}
       <div className="annotation-toolbar-menu">
         {ANNOTATION_LINE_STYLES.map((styleKey) => (
@@ -316,6 +356,7 @@ export function StylePopover({
                 ? "annotation-toolbar-menu-item active"
                 : "annotation-toolbar-menu-item"
             }
+            data-floating-surface-interactive="true"
             key={styleKey}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -328,6 +369,57 @@ export function StylePopover({
             {showLabels ? <span>{lineStyleLabel(styleKey)}</span> : null}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+export function SliderPopover({
+  title,
+  id,
+  min,
+  max,
+  step,
+  value,
+  label,
+  wide = false,
+  onChange,
+}: {
+  title: string;
+  id: string;
+  min: number | string;
+  max: number | string;
+  step?: number | string;
+  value: number | string;
+  label: ReactNode;
+  wide?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div
+      className={
+        wide
+          ? "annotation-toolbar-popover annotation-toolbar-popover-wide"
+          : "annotation-toolbar-popover"
+      }
+      data-floating-surface-interactive="true"
+    >
+      <div className="annotation-toolbar-popover-title">{title}</div>
+      <div className="annotation-toolbar-slider-block">
+        <label className="annotation-toolbar-slider-label" htmlFor={id}>
+          {label}
+        </label>
+        <input
+          data-floating-surface-interactive="true"
+          id={id}
+          max={max}
+          min={min}
+          onChange={(event) => onChange(event.target.value)}
+          onPointerDownCapture={(event) => event.stopPropagation()}
+          step={step}
+          type="range"
+          value={value}
+        />
       </div>
     </div>
   );
@@ -366,40 +458,15 @@ export function LineStylePreview({ styleKey }: { styleKey: AnnotationLineStyle }
   );
 }
 
-export function lineStyleLabel(style: AnnotationLineStyle) {
-  if (style === "dashed") {
-    return "Dashed";
+export function lineStyleLabel(styleKey: AnnotationLineStyle) {
+  switch (styleKey) {
+    case "solid":
+      return "Solid";
+    case "dashed":
+      return "Dashed";
+    case "dotted":
+      return "Dotted";
+    default:
+      return styleKey;
   }
-  if (style === "dotted") {
-    return "Dotted";
-  }
-  return "Solid";
-}
-
-function resolveToolbarBounds(
-  surface: HTMLDivElement | null,
-  toolbarWidth: number,
-  toolbarHeight: number,
-) {
-  const minLeft = (surface?.offsetLeft ?? 0) + 12;
-  const maxLeft = Math.max(
-    minLeft,
-    (surface?.offsetLeft ?? 0) +
-      (surface?.clientWidth ?? toolbarWidth + 24) -
-      toolbarWidth -
-      12,
-  );
-  const minTop = (surface?.offsetTop ?? 0) + 12;
-  const maxTop = Math.max(
-    minTop,
-    (surface?.offsetTop ?? 0) +
-      (surface?.clientHeight ?? toolbarHeight + 24) -
-      toolbarHeight -
-      12,
-  );
-  return { minLeft, maxLeft, minTop, maxTop };
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
 }
