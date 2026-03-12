@@ -6,6 +6,7 @@ import { ReplayTransport } from "./components/ReplayTransport";
 import { Toolbar } from "./components/Toolbar";
 import { fetchChartWindow, fetchStructureDetail } from "./lib/api";
 import { defaultAnnotationStyle, getEmaStyle } from "./lib/annotationStyle";
+import { createClientUuid } from "./lib/clientIds";
 import {
   countOverlaysByLayer,
   EMPTY_OVERLAY_LAYER_COUNTS,
@@ -1453,7 +1454,7 @@ function buildAnnotationFamilyKey(args: {
 }
 
 function buildAnnotationId(kind: AnnotationKind, startBarId: number, endBarId: number) {
-  return `${kind}:${startBarId}:${endBarId}:${crypto.randomUUID()}`;
+  return `${kind}:${startBarId}:${endBarId}:${createClientUuid()}`;
 }
 
 function replayDelayMs(speed: number) {

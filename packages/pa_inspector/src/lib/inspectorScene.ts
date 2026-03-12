@@ -725,18 +725,6 @@ function drawOverlay(
     const [point] = drawable.points;
     drawDiamondBadge(context, point.x, point.y, 6, "above", style);
   }
-
-  const labelText = overlayDisplayLabel(drawable.overlay, semantics);
-  if (labelText) {
-    drawOverlayLabel(
-      context,
-      labelText,
-      overlayLabelAnchor(drawable, semantics),
-      style,
-      selected,
-    );
-  }
-
   context.restore();
 }
 
@@ -820,111 +808,6 @@ function drawDiamondBadge(
   context.fillStyle = style.accent;
   context.arc(anchor.x, badgeY, 1.9, 0, Math.PI * 2);
   context.fill();
-}
-
-function overlayDisplayLabel(
-  overlay: Overlay,
-  semantics: ReturnType<typeof resolveOverlaySemantics>,
-) {
-  const displayLabel = overlay.meta.display_label;
-  if (typeof displayLabel !== "string" || displayLabel.length === 0) {
-    return null;
-  }
-  if (overlay.meta.replay_event_type) {
-    return null;
-  }
-  if (semantics.pivotTier === "pivot_st") {
-    return null;
-  }
-  return displayLabel;
-}
-
-function overlayLabelAnchor(
-  drawable: Drawable,
-  semantics: ReturnType<typeof resolveOverlaySemantics>,
-): { x: number; y: number; placement: "above" | "below" | "right-above" | "right-below" } {
-  if (semantics.geometryKind === "leg-line") {
-    const [start, end] = drawable.points;
-    return {
-      x: end.x,
-      y: end.y,
-      placement: end.y <= start.y ? "right-above" : "right-below",
-    };
-  }
-  const [point] = drawable.points;
-  if (semantics.geometryKind === "pivot-marker") {
-    return {
-      x: point.x,
-      y: point.y,
-      placement: semantics.pivotDirection === "high" ? "above" : "below",
-    };
-  }
-  return {
-    x: point.x,
-    y: point.y,
-    placement: "above",
-  };
-}
-
-function drawOverlayLabel(
-  context: CanvasRenderingContext2D,
-  text: string,
-  anchor: { x: number; y: number; placement: "above" | "below" | "right-above" | "right-below" },
-  style: OverlayPaint,
-  selected: boolean,
-) {
-  const fontSize = selected ? 11 : 10;
-  const paddingX = 5;
-  const height = fontSize + 6;
-  context.save();
-  context.setLineDash([]);
-  context.font = `600 ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
-  context.textBaseline = "middle";
-  const textWidth = Math.ceil(context.measureText(text).width);
-  const width = textWidth + paddingX * 2;
-  let centerX = anchor.x;
-  let centerY = anchor.y;
-  if (anchor.placement === "above") {
-    centerY -= 22;
-  } else if (anchor.placement === "below") {
-    centerY += 22;
-  } else if (anchor.placement === "right-above") {
-    centerX += 16 + width * 0.5;
-    centerY -= 10;
-  } else {
-    centerX += 16 + width * 0.5;
-    centerY += 10;
-  }
-  const left = Math.round(centerX - width * 0.5);
-  const top = Math.round(centerY - height * 0.5);
-  const radius = 5;
-  context.fillStyle = withAlpha(style.fill, selected ? 0.96 : 0.9);
-  context.strokeStyle = withAlpha(style.stroke, selected ? 0.92 : 0.72);
-  context.lineWidth = 1;
-  drawRoundedRect(context, left, top, width, height, radius);
-  context.fill();
-  context.stroke();
-  context.fillStyle = withAlpha(style.stroke, selected ? 0.98 : 0.9);
-  context.fillText(text, left + paddingX, top + height * 0.5 + 0.5);
-  context.restore();
-}
-
-function drawRoundedRect(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-) {
-  const clampedRadius = Math.max(0, Math.min(radius, width * 0.5, height * 0.5));
-  context.beginPath();
-  context.moveTo(x + clampedRadius, y);
-  context.arcTo(x + width, y, x + width, y + height, clampedRadius);
-  context.arcTo(x + width, y + height, x, y + height, clampedRadius);
-  context.arcTo(x, y + height, x, y, clampedRadius);
-  context.arcTo(x, y, x + width, y, clampedRadius);
-  context.closePath();
 }
 
 function drawTriangle(
