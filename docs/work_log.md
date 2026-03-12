@@ -986,3 +986,9 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: if confirmation-guide usage grows, add a checked-in browser smoke test that command-clicks a known overlay and asserts the guide lands beside the confirmation bar without shifting the visible range.
+
+### 2026-03-12
+- Summary: Fixed the replay cursor and future-mask boundary to render in the gap to the right of the active candle instead of through the candle center, which was the actual blue-line issue visible in replay screenshots.
+- Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: add a replay-focused browser smoke test that freezes on a known bar and pixel-checks that the cursor boundary lands just to the right of the active candle rather than bisecting it.

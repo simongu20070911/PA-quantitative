@@ -176,6 +176,7 @@ export function buildInspectorPresentationState(
       state.replayMode,
       state.replayCursorBarId,
       state.replayHoverBarId,
+      state.bars,
       barTimeById,
       projector,
     ),
@@ -519,6 +520,7 @@ function resolveReplayCursor(
   replayMode: boolean,
   replayCursorBarId: number | null,
   replayHoverBarId: number | null,
+  bars: ChartBar[],
   barTimeById: Map<number, number>,
   projector: CoordinateProjector,
 ): ReplayCursorRender | null {
@@ -537,7 +539,26 @@ function resolveReplayCursor(
   if (x === null) {
     return null;
   }
-  return { x };
+  const barIndex = bars.findIndex((bar) => bar.bar_id === activeBarId);
+  if (barIndex < 0) {
+    return { x };
+  }
+  const nextBar = bars[barIndex + 1] ?? null;
+  const previousBar = bars[barIndex - 1] ?? null;
+  const nextX =
+    nextBar === null ? null : projector.timeToCoordinate(nextBar.time);
+  const previousX =
+    previousBar === null ? null : projector.timeToCoordinate(previousBar.time);
+  const rightSpacing =
+    nextX !== null && nextX > x
+      ? nextX - x
+      : previousX !== null && x > previousX
+        ? x - previousX
+        : null;
+  if (rightSpacing === null) {
+    return { x };
+  }
+  return { x: x + Math.max(5, rightSpacing * 0.42) };
 }
 
 function drawAnnotation(
