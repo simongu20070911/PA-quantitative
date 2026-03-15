@@ -176,7 +176,7 @@ def _make_structure_inputs(
             "session_id": pa.array(np.asarray(session_ids, dtype=np.int64)),
             "session_date": pa.array(np.asarray(session_dates, dtype=np.int64)),
             "ts_utc_ns": pa.array(np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000),
-            "ts_et_ns": pa.array(np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000),
+            "ts_local_ns": pa.array(np.arange(len(bar_ids), dtype=np.int64) * 60_000_000_000),
             "open": pa.array(np.asarray(open_, dtype=np.float64)),
             "high": pa.array(np.asarray(high, dtype=np.float64)),
             "low": pa.array(np.asarray(low, dtype=np.float64)),

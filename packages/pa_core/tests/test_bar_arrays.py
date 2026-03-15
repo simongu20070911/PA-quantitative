@@ -16,7 +16,7 @@ class BarArraysContractTests(unittest.TestCase):
                 "session_id": pa.array([20240102, 20240102, 20240102], type=pa.int32()),
                 "session_date": pa.array([20240102, 20240102, 20240102], type=pa.int32()),
                 "ts_utc_ns": pa.array([180, 240, 300], type=pa.int64()),
-                "ts_et_ns": pa.array([180, 240, 300], type=pa.int64()),
+                "ts_local_ns": pa.array([180, 240, 300], type=pa.int64()),
                 "open": pa.array([1, 2, 3], type=pa.int32()),
                 "high": pa.array([2, 3, 4], type=pa.int32()),
                 "low": pa.array([0, 1, 2], type=pa.int32()),
@@ -42,7 +42,7 @@ class BarArraysContractTests(unittest.TestCase):
                         "session_id": [20240102],
                         "session_date": [20240102],
                         "ts_utc_ns": [60],
-                        "ts_et_ns": [60],
+                        "ts_local_ns": [60],
                         "open": [1.0],
                         "high": [float("nan")],
                         "low": [0.0],
@@ -64,7 +64,7 @@ class BarArraysContractTests(unittest.TestCase):
                 session_id=np.array([1, 1], dtype=np.int64),
                 session_date=np.array([1, 1], dtype=np.int64),
                 ts_utc_ns=np.array([60, 120], dtype=np.int64),
-                ts_et_ns=np.array([60, 120], dtype=np.int64),
+                ts_local_ns=np.array([60, 120], dtype=np.int64),
             )
 
     def test_edge_valid_length_must_match(self) -> None:
@@ -79,7 +79,7 @@ class BarArraysContractTests(unittest.TestCase):
                 session_id=np.array([1, 1], dtype=np.int64),
                 session_date=np.array([1, 1], dtype=np.int64),
                 ts_utc_ns=np.array([60, 120], dtype=np.int64),
-                ts_et_ns=np.array([60, 120], dtype=np.int64),
+                ts_local_ns=np.array([60, 120], dtype=np.int64),
                 edge_valid=np.array([True], dtype=np.bool_),
             )
 
@@ -94,7 +94,7 @@ class BarArraysContractTests(unittest.TestCase):
             session_id=np.array([1, 1, 1], dtype=np.int64),
             session_date=np.array([1, 1, 1], dtype=np.int64),
             ts_utc_ns=np.array([60, 120, 180], dtype=np.int64),
-            ts_et_ns=np.array([60, 120, 180], dtype=np.int64),
+            ts_local_ns=np.array([60, 120, 180], dtype=np.int64),
             edge_valid=np.array([False, True, True], dtype=np.bool_),
         )
         other = BarArrays(
@@ -107,7 +107,7 @@ class BarArraysContractTests(unittest.TestCase):
             session_id=np.array([1, 1], dtype=np.int64),
             session_date=np.array([1, 1], dtype=np.int64),
             ts_utc_ns=np.array([240, 300], dtype=np.int64),
-            ts_et_ns=np.array([240, 300], dtype=np.int64),
+            ts_local_ns=np.array([240, 300], dtype=np.int64),
             edge_valid=np.array([True, True], dtype=np.bool_),
         )
 

@@ -52,12 +52,15 @@ class CanonicalBarIngestionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            table.column("ts_et_ns").to_pylist(),
+            table.column("ts_local_ns").to_pylist(),
             [
                 int(np.datetime64("2010-06-06T20:00:00", "ns").astype(np.int64)),
                 int(np.datetime64("2010-06-06T20:01:00", "ns").astype(np.int64)),
             ],
         )
+        self.assertTrue(all(np.isnan(value) for value in table.column("turnover").to_pylist()))
+        self.assertTrue(all(np.isnan(value) for value in table.column("open_interest").to_pylist()))
+        self.assertEqual(manifest.local_timezone, "America/New_York")
 
 
 if __name__ == "__main__":

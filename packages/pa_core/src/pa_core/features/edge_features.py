@@ -47,7 +47,7 @@ BAR_FEATURE_INPUT_COLUMNS = (
     "session_id",
     "session_date",
     "ts_utc_ns",
-    "ts_et_ns",
+    "ts_local_ns",
     "open",
     "high",
     "low",

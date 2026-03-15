@@ -1,7 +1,7 @@
 # Inspector Spec
 
 Status: active design spec
-Last updated: 2026-03-08
+Last updated: 2026-03-14
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependencies:
 
@@ -60,6 +60,18 @@ Current toolbar surface for the MVP:
 - icon-led outer controls for jump, display, version, layer, and data menus
 - anchored dropdown menus that open beneath the owning control
 - compact menu-style rows rather than large stacked control panels when practical
+- a compact annotation rail whose multi-variant tools expand as tiny per-button flyouts instead of opening large drawer panels
+- when an annotation tool supports multiple variants, the primary click target should reuse the most recently selected variant and a separate tiny embedded chevron should open the variant flyout
+- floating style/edit toolbars for selected drawings should stay visually thin and compact so they do not dominate the chart surface
+
+Current local annotation tool scope for the MVP:
+
+- `Trend Line`
+- `Parallel Lines`, with a selected-state drag handle that adjusts the spacing to the paired line
+- `Horizontal Line`
+- `Vertical Line`
+- `Range Box`
+- `50% Levels`
 
 The initial overlay family is restricted to the current shipped backend artifact chain:
 
@@ -132,6 +144,8 @@ Required replay rules:
 - backend-derived indicator lines such as `EMA` must hide future points in replay and clip to the same legal `as_of_bar_id` used for structure visibility
 - when replay playback is actively running, cursor scrubbing and manual replay jumps must stay locked until the user pauses
 - replay must preserve the loaded chart timeline while the cursor moves; setting or moving the replay cursor must not recenter or collapse the viewport just because future bars are hidden
+- replay transport controls must not occlude the chart's native time axis or block time-scale drag interactions; dock replay transport outside the chart surface when needed
+- replay transport chrome should stay compact so replay mode preserves as much chart height as practical
 - the inspector may animate backend-authored playback steps, but it must not synthesize higher-timeframe partial candles from lower-timeframe data on its own
 
 ## Frontend Stack
@@ -515,7 +529,9 @@ Required replay controls:
 Replay interaction rules:
 
 - replay must operate on the selected bar family and its own finalization rules
-- the replay cursor must be visually explicit on the chart
+- replay should enter in a neutral inspection state with no persistent bright cursor line
+- the replay start-selection affordance should become visually explicit only when the user intentionally arms a cursor-picking action such as the bottom-bar `Choose Kline` control
+- arming `Choose Kline` should not recenter or rescale the chart unexpectedly; it should preserve the current viewport while temporarily revealing the selection aids
 - replay stepping must update chart state only after the backend-resolved replay state for that cursor is known
 - replay controls must not force the browser to reconstruct lifecycle semantics from visible bars
 - users may pan and zoom while paused in replay mode without changing replay semantics
@@ -525,6 +541,8 @@ Context visibility guidance:
 - bars after the replay cursor may remain visible for orientation, but they must be visually subordinate to bars at or before the cursor
 - future bars must not be styled in a way that could be mistaken for already-known replay state
 - the frontend should preserve bar positions across replay cursor moves by keeping the full timeline mounted and rendering future bars as intentional whitespace or an equivalent non-semantic hidden state instead of shrinking the candle series to history-only length
+- replay mode itself may be signaled through low-emphasis chart chrome such as a faint background watermark rather than a persistent bright cursor line
+- if a gray future-region mask is used while choosing a replay start point, it should disappear once replay is active so the post-cursor area returns to the ordinary chart background
 
 ## Replay Visual State Policy
 
@@ -647,9 +665,13 @@ Allowed browser-local persistence:
 
 - requested layers
 - current window selector inputs
-- current chart viewport location and zoom span
+- current chart viewport location, zoom span, and manual price-scale state
 - non-canonical local annotations anchored to `bar_id + price`
 - local selection state, confirmation guides, and floating-panel placement used only for workspace continuity
+
+Viewport persistence rule:
+
+- reloading the inspector should restore both the horizontal time viewport and any user-authored non-autoscaled right-price-axis range for the active family when that state is available locally
 
 Rule:
 

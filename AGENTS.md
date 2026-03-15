@@ -32,6 +32,7 @@ If the requested work touches replay behavior, structure lifecycle states, or ca
 If the requested work touches the inspector or overlay rendering, also read `docs/inspector_spec.md`.
 If the requested work touches overlay projection or overlay artifacts, also read `docs/overlay_spec.md`.
 If the requested work touches session profiles, `RTH`/`ETH` behavior, or timeframe aggregation, also read `docs/session_timeframe_spec.md`.
+If the requested work touches tick ingestion, market-event normalization, or tick-driven playback transport, also read `docs/tick_data_spec.md`.
 
 ## Current Priority
 

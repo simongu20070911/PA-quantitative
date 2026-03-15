@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 
 import numpy as np
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from .arrow import concat_tables, empty_table, read_table, sort_table, write_table
 from .layout import bar_dataset_root, bar_manifest_path, bar_part_path
@@ -17,7 +18,7 @@ BAR_ARTIFACT_COLUMNS = (
     "symbol",
     "timeframe",
     "ts_utc_ns",
-    "ts_et_ns",
+    "ts_local_ns",
     "session_id",
     "session_date",
     "open",
@@ -25,6 +26,8 @@ BAR_ARTIFACT_COLUMNS = (
     "low",
     "close",
     "volume",
+    "turnover",
+    "open_interest",
 )
 BAR_ARTIFACT_SCHEMA = pa.schema(
     [
@@ -32,7 +35,7 @@ BAR_ARTIFACT_SCHEMA = pa.schema(
         ("symbol", pa.string()),
         ("timeframe", pa.string()),
         ("ts_utc_ns", pa.int64()),
-        ("ts_et_ns", pa.int64()),
+        ("ts_local_ns", pa.int64()),
         ("session_id", pa.int64()),
         ("session_date", pa.int64()),
         ("open", pa.float64()),
@@ -40,8 +43,11 @@ BAR_ARTIFACT_SCHEMA = pa.schema(
         ("low", pa.float64()),
         ("close", pa.float64()),
         ("volume", pa.float64()),
+        ("turnover", pa.float64()),
+        ("open_interest", pa.float64()),
     ]
 )
+LEGACY_BAR_TIMESTAMP_COLUMN = "ts_et_ns"
 
 
 def compute_file_sha256(path: Path, chunk_size_bytes: int = 8 * 1024 * 1024) -> str:
@@ -81,6 +87,20 @@ class BarArtifactManifest:
     max_session_date: int
     years: tuple[int, ...]
     parts: tuple[str, ...]
+    source_name: str | None = None
+    source_event_dataset: str | None = None
+    source_event_version: str | None = None
+    bar_builder_version: str | None = None
+    event_selection_policy: str | None = None
+    correction_policy: str | None = None
+    local_timezone: str | None = None
+    session_roll_policy: str | None = None
+    continuous_version: str | None = None
+    selection_policy: str | None = None
+    tie_break_policy: str | None = None
+    roll_boundary_policy: str | None = None
+    adjustment_policy: str | None = None
+    component_data_versions: tuple[str, ...] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -103,6 +123,20 @@ class BarArtifactManifest:
             max_session_date=int(payload["max_session_date"]),
             years=tuple(int(value) for value in payload["years"]),
             parts=tuple(str(value) for value in payload["parts"]),
+            source_name=_optional_str(payload.get("source_name")),
+            source_event_dataset=_optional_str(payload.get("source_event_dataset")),
+            source_event_version=_optional_str(payload.get("source_event_version")),
+            bar_builder_version=_optional_str(payload.get("bar_builder_version")),
+            event_selection_policy=_optional_str(payload.get("event_selection_policy")),
+            correction_policy=_optional_str(payload.get("correction_policy")),
+            local_timezone=_optional_str(payload.get("local_timezone")),
+            session_roll_policy=_optional_str(payload.get("session_roll_policy")),
+            continuous_version=_optional_str(payload.get("continuous_version")),
+            selection_policy=_optional_str(payload.get("selection_policy")),
+            tie_break_policy=_optional_str(payload.get("tie_break_policy")),
+            roll_boundary_policy=_optional_str(payload.get("roll_boundary_policy")),
+            adjustment_policy=_optional_str(payload.get("adjustment_policy")),
+            component_data_versions=_optional_str_tuple(payload.get("component_data_versions")),
         )
 
 
@@ -117,6 +151,20 @@ class BarArtifactWriter:
         source_sha256: str,
         symbol: str,
         timeframe: str,
+        source_name: str | None = None,
+        source_event_dataset: str | None = None,
+        source_event_version: str | None = None,
+        bar_builder_version: str | None = None,
+        event_selection_policy: str | None = None,
+        correction_policy: str | None = None,
+        local_timezone: str | None = None,
+        session_roll_policy: str | None = None,
+        continuous_version: str | None = None,
+        selection_policy: str | None = None,
+        tie_break_policy: str | None = None,
+        roll_boundary_policy: str | None = None,
+        adjustment_policy: str | None = None,
+        component_data_versions: Sequence[str] | None = None,
         parquet_engine: str = "pyarrow",
     ) -> None:
         self.artifacts_root = artifacts_root
@@ -126,6 +174,22 @@ class BarArtifactWriter:
         self.source_sha256 = source_sha256
         self.symbol = symbol
         self.timeframe = timeframe
+        self.source_name = source_name
+        self.source_event_dataset = source_event_dataset
+        self.source_event_version = source_event_version
+        self.bar_builder_version = bar_builder_version
+        self.event_selection_policy = event_selection_policy
+        self.correction_policy = correction_policy
+        self.local_timezone = local_timezone
+        self.session_roll_policy = session_roll_policy
+        self.continuous_version = continuous_version
+        self.selection_policy = selection_policy
+        self.tie_break_policy = tie_break_policy
+        self.roll_boundary_policy = roll_boundary_policy
+        self.adjustment_policy = adjustment_policy
+        self.component_data_versions = (
+            None if component_data_versions is None else tuple(str(value) for value in component_data_versions)
+        )
         self.parquet_engine = parquet_engine
         self.dataset_root = bar_dataset_root(artifacts_root, data_version)
         self._dataset_writer = YearPartitionedDatasetWriter(
@@ -200,6 +264,20 @@ class BarArtifactWriter:
             max_session_date=int(self._max_session_date),
             years=self._dataset_writer.years,
             parts=self._dataset_writer.part_paths,
+            source_name=self.source_name,
+            source_event_dataset=self.source_event_dataset,
+            source_event_version=self.source_event_version,
+            bar_builder_version=self.bar_builder_version,
+            event_selection_policy=self.event_selection_policy,
+            correction_policy=self.correction_policy,
+            local_timezone=self.local_timezone,
+            session_roll_policy=self.session_roll_policy,
+            continuous_version=self.continuous_version,
+            selection_policy=self.selection_policy,
+            tie_break_policy=self.tie_break_policy,
+            roll_boundary_policy=self.roll_boundary_policy,
+            adjustment_policy=self.adjustment_policy,
+            component_data_versions=self.component_data_versions,
         )
         write_manifest(
             bar_manifest_path(self.artifacts_root, self.data_version),
@@ -252,9 +330,73 @@ def load_canonical_bars(
         return empty_table(BAR_ARTIFACT_SCHEMA, columns)
 
     bars = concat_tables(
-        [read_table(part, columns=columns) for part in selected_parts],
+        [_read_bar_part(part, columns=columns) for part in selected_parts],
         schema=BAR_ARTIFACT_SCHEMA,
     )
     if "bar_id" not in bars.column_names:
         return bars
     return sort_table(bars, [("bar_id", "ascending")])
+
+
+def _read_bar_part(path: Path, *, columns: Sequence[str] | None) -> pa.Table:
+    available = pq.ParquetFile(path).schema_arrow.names
+    read_columns = _resolve_bar_read_columns(available, columns)
+    table = read_table(path, columns=read_columns)
+    return _normalize_bar_table(table, columns=columns)
+
+
+def _resolve_bar_read_columns(
+    available: Sequence[str],
+    columns: Sequence[str] | None,
+) -> Sequence[str] | None:
+    if columns is None:
+        return None
+    requested = list(columns)
+    read_columns: list[str] = []
+    for name in requested:
+        if name == "ts_local_ns" and "ts_local_ns" not in available and LEGACY_BAR_TIMESTAMP_COLUMN in available:
+            read_columns.append(LEGACY_BAR_TIMESTAMP_COLUMN)
+            continue
+        if name in available:
+            read_columns.append(name)
+    return tuple(dict.fromkeys(read_columns))
+
+
+def _normalize_bar_table(table: pa.Table, *, columns: Sequence[str] | None) -> pa.Table:
+    normalized = table.combine_chunks()
+    if "ts_local_ns" not in normalized.column_names and LEGACY_BAR_TIMESTAMP_COLUMN in normalized.column_names:
+        legacy_index = normalized.schema.get_field_index(LEGACY_BAR_TIMESTAMP_COLUMN)
+        normalized = normalized.set_column(
+            legacy_index,
+            "ts_local_ns",
+            normalized.column(LEGACY_BAR_TIMESTAMP_COLUMN),
+        )
+    for field in BAR_ARTIFACT_SCHEMA:
+        if field.name in normalized.column_names:
+            continue
+        normalized = normalized.append_column(
+            field.name,
+            _default_bar_column(field, normalized.num_rows),
+        )
+    normalized = normalized.select(list(BAR_ARTIFACT_COLUMNS))
+    if columns is None:
+        return normalized
+    return normalized.select(list(columns))
+
+
+def _default_bar_column(field: pa.Field, row_count: int) -> pa.Array:
+    if field.type == pa.float64():
+        return pa.array([float("nan")] * row_count, type=field.type)
+    return pa.array([None] * row_count, type=field.type)
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _optional_str_tuple(value: object) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    return tuple(str(item) for item in value)

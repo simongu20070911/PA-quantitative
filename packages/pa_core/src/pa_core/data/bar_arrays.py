@@ -14,7 +14,7 @@ BAR_ARRAY_COLUMNS = (
     "session_id",
     "session_date",
     "ts_utc_ns",
-    "ts_et_ns",
+    "ts_local_ns",
     "open",
     "high",
     "low",
@@ -34,7 +34,7 @@ class BarArrays:
     session_id: np.ndarray
     session_date: np.ndarray
     ts_utc_ns: np.ndarray
-    ts_et_ns: np.ndarray
+    ts_local_ns: np.ndarray
     edge_valid: np.ndarray | None = None
 
     def __post_init__(self) -> None:
@@ -48,7 +48,7 @@ class BarArrays:
             self.session_id.shape[0],
             self.session_date.shape[0],
             self.ts_utc_ns.shape[0],
-            self.ts_et_ns.shape[0],
+            self.ts_local_ns.shape[0],
         }
         if len(lengths) != 1:
             raise ValueError("BarArrays fields must all have the same length.")
@@ -72,7 +72,7 @@ class BarArrays:
             session_id=np.ascontiguousarray(self.session_id[offset:stop]),
             session_date=np.ascontiguousarray(self.session_date[offset:stop]),
             ts_utc_ns=np.ascontiguousarray(self.ts_utc_ns[offset:stop]),
-            ts_et_ns=np.ascontiguousarray(self.ts_et_ns[offset:stop]),
+            ts_local_ns=np.ascontiguousarray(self.ts_local_ns[offset:stop]),
             edge_valid=None
             if self.edge_valid is None
             else np.ascontiguousarray(self.edge_valid[offset:stop]),
@@ -94,7 +94,7 @@ class BarArrays:
             session_id=np.ascontiguousarray(np.concatenate([self.session_id, other.session_id])),
             session_date=np.ascontiguousarray(np.concatenate([self.session_date, other.session_date])),
             ts_utc_ns=np.ascontiguousarray(np.concatenate([self.ts_utc_ns, other.ts_utc_ns])),
-            ts_et_ns=np.ascontiguousarray(np.concatenate([self.ts_et_ns, other.ts_et_ns])),
+            ts_local_ns=np.ascontiguousarray(np.concatenate([self.ts_local_ns, other.ts_local_ns])),
             edge_valid=None
             if self.edge_valid is None or other.edge_valid is None
             else np.ascontiguousarray(np.concatenate([self.edge_valid, other.edge_valid])),
@@ -116,7 +116,7 @@ def bar_arrays_from_frame(frame: Any) -> BarArrays:
         session_id=_contiguous_int64(_column(frame, "session_id")),
         session_date=_contiguous_int64(_column(frame, "session_date")),
         ts_utc_ns=_contiguous_int64(_column(frame, "ts_utc_ns")),
-        ts_et_ns=_contiguous_int64(_column(frame, "ts_et_ns")),
+        ts_local_ns=_contiguous_int64(_column(frame, "ts_local_ns")),
     )
     if (
         np.isnan(arrays.open).any()

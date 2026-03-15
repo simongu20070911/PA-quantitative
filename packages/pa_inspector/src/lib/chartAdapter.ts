@@ -15,6 +15,7 @@ import {
 } from "lightweight-charts";
 
 import { colorWithOpacity } from "./annotationStyle";
+import type { PersistedPriceScaleState } from "./inspectorPersistence";
 import { InspectorPrimitive } from "./inspectorPrimitive";
 import type { InspectorPrimitiveState, InspectorRenderData } from "./inspectorScene";
 import type { ChartBar, EmaLineStyle, RenderedEmaLine } from "./types";
@@ -29,14 +30,15 @@ export interface ChartAdapter {
   series: ISeriesApi<"Candlestick", Time>;
   resize: (width: number, height: number) => void;
   setBars: (
-      timelineBars: ChartBar[],
-      emaLines: RenderedEmaLine[],
+    timelineBars: ChartBar[],
+    emaLines: RenderedEmaLine[],
     options?: {
       displayBars?: ChartBar[];
       preserveLogicalRange?: LogicalRange | null;
       preserveAnchorTime?: number | null;
       preserveAnchorBarId?: number | null;
       preserveAnchorOffset?: number;
+      preservePriceScale?: PersistedPriceScaleState | null;
     },
   ) => void;
   timeToCoordinate: (time: number) => number | null;
@@ -44,6 +46,7 @@ export interface ChartAdapter {
   coordinateToPrice: (coordinate: number) => number | null;
   coordinateToLogical: (coordinate: number) => number | null;
   getVisibleLogicalRange: () => LogicalRange | null;
+  getPriceScaleState: () => PersistedPriceScaleState | null;
   getInspectorRenderData: () => InspectorRenderData;
   subscribeViewportChange: (callback: (range: LogicalRange | null) => void) => () => void;
   subscribeClick: (
@@ -175,6 +178,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       const preserveAnchorTime = options?.preserveAnchorTime ?? null;
       const preserveAnchorBarId = options?.preserveAnchorBarId ?? null;
       const preserveAnchorOffset = options?.preserveAnchorOffset ?? 0;
+      const preservePriceScale = options?.preservePriceScale ?? null;
       if (previousRange && (preserveAnchorBarId !== null || preserveAnchorTime !== null)) {
         const anchorIndex =
           preserveAnchorBarId !== null
@@ -191,7 +195,9 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
           chart.timeScale().setVisibleLogicalRange(targetRange);
           window.requestAnimationFrame(() => {
             chart.timeScale().setVisibleLogicalRange(targetRange);
+            applyPersistedPriceScaleState(chart, preservePriceScale);
           });
+          applyPersistedPriceScaleState(chart, preservePriceScale);
           refreshInspectorRenderData();
           return;
         }
@@ -203,6 +209,7 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
           to: Math.max(timelineBars.length - 0.5, 1),
         });
       }
+      applyPersistedPriceScaleState(chart, preservePriceScale);
       refreshInspectorRenderData();
     },
     timeToCoordinate(time: number) {
@@ -220,6 +227,9 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
     },
     getVisibleLogicalRange() {
       return chart.timeScale().getVisibleLogicalRange();
+    },
+    getPriceScaleState() {
+      return readPersistedPriceScaleState(chart);
     },
     getInspectorRenderData() {
       return inspectorPrimitive.getRenderData();
@@ -259,6 +269,48 @@ export function createChartAdapter(container: HTMLDivElement): ChartAdapter {
       chart.remove();
     },
   };
+}
+
+function readPersistedPriceScaleState(chart: IChartApi): PersistedPriceScaleState | null {
+  const priceScale = chart.priceScale("right");
+  const autoScale = priceScale.options().autoScale;
+  const visibleRange = priceScale.getVisibleRange();
+  return {
+    autoScale,
+    from: visibleRange?.from ?? null,
+    to: visibleRange?.to ?? null,
+  };
+}
+
+function applyPersistedPriceScaleState(
+  chart: IChartApi,
+  priceScaleState: PersistedPriceScaleState | null,
+) {
+  if (priceScaleState === null) {
+    return;
+  }
+  const priceScale = chart.priceScale("right");
+  if (
+    priceScaleState.autoScale ||
+    priceScaleState.from === null ||
+    priceScaleState.to === null
+  ) {
+    priceScale.setAutoScale(true);
+    return;
+  }
+  if (
+    !Number.isFinite(priceScaleState.from) ||
+    !Number.isFinite(priceScaleState.to) ||
+    priceScaleState.to - priceScaleState.from <= 1e-6
+  ) {
+    priceScale.setAutoScale(true);
+    return;
+  }
+  priceScale.setAutoScale(false);
+  priceScale.setVisibleRange({
+    from: priceScaleState.from,
+    to: priceScaleState.to,
+  });
 }
 
 function buildCandlestickSeriesData(

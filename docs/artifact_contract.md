@@ -1,7 +1,7 @@
 # Artifact Contract
 
 Status: active implementation contract
-Last updated: 2026-03-07
+Last updated: 2026-03-14
 
 This document translates the canonical architecture into concrete artifact rules for implementation.
 
@@ -12,8 +12,9 @@ Nothing important should exist only in memory or only in the UI.
 
 ## Artifact Families
 
-The project has five artifact families:
+The project has six artifact families:
 
+- `market_events`
 - `bars`
 - `features`
 - `structures`
@@ -22,7 +23,7 @@ The project has five artifact families:
 
 These map directly to the canonical pipeline:
 
-`bars -> features -> structures -> overlays -> review`
+`market_events -> bars -> features -> structures -> overlays -> review`
 
 Within the `structures` family, the long-term contract distinguishes:
 
@@ -33,6 +34,7 @@ Within the `structures` family, the long-term contract distinguishes:
 
 ```text
 artifacts/
+  market_events/
   bars/
   features/
   structures/
@@ -43,6 +45,7 @@ artifacts/
 Suggested partition shape:
 
 ```text
+artifacts/market_events/data_version=es_ticks_v1_<source_hash>/dataset=trades/symbol=ES/year=2025/part-00000.parquet
 artifacts/bars/data_version=es_1m_v1_<source_hash>/symbol=ES/timeframe=1m/year=2025/part-00000.parquet
 artifacts/features/feature=hl_gap/version=v1/input_ref=es_1m_v1_<source_hash>/params_hash=<params_hash>/year=2025/part-00000.parquet
 artifacts/structures/rulebook=v0_1/
@@ -50,11 +53,21 @@ artifacts/overlays/rulebook=v0_1/
 artifacts/reviews/spec=v0_1/
 ```
 
+Future market-event artifact policy:
+
+- normalized tick or quote datasets belong under `artifacts/market_events/`
+- `market_events` rows are canonical raw-event artifacts after normalization, even though they are upstream of the analytical `bars` layer
+- the durable schema and correction policy for those datasets are defined in `docs/tick_data_spec.md`
+- quality and reference-check datasets tied to one normalized `market_events` `data_version` may live under subordinate `checks/` paths as long as they carry explicit comparison versions and do not redefine canonical bar semantics
+
 Current canonical bars implementation:
 
 - writes a `manifest.json` at `artifacts/bars/data_version=.../`
 - partitions bar parquet by `symbol`, `timeframe`, and `year`
 - uses `year = session_date // 10000`
+- canonical bar rows now carry `ts_local_ns`, `turnover`, and `open_interest` in addition to OHLCV
+- bar manifests may carry source-event provenance such as `source_event_dataset`, `source_event_version`, `bar_builder_version`, `event_selection_policy`, `correction_policy`, `local_timezone`, and `session_roll_policy`
+- continuous bar manifests may additionally carry `continuous_version`, `selection_policy`, `tie_break_policy`, `roll_boundary_policy`, `adjustment_policy`, and `component_data_versions`
 
 Current initial feature implementation:
 
@@ -147,6 +160,7 @@ Current implementation status:
 
 Stable IDs are required.
 
+- market events use `event_id`
 - bars use `bar_id`
 - features use a stable tuple of `feature_key + feature_version + params_hash + input_ref`
 - structures use `structure_id`
@@ -156,6 +170,11 @@ Stable IDs are required.
 
 IDs must not depend on UI state.
 `structure_id` must remain stable across the lifecycle of one logical structure.
+
+For market events:
+
+- `event_id` identifies one normalized raw-event row within a dataset version
+- manifests must declare the ordering and correction policy that give those rows stable meaning
 
 ## Required Version Fields
 
@@ -214,6 +233,8 @@ The inspector reads artifacts from backend services or artifact stores.
 It may cache for interaction, but it must not create canonical structure state by itself.
 
 Structure lifecycle and replay semantics are defined in `docs/replay_lifecycle_spec.md`.
+
+Tick-data normalization, market-event artifacts, and tick-to-bar derivation are defined in `docs/tick_data_spec.md`.
 
 Overlays are always derived from source structures.
 Overlay projection behavior and schema are defined in `docs/overlay_spec.md`.

@@ -62,8 +62,8 @@ code {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 12px;
-  gap: 8px;
+  padding: 8px;
+  gap: 6px;
   overflow: hidden;
 }
 
@@ -965,7 +965,7 @@ code {
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  padding: 10px;
+  padding: 6px;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
@@ -1092,6 +1092,12 @@ code {
   background: #f8fafc;
 }
 
+.annotation-rail-button-slot {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+
 .annotation-rail-group {
   display: flex;
   flex-direction: column;
@@ -1129,9 +1135,49 @@ code {
   cursor: not-allowed;
 }
 
+.annotation-rail-button-line-main {
+  width: 100%;
+  height: 100%;
+  padding-right: 7px;
+  padding-bottom: 7px;
+}
+
+.annotation-rail-button-corner {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(241, 245, 249, 0.96);
+  color: var(--ink-soft);
+  z-index: 1;
+}
+
+.annotation-rail-button-corner:hover {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: #eef2f7;
+}
+
+.annotation-rail-button-corner-active {
+  border-color: rgba(100, 116, 139, 0.24);
+  background: #eef2f7;
+}
+
 .annotation-rail-icon {
   width: 17px;
   height: 17px;
+  display: block;
+}
+
+.annotation-rail-mini-icon {
+  width: 9px;
+  height: 9px;
   display: block;
 }
 
@@ -1150,20 +1196,91 @@ code {
   text-align: center;
 }
 
+.annotation-rail-flyout {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  width: 196px;
+  max-height: min(360px, calc(100vh - 40px));
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+.annotation-rail-flyout-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.annotation-rail-flyout-item:hover {
+  background: #f8fafc;
+}
+
+.annotation-rail-flyout-item.active {
+  background: #eef2f7;
+  border-color: rgba(100, 116, 139, 0.22);
+}
+
+.annotation-rail-flyout-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: var(--ink);
+  flex: 0 0 auto;
+}
+
+.annotation-rail-flyout-copy {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.annotation-rail-flyout-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.annotation-rail-flyout-description {
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--ink-soft);
+}
+
 .annotation-toolbar {
   position: absolute;
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 52px;
-  padding: 6px;
+  gap: 3px;
+  min-height: 44px;
+  padding: 4px;
   border: 1px solid rgba(226, 232, 240, 0.96);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
   touch-action: none;
   user-select: none;
+  font-size: 0.82rem;
+  line-height: 1;
+  font-weight: 600;
 }
 
 .annotation-toolbar-grip,
@@ -1171,18 +1288,18 @@ code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 12px;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 9px;
   background: transparent;
   color: var(--ink);
   position: relative;
 }
 
 .annotation-toolbar-grip {
-  width: 36px;
+  width: 32px;
   padding: 0;
   color: var(--ink-soft);
   cursor: move;
@@ -1205,27 +1322,27 @@ code {
 }
 
 .annotation-toolbar-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
 }
 
 .annotation-toolbar-line-preview {
-  width: 36px;
-  height: 12px;
+  width: 30px;
+  height: 10px;
   flex: 0 0 auto;
 }
 
 .annotation-toolbar-width {
-  min-width: 88px;
+  min-width: 74px;
 }
 
 .annotation-toolbar-color-bar {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 5px;
-  height: 4px;
+  left: 9px;
+  right: 9px;
+  bottom: 4px;
+  height: 3px;
   border-radius: 999px;
 }
 
@@ -1373,6 +1490,7 @@ code {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
+  gap: 6px;
   min-height: 0;
 }
 
@@ -1398,17 +1516,15 @@ code {
 }
 
 .replay-transport {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
-  z-index: 4;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  margin: 0 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
+  padding: 8px 10px;
   border: 1px solid rgba(226, 232, 240, 0.96);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(10px);
@@ -1425,13 +1541,13 @@ code {
 
 .replay-transport-main {
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .replay-transport-controls,
 .replay-transport-meta {
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -1444,9 +1560,9 @@ code {
 }
 
 .transport-button {
-  min-height: 36px;
-  padding: 0 12px;
-  font-size: 0.84rem;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.8rem;
 }
 
 .transport-button:hover:not(:disabled) {
@@ -1472,12 +1588,12 @@ code {
 }
 
 .transport-chip {
-  gap: 6px;
-  padding: 7px 10px;
+  gap: 5px;
+  padding: 5px 8px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: #f8fafc;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   color: var(--ink-soft);
   white-space: nowrap;
 }
@@ -1487,21 +1603,15 @@ code {
 }
 
 .transport-speed {
-  gap: 8px;
-  padding: 0 2px 0 6px;
+  gap: 6px;
+  padding: 0 0 0 4px;
   color: var(--ink-soft);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
 }
 
 .transport-speed select {
-  min-height: 34px;
-  padding: 0 10px;
-}
-
-.replay-transport-note {
-  margin: 0;
-  font-size: 0.76rem;
-  color: var(--ink-soft);
+  min-height: 30px;
+  padding: 0 8px;
 }
 
 .panel-actions {
@@ -1636,7 +1746,7 @@ code {
 @media (max-width: 720px) {
   .app-shell {
     height: auto;
-    padding: 8px;
+    padding: 6px;
   }
 
   .toolbar-actions,
@@ -1692,13 +1802,16 @@ code {
   }
 
   .replay-transport {
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
+    margin: 0 4px 4px;
   }
 
   .annotation-rail {
     padding: 6px 5px;
+  }
+
+  .annotation-rail-flyout {
+    width: min(188px, calc(100vw - 64px));
+    max-height: calc(100vh - 28px);
   }
 
   .annotation-rail-grip {

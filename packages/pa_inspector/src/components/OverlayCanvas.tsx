@@ -36,18 +36,22 @@ export interface OverlayCanvasProps {
   selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   replayEnabled: boolean;
+  replayCursorVisible: boolean;
   replayInteractionLocked: boolean;
+  replayCursorSelectionEnabled: boolean;
   replayCursorBarId: number | null;
   onAnnotationCreate: (annotation: {
     kind: AnnotationKind;
     start: AnnotationAnchor;
     end: AnnotationAnchor;
+    control?: AnnotationAnchor | null;
   }) => void;
   onAnnotationSelect: (annotationIds: string[]) => void;
   onAnnotationUpdate: (
     annotationId: string,
     start: AnnotationAnchor,
     end: AnnotationAnchor,
+    control: AnnotationAnchor | null,
   ) => void;
   onAnnotationDuplicate: (annotationIds: string[]) => string[];
   onOverlaySelect: (
@@ -72,7 +76,9 @@ export function OverlayCanvas({
   selectedAnnotationIds,
   confirmationGuide,
   replayEnabled,
+  replayCursorVisible,
   replayInteractionLocked,
+  replayCursorSelectionEnabled,
   replayCursorBarId,
   onAnnotationCreate,
   onAnnotationSelect,
@@ -105,7 +111,9 @@ export function OverlayCanvas({
   const confirmationGuideRef = useRef(confirmationGuide);
   const annotationToolRef = useRef(annotationTool);
   const replayEnabledRef = useRef(replayEnabled);
+  const replayCursorVisibleRef = useRef(replayCursorVisible);
   const replayInteractionLockedRef = useRef(replayInteractionLocked);
+  const replayCursorSelectionEnabledRef = useRef(replayCursorSelectionEnabled);
   const replayCursorBarIdRef = useRef(replayCursorBarId);
   const replayHoverBarIdRef = useRef<number | null>(null);
   const onAnnotationCreateRef = useRef(onAnnotationCreate);
@@ -136,6 +144,8 @@ export function OverlayCanvas({
         annotationTool: annotationToolRef.current,
         draftState: draftStateRef.current,
         replayEnabled: replayEnabledRef.current,
+        replayCursorVisible: replayCursorVisibleRef.current,
+        replayCursorSelectionEnabled: replayCursorSelectionEnabledRef.current,
         replayCursorBarId: replayCursorBarIdRef.current,
         replayHoverBarId: replayHoverBarIdRef.current,
       }),
@@ -168,9 +178,11 @@ export function OverlayCanvas({
     onOverlaySelectRef.current = onOverlaySelect;
     onOverlayCommandSelectRef.current = onOverlayCommandSelect;
     replayEnabledRef.current = replayEnabled;
+    replayCursorVisibleRef.current = replayCursorVisible;
     replayInteractionLockedRef.current = replayInteractionLocked;
+    replayCursorSelectionEnabledRef.current = replayCursorSelectionEnabled;
     replayCursorBarIdRef.current = replayCursorBarId;
-    if (!replayEnabled || replayCursorBarId !== null) {
+    if (!replayEnabled || !replayCursorSelectionEnabled) {
       replayHoverBarIdRef.current = null;
     }
     onReplayCursorSelectRef.current = onReplayCursorSelect;
@@ -188,7 +200,9 @@ export function OverlayCanvas({
     sessionProfile,
     visibleOverlays,
     replayEnabled,
+    replayCursorVisible,
     replayInteractionLocked,
+    replayCursorSelectionEnabled,
     replayCursorBarId,
     onReplayCursorSelect,
   ]);
@@ -250,7 +264,7 @@ export function OverlayCanvas({
         if (replayEnabledRef.current && replayInteractionLockedRef.current) {
           return;
         }
-        if (replayEnabledRef.current) {
+        if (replayEnabledRef.current && replayCursorSelectionEnabledRef.current) {
           const replayBarId = resolveBarIdFromPoint(adapter, barsRef.current, point);
           if (replayBarId !== null) {
             onReplayCursorSelectRef.current(replayBarId);
@@ -307,7 +321,7 @@ export function OverlayCanvas({
         point === undefined
           ? null
           : findOverlayAtPoint(renderData.overlayDrawables, point.x, point.y);
-      if (replayEnabledRef.current && replayCursorBarIdRef.current === null) {
+      if (replayEnabledRef.current && replayCursorSelectionEnabledRef.current) {
         const hoverBarId =
           point === undefined ? null : resolveBarIdFromPoint(adapter, barsRef.current, point);
         if (replayHoverBarIdRef.current !== hoverBarId) {
@@ -339,7 +353,9 @@ export function OverlayCanvas({
     }
 
     const isToolbarEvent = (target: EventTarget | null) =>
-      target instanceof Element && target.closest(".annotation-toolbar") !== null;
+      target instanceof Element &&
+      (target.closest(".annotation-toolbar") !== null ||
+        target.closest(".annotation-rail") !== null);
 
     const resolvePoint = (event: PointerEvent) => {
       const rect = surface.getBoundingClientRect();
@@ -448,6 +464,7 @@ export function OverlayCanvas({
           originPointer: pointer,
           originalStart: annotationHit.drawable.annotation.start,
           originalEnd: annotationHit.drawable.annotation.end,
+          originalControl: annotationHit.drawable.annotation.control ?? null,
         };
         surface.setPointerCapture(event.pointerId);
         return;
@@ -529,7 +546,8 @@ export function OverlayCanvas({
       }
       const projectedPointer =
         (event.metaKey || event.ctrlKey) &&
-        activeDragRef.current.annotationKind === "line" &&
+        (activeDragRef.current.annotationKind === "line" ||
+          activeDragRef.current.annotationKind === "parallel_lines") &&
         (activeDragRef.current.mode === "start" || activeDragRef.current.mode === "end")
           ? resolveSnappedDragPointer(
               adapter,
@@ -551,7 +569,12 @@ export function OverlayCanvas({
       if (!updated) {
         return;
       }
-      onAnnotationUpdateRef.current(activeDragRef.current.annotationId, updated.start, updated.end);
+      onAnnotationUpdateRef.current(
+        activeDragRef.current.annotationId,
+        updated.start,
+        updated.end,
+        updated.control,
+      );
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -597,6 +620,10 @@ export function OverlayCanvas({
           kind: drawKind,
           start,
           end: anchor,
+          control:
+            drawKind === "parallel_lines"
+              ? resolveParallelLineControlAnchor(adapter, barsRef.current, start, anchor)
+              : null,
         });
         draftStateRef.current = null;
         syncInspectorPrimitiveState(adapter);
@@ -623,7 +650,9 @@ export function OverlayCanvas({
         y: event.clientY - surface.getBoundingClientRect().top,
       };
       const replayBarId =
-        replayEnabledRef.current ? resolveBarIdFromPoint(adapter, barsRef.current, point) : null;
+        replayEnabledRef.current && replayCursorSelectionEnabledRef.current
+          ? resolveBarIdFromPoint(adapter, barsRef.current, point)
+          : null;
       if (replayEnabledRef.current && replayInteractionLockedRef.current) {
         return;
       }
@@ -713,6 +742,8 @@ function buildInspectorPrimitiveState(args: {
   annotationTool: AnnotationTool;
   draftState: { start: AnnotationAnchor; current: AnnotationAnchor } | null;
   replayEnabled: boolean;
+  replayCursorVisible: boolean;
+  replayCursorSelectionEnabled: boolean;
   replayCursorBarId: number | null;
   replayHoverBarId: number | null;
 }) {
@@ -726,8 +757,9 @@ function buildInspectorPrimitiveState(args: {
     sessionProfile: args.sessionProfile,
     draftAnnotation: buildDraftAnnotation(args.annotationTool, args.draftState),
     replayMode: args.replayEnabled,
+    replayCursorVisible: args.replayCursorVisible,
     replayCursorBarId: args.replayCursorBarId,
-    replayHoverBarId: args.replayHoverBarId,
+    replayHoverBarId: args.replayCursorSelectionEnabled ? args.replayHoverBarId : null,
   };
 }
 
@@ -744,6 +776,7 @@ function buildDraftAnnotation(
     kind: tool,
     start: draftState.start,
     end: draftState.current,
+    control: null,
     style: defaultAnnotationStyle(tool),
   };
 }
@@ -756,10 +789,20 @@ function resolveDraftAnchor(
   point: { x: number; y: number },
   snapLine: boolean,
 ): AnnotationAnchor | null {
-  if (tool === "line" && snapLine) {
+  if ((tool === "line" || tool === "parallel_lines") && snapLine) {
     return resolveSnappedLineAnchor(adapter, bars, start, point);
   }
-  return resolveAnchorFromPoint(adapter, bars, point);
+  const anchor = resolveAnchorFromPoint(adapter, bars, point);
+  if (!anchor) {
+    return null;
+  }
+  if (tool === "horizontal_line") {
+    return { bar_id: anchor.bar_id, price: start.price };
+  }
+  if (tool === "vertical_line") {
+    return { bar_id: start.bar_id, price: anchor.price };
+  }
+  return anchor;
 }
 
 function resolveSnappedDragPointer(
@@ -805,6 +848,38 @@ function resolveSnappedLineAnchor(
   const dy = point.y - originY;
   const snappedPoint = snapVectorToPreferredAngles(originX, originY, dx, dy);
   return resolveAnchorFromPoint(adapter, bars, snappedPoint);
+}
+
+function resolveParallelLineControlAnchor(
+  adapter: ChartAdapter,
+  bars: ChartBar[],
+  start: AnnotationAnchor,
+  end: AnnotationAnchor,
+): AnnotationAnchor | null {
+  const barTimeById = new Map(bars.map((bar) => [bar.bar_id, bar.time]));
+  const startTime = barTimeById.get(start.bar_id);
+  const endTime = barTimeById.get(end.bar_id);
+  if (startTime === undefined || endTime === undefined) {
+    return null;
+  }
+  const startX = adapter.timeToCoordinate(startTime);
+  const endX = adapter.timeToCoordinate(endTime);
+  const startY = adapter.priceToCoordinate(start.price);
+  const endY = adapter.priceToCoordinate(end.price);
+  if (startX === null || endX === null || startY === null || endY === null) {
+    return null;
+  }
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const length = Math.hypot(dx, dy);
+  const translated =
+    length < 0.001
+      ? { x: 0, y: 24 }
+      : { x: (-dy / length) * 24, y: (dx / length) * 24 };
+  return resolveAnchorFromPoint(adapter, bars, {
+    x: startX + translated.x,
+    y: startY + translated.y,
+  });
 }
 
 function snapVectorToPreferredAngles(

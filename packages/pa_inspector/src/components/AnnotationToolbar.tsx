@@ -38,8 +38,8 @@ interface AnnotationToolbarProps {
   onDeleteSelectedAnnotations: () => void;
 }
 
-const TOOLBAR_WIDTH = 496;
-const TOOLBAR_HEIGHT = 52;
+const TOOLBAR_WIDTH = 428;
+const TOOLBAR_HEIGHT = 44;
 
 export function AnnotationToolbar({
   surfaceRef,

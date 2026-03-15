@@ -15,7 +15,13 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "pa_inspector.workspace.v1";
-const STORAGE_VERSION = 9;
+const STORAGE_VERSION = 10;
+
+export interface PersistedPriceScaleState {
+  autoScale: boolean;
+  from: number | null;
+  to: number | null;
+}
 
 export interface PersistedInspectorState {
   apiBaseUrl: string;
@@ -66,10 +72,23 @@ export interface PersistedViewportState {
   familyKey: string;
   centerBarId: number;
   span: number;
+  priceScale: PersistedPriceScaleState | null;
 }
 
 interface PersistedInspectorEnvelope extends PersistedInspectorState {
   version: number;
+}
+
+interface PersistedViewportStateV9 {
+  familyKey: string;
+  centerBarId: number;
+  span: number;
+}
+
+interface PersistedInspectorEnvelopeV9
+  extends Omit<PersistedInspectorState, "viewport"> {
+  version: 9;
+  viewport: PersistedViewportStateV9 | null;
 }
 
 interface PersistedInspectorEnvelopeV8
@@ -348,6 +367,9 @@ export function loadPersistedInspectorState(
     if (isPersistedEnvelope(parsed)) {
       return restorePersistedInspectorState(parsed, defaults);
     }
+    if (isPersistedEnvelopeV9(parsed)) {
+      return restorePersistedInspectorStateV9(parsed, defaults);
+    }
     if (isPersistedEnvelopeV8(parsed)) {
       return restorePersistedInspectorStateV8(parsed, defaults);
     }
@@ -399,6 +421,18 @@ function isPersistedEnvelopeV8(value: unknown): value is PersistedInspectorEnvel
   });
 }
 
+function isPersistedEnvelopeV9(value: unknown): value is PersistedInspectorEnvelopeV9 {
+  if (!isRecord(value) || value.version !== 9) {
+    return false;
+  }
+  return PERSISTED_INSPECTOR_FIELD_SPECS.every((spec) => {
+    if (spec.key === "viewport") {
+      return isNullableViewportStateV9(value.viewport);
+    }
+    return spec.validate(value[spec.key]);
+  });
+}
+
 function isPersistedEnvelopeV7(value: unknown): value is PersistedInspectorEnvelopeV7 {
   if (!isRecord(value) || value.version !== 7) {
     return false;
@@ -424,6 +458,35 @@ function restorePersistedInspectorState(
       PersistedInspectorState[keyof PersistedInspectorState]
     >;
   for (const spec of listFieldSpecs()) {
+    const value = envelope[spec.key];
+    writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
+  }
+  return restored;
+}
+
+function restorePersistedInspectorStateV9(
+  envelope: PersistedInspectorEnvelopeV9,
+  defaults: PersistedInspectorState,
+): PersistedInspectorState {
+  const restored = { ...defaults };
+  const writableRestored =
+    restored as Record<
+      keyof PersistedInspectorState,
+      PersistedInspectorState[keyof PersistedInspectorState]
+    >;
+  for (const spec of listFieldSpecs()) {
+    if (spec.key === "viewport") {
+      writableRestored.viewport =
+        envelope.viewport === null
+          ? null
+          : {
+              familyKey: envelope.viewport.familyKey,
+              centerBarId: envelope.viewport.centerBarId,
+              span: envelope.viewport.span,
+              priceScale: null,
+            };
+      continue;
+    }
     const value = envelope[spec.key];
     writableRestored[spec.key] = spec.migrate ? spec.migrate(value, defaults) : value;
   }
@@ -537,6 +600,7 @@ function isChartAnnotation(value: unknown): value is ChartAnnotation {
     isAnnotationKind(value.kind) &&
     isAnnotationAnchor(value.start) &&
     isAnnotationAnchor(value.end) &&
+    (!("control" in value) || isNullableAnnotationAnchor(value.control)) &&
     isAnnotationStyle(value.style)
   );
 }
@@ -549,6 +613,12 @@ function isAnnotationAnchor(value: unknown): value is ChartAnnotation["start"] {
     typeof value.price === "number" &&
     Number.isFinite(value.price)
   );
+}
+
+function isNullableAnnotationAnchor(
+  value: unknown,
+): value is ChartAnnotation["control"] {
+  return value === null || isAnnotationAnchor(value);
 }
 
 function isAnnotationStyle(value: unknown): value is ChartAnnotation["style"] {
@@ -579,7 +649,7 @@ function isEmaStyle(value: unknown): value is EmaStyle {
 }
 
 function isAnnotationKind(value: unknown): value is ChartAnnotation["kind"] {
-  return isOneOf(value, ["line", "box", "fib50"]);
+  return isOneOf(value, ["line", "parallel_lines", "horizontal_line", "vertical_line", "box", "fib50"]);
 }
 
 function isAnnotationTool(value: unknown): value is AnnotationTool {
@@ -662,7 +732,32 @@ function isNullableViewportState(value: unknown): value is PersistedViewportStat
       typeof value.centerBarId === "number" &&
       Number.isFinite(value.centerBarId) &&
       typeof value.span === "number" &&
+      Number.isFinite(value.span) &&
+      isNullablePersistedPriceScaleState(value.priceScale))
+  );
+}
+
+function isNullableViewportStateV9(value: unknown): value is PersistedViewportStateV9 | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      typeof value.familyKey === "string" &&
+      typeof value.centerBarId === "number" &&
+      Number.isFinite(value.centerBarId) &&
+      typeof value.span === "number" &&
       Number.isFinite(value.span))
+  );
+}
+
+function isNullablePersistedPriceScaleState(
+  value: unknown,
+): value is PersistedPriceScaleState | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      typeof value.autoScale === "boolean" &&
+      isNullableFiniteNumber(value.from) &&
+      isNullableFiniteNumber(value.to))
   );
 }
 

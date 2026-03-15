@@ -33,6 +33,7 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
     sessionProfile: "eth_full",
     draftAnnotation: null,
     replayMode: false,
+    replayCursorVisible: false,
     replayCursorBarId: null,
     replayHoverBarId: null,
   };
@@ -48,7 +49,9 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
   };
   private presentationState: InspectorPresentationState = {
     confirmationGuide: null,
-    replayCursor: null,
+    replayBoundary: null,
+    replaySelectionGuide: null,
+    replayWatermark: null,
     draftDrawable: null,
     selectedOverlayId: null,
     selectedAnnotationIds: [],
@@ -103,6 +106,7 @@ export class InspectorPrimitive implements ISeriesPrimitive<Time> {
       previousState.selectedOverlayId !== nextState.selectedOverlayId ||
       previousState.selectedAnnotationIds !== nextState.selectedAnnotationIds ||
       previousState.replayMode !== nextState.replayMode ||
+      previousState.replayCursorVisible !== nextState.replayCursorVisible ||
       previousState.replayCursorBarId !== nextState.replayCursorBarId ||
       previousState.replayHoverBarId !== nextState.replayHoverBarId;
 

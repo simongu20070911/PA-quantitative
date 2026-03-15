@@ -1,7 +1,7 @@
 # PA Quantitative Canonical Spec
 
 Status: active source of truth
-Last updated: 2026-03-07
+Last updated: 2026-03-14
 Project root: `/Users/simongu/Projects/PA quantitative`
 
 ## Purpose
@@ -48,26 +48,33 @@ Basic ML may be used only as a secondary scoring or meta-filter layer on top of 
 
 ## Canonical Architecture
 
-The system is split into five strict layers:
+The long-term system is split into six strict layers:
 
-1. `bars`
-2. `features`
-3. `structures`
-4. `overlays`
-5. `review`
+1. `market_events`
+2. `bars`
+3. `features`
+4. `structures`
+5. `overlays`
+6. `review`
 
 Canonical pipeline:
 
-`bars -> features -> structures -> overlays -> review`
+`market_events -> bars -> features -> structures -> overlays -> review`
 
 Dependency rules:
 
+- `bars` may depend only on `market_events`
 - `features` may depend only on `bars`
 - `structures` may depend on `bars` and `features`
 - `overlays` may depend on `bars`, `features`, and `structures`
 - `review` may depend on all previous layers
 - lower layers must never depend on higher layers
 - the inspector must never become the home of structure logic
+
+Current implementation note:
+
+- `market_events` is a newly defined raw-event contract layer for future tick ingestion
+- the currently shipped computation stack still starts from canonical `eth_full 1m` bars until the tick layer is implemented
 
 Semantic ownership rules:
 
@@ -99,6 +106,7 @@ Documentation responsibilities:
 
 - `docs/definitions/`: semantic source of truth for reusable concepts when dedicated definition docs exist
 - `docs/rulebooks/`: versioned instantiations of those definitions and other rule-specific legality
+- `docs/tick_data_spec.md`: normalized raw-event and tick-to-bar contract for future market-event ingestion
 
 ## Canonical Data Source Policy
 
@@ -119,8 +127,15 @@ This file contains:
 Long-term policy:
 
 - keep raw source files immutable
+- normalize future tick feeds into explicit backend-owned market-event artifacts
 - generate canonical internal bar stores from raw data
 - use columnar storage for derived work
+
+Tick-data policy:
+
+- the current operational canonical ES source remains the shipped `1m` CSV until a tick-backed dataset version is explicitly introduced
+- when tick feeds are added, the normalized raw-event contract must follow `/Users/simongu/Projects/PA quantitative/docs/tick_data_spec.md`
+- bars remain the first analytical aggregation layer even when their upstream source becomes normalized tick events
 
 Preferred internal storage:
 
@@ -227,7 +242,7 @@ Every canonical bar row must include:
 - `symbol`
 - `timeframe`
 - `ts_utc_ns`
-- `ts_et_ns`
+- `ts_local_ns`
 - `session_id`
 - `session_date`
 - `open`
@@ -235,6 +250,8 @@ Every canonical bar row must include:
 - `low`
 - `close`
 - `volume`
+- `turnover`
+- `open_interest`
 
 Rules:
 
@@ -242,8 +259,8 @@ Rules:
 - sessions must be explicit
 - for the ES 1-minute source, `session_date` is the ET trading date with a `18:00` America/New_York session rollover
 - the current canonical bars implementation stores `session_id` as the numeric `session_date`
-- `ts_utc_ns` and `ts_et_ns` are stored as wall-clock nanoseconds in their respective time domains
-- ET timestamps are required for inspection and day navigation
+- `ts_utc_ns` and `ts_local_ns` are stored as wall-clock nanoseconds in their respective time domains
+- `ts_local_ns` uses the source-local timezone declared by the dataset manifest
 - all higher-level artifacts must anchor back to `bar_id`
 
 ### Array Boundary Contract
@@ -256,7 +273,7 @@ It exists to make dtype, ordering, contiguity, and missing-value policy explicit
 Required fields:
 
 - `open`, `high`, `low`, `close`, `volume`: `float64`, 1-D, same length, C-contiguous
-- `bar_id`, `session_id`, `session_date`, `ts_utc_ns`, `ts_et_ns`: `int64`, 1-D, same length, C-contiguous
+- `bar_id`, `session_id`, `session_date`, `ts_utc_ns`, `ts_local_ns`: `int64`, 1-D, same length, C-contiguous
 - optional masks such as `in_rth` or `edge_valid`: `bool_`, 1-D, same length, C-contiguous
 
 Required invariants:
@@ -698,7 +715,7 @@ Kernel design rules:
 Preferred array inputs:
 
 - `open`, `high`, `low`, `close`, `volume` as contiguous floating arrays
-- `bar_id`, `session_id`, `ts_et_ns` as integer arrays
+- `bar_id`, `session_id`, `ts_local_ns` as integer arrays
 - segment boundaries as integer index arrays
 - state labels as integer-coded enums
 

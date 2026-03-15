@@ -114,7 +114,7 @@ def load_runtime_structure_chain(
             "symbol",
             "timeframe",
             "ts_utc_ns",
-            "ts_et_ns",
+            "ts_local_ns",
             "session_id",
             "session_date",
             "open",

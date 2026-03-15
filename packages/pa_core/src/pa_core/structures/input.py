@@ -460,7 +460,7 @@ def bar_arrays_to_table(bar_arrays: BarArrays) -> pa.Table:
             pa.array(bar_arrays.session_id, type=pa.int64()),
             pa.array(bar_arrays.session_date, type=pa.int64()),
             pa.array(bar_arrays.ts_utc_ns, type=pa.int64()),
-            pa.array(bar_arrays.ts_et_ns, type=pa.int64()),
+            pa.array(bar_arrays.ts_local_ns, type=pa.int64()),
             pa.array(bar_arrays.open, type=pa.float64()),
             pa.array(bar_arrays.high, type=pa.float64()),
             pa.array(bar_arrays.low, type=pa.float64()),

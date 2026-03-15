@@ -26,6 +26,10 @@ CANONICAL_BAR_COLUMNS = BAR_ARTIFACT_COLUMNS
 RAW_SYMBOL = "es.v.0"
 CANONICAL_SYMBOL = "ES"
 TIMEFRAME = "1m"
+LOCAL_TIMEZONE = "America/New_York"
+SESSION_ROLL_POLICY = "session_date=local_time_roll_at_18:00_America/New_York"
+SOURCE_NAME = "es_full_mdp3_1m_csv"
+BAR_BUILDER_VERSION = "v1_from_raw_csv"
 TIMEFRAME_NS = 60 * 1_000_000_000
 SESSION_ROLL_HOUR_ET = 18
 SESSION_DATE_SHIFT_HOURS = 24 - SESSION_ROLL_HOUR_ET
@@ -85,6 +89,10 @@ def materialize_canonical_bars(config: CanonicalBarIngestionConfig) -> BarArtifa
         source_sha256=source_sha256,
         symbol=config.symbol,
         timeframe=config.timeframe,
+        source_name=SOURCE_NAME,
+        bar_builder_version=BAR_BUILDER_VERSION,
+        local_timezone=LOCAL_TIMEZONE,
+        session_roll_policy=SESSION_ROLL_POLICY,
         parquet_engine=config.parquet_engine,
     )
 
@@ -136,7 +144,7 @@ def _canonicalize_chunk(
 ) -> pa.Table:
     row_count = raw_chunk.num_rows
     ts_utc_ns = _parse_wall_time_ns(raw_chunk.column("ts_event"))
-    ts_et_ns = _parse_wall_time_ns(raw_chunk.column("ET_datetime"))
+    ts_local_ns = _parse_wall_time_ns(raw_chunk.column("ET_datetime"))
 
     if np.any(ts_utc_ns % TIMEFRAME_NS != 0):
         raise ValueError("Source ts_event values are not aligned to the 1-minute timeframe.")
@@ -148,7 +156,7 @@ def _canonicalize_chunk(
             "symbol": pa.array([config.symbol] * row_count, type=pa.string()),
             "timeframe": pa.array([config.timeframe] * row_count, type=pa.string()),
             "ts_utc_ns": ts_utc_ns,
-            "ts_et_ns": ts_et_ns,
+            "ts_local_ns": ts_local_ns,
             "session_id": session_date,
             "session_date": session_date,
             "open": _float64_column_numpy(raw_chunk, "open"),
@@ -156,6 +164,8 @@ def _canonicalize_chunk(
             "low": _float64_column_numpy(raw_chunk, "low"),
             "close": _float64_column_numpy(raw_chunk, "close"),
             "volume": _float64_column_numpy(raw_chunk, "volume"),
+            "turnover": np.full(row_count, np.nan, dtype=np.float64),
+            "open_interest": np.full(row_count, np.nan, dtype=np.float64),
         },
         schema=BAR_ARTIFACT_SCHEMA,
     )

@@ -24,6 +24,109 @@ def default_artifacts_root(start: Path | None = None) -> Path:
     return find_project_root(start) / "artifacts"
 
 
+def market_event_dataset_root(
+    artifacts_root: Path,
+    data_version: str,
+    dataset: str,
+) -> Path:
+    return artifacts_root / "market_events" / f"data_version={data_version}" / f"dataset={dataset}"
+
+
+def market_event_manifest_path(
+    artifacts_root: Path,
+    data_version: str,
+    dataset: str,
+) -> Path:
+    return market_event_dataset_root(artifacts_root, data_version, dataset) / "manifest.json"
+
+
+def market_event_year_dir(
+    artifacts_root: Path,
+    data_version: str,
+    dataset: str,
+    symbol: str,
+    year: int,
+) -> Path:
+    return (
+        market_event_dataset_root(artifacts_root, data_version, dataset)
+        / f"symbol={symbol}"
+        / f"year={year}"
+    )
+
+
+def market_event_part_path(
+    artifacts_root: Path,
+    data_version: str,
+    dataset: str,
+    symbol: str,
+    year: int,
+    part_index: int,
+) -> Path:
+    return market_event_year_dir(artifacts_root, data_version, dataset, symbol, year) / (
+        f"part-{part_index:05d}.parquet"
+    )
+
+
+def market_event_bar_parity_dataset_root(
+    *,
+    artifacts_root: Path,
+    tick_data_version: str,
+    comparison_version: str,
+    reference_source_sha256: str,
+    symbol: str,
+) -> Path:
+    return (
+        artifacts_root
+        / "market_events"
+        / f"data_version={tick_data_version}"
+        / "checks"
+        / "bar_parity"
+        / f"version={comparison_version}"
+        / f"reference_sha={reference_source_sha256[:16]}"
+        / f"symbol={symbol}"
+    )
+
+
+def market_event_bar_parity_manifest_path(
+    *,
+    artifacts_root: Path,
+    tick_data_version: str,
+    comparison_version: str,
+    reference_source_sha256: str,
+    symbol: str,
+) -> Path:
+    return market_event_bar_parity_dataset_root(
+        artifacts_root=artifacts_root,
+        tick_data_version=tick_data_version,
+        comparison_version=comparison_version,
+        reference_source_sha256=reference_source_sha256,
+        symbol=symbol,
+    ) / "manifest.json"
+
+
+def market_event_bar_parity_part_path(
+    *,
+    artifacts_root: Path,
+    tick_data_version: str,
+    comparison_version: str,
+    reference_source_sha256: str,
+    symbol: str,
+    year: int,
+    part_index: int,
+) -> Path:
+    return (
+        market_event_bar_parity_dataset_root(
+            artifacts_root=artifacts_root,
+            tick_data_version=tick_data_version,
+            comparison_version=comparison_version,
+            reference_source_sha256=reference_source_sha256,
+            symbol=symbol,
+        )
+        / f"year={year}"
+        / f"part-{part_index:05d}.parquet"
+    )
+
+
 def bar_dataset_root(artifacts_root: Path, data_version: str) -> Path:
     return artifacts_root / "bars" / f"data_version={data_version}"
 

@@ -86,6 +86,7 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replayCursorSelectionArmed, setReplayCursorSelectionArmed] = useState(false);
   const [viewportPersistRevision, setViewportPersistRevision] = useState(0);
   const {
     apiBaseUrl,
@@ -160,6 +161,10 @@ export default function App() {
 
   const replaySequence = windowData?.replay_sequence ?? null;
   const playbackSequence = windowData?.playback_sequence ?? null;
+  const replayCursorSelectionActive =
+    inspectorMode === "replay" &&
+    !replayPlaying &&
+    replayCursorSelectionArmed;
   const replayActiveAsOfBarId = inspectorMode === "replay" ? replayCursorBarId : null;
   const replayFrameState = useMemo(
     () =>
@@ -179,7 +184,7 @@ export default function App() {
     [playbackSequence, replayCursorStepId],
   );
   const replayVisibleEmaBarId =
-    inspectorMode === "replay"
+    inspectorMode === "replay" && !replayCursorSelectionActive
       ? playbackFrameState?.asOfBarId ?? replayActiveAsOfBarId
       : null;
   const displayEmaLines = useMemo<RenderedEmaLine[]>(() => {
@@ -264,6 +269,9 @@ export default function App() {
     if (inspectorMode !== "replay") {
       return allChartBars;
     }
+    if (replayCursorSelectionActive) {
+      return allChartBars;
+    }
     if (playbackFrameState !== null) {
       return playbackFrameState.displayBars;
     }
@@ -271,7 +279,7 @@ export default function App() {
       return allChartBars;
     }
     return allChartBars.slice(0, replayCursorIndex + 1);
-  }, [allChartBars, inspectorMode, playbackFrameState, replayCursorIndex]);
+  }, [allChartBars, inspectorMode, playbackFrameState, replayCursorIndex, replayCursorSelectionActive]);
   const activeAsOfBarId = replayActiveAsOfBarId;
   const activeAsOfEventId = inspectorMode === "replay" ? replayCursorEventId : null;
   const replayBackendResolved =
@@ -314,6 +322,7 @@ export default function App() {
   useEffect(() => {
     if (inspectorMode !== "replay") {
       setReplayPlaying(false);
+      setReplayCursorSelectionArmed(false);
       return;
     }
     if (replayActiveAsOfBarId === null) {
@@ -798,6 +807,7 @@ export default function App() {
       return {
         ...source,
         id: duplicateId,
+        control: source.control ?? null,
       } satisfies ChartAnnotation;
     });
     setWorkspace((current) => ({
@@ -877,6 +887,7 @@ export default function App() {
 
   function handleInspectorModeChange(mode: InspectorMode) {
     if (mode !== "replay") {
+      setReplayCursorSelectionArmed(false);
       patchWorkspace({
         inspectorMode: mode,
         replayCursorStepId: null,
@@ -889,6 +900,7 @@ export default function App() {
       return;
     }
     setReplayPlaying(false);
+    setReplayCursorSelectionArmed(false);
     patchWorkspace({
       inspectorMode: mode,
       replayCursorBarId: null,
@@ -999,6 +1011,7 @@ export default function App() {
       return;
     }
     setReplayPlaying(false);
+    setReplayCursorSelectionArmed(false);
     const nextStepId = resolveClosingPlaybackStepId(playbackSequence, nextEvent.event_bar_id);
     patchWorkspace({
       replayCursorBarId: nextEvent.event_bar_id,
@@ -1011,6 +1024,7 @@ export default function App() {
     if (replayPlaying) {
       return;
     }
+    setReplayCursorSelectionArmed(false);
     patchWorkspace({
       replayCursorBarId: barId,
       replayCursorStepId: resolveClosingPlaybackStepId(playbackSequence, barId),
@@ -1035,6 +1049,7 @@ export default function App() {
       return;
     }
     setReplayPlaying(false);
+    setReplayCursorSelectionArmed(false);
     patchWorkspace({
       replayCursorBarId: nextStep.as_of_bar_id ?? null,
       replayCursorStepId: nextStep.step_id,
@@ -1054,6 +1069,7 @@ export default function App() {
       return;
     }
     setReplayPlaying(false);
+    setReplayCursorSelectionArmed(false);
     patchWorkspace({
       replayCursorBarId: latestStep.as_of_bar_id ?? null,
       replayCursorStepId: latestStep.step_id,
@@ -1213,7 +1229,9 @@ export default function App() {
             selectedAnnotationIds={selectedAnnotationIds}
             confirmationGuide={confirmationGuide}
             replayEnabled={inspectorMode === "replay"}
+            replayCursorVisible={replayCursorSelectionActive}
             replayInteractionLocked={replayPlaying}
+            replayCursorSelectionEnabled={replayCursorSelectionActive}
             replayCursorBarId={replayDisplayCursorBarId}
             annotationCount={visibleAnnotations.length}
             annotationRailPosition={annotationRailPosition}
@@ -1261,6 +1279,7 @@ export default function App() {
                 kind: annotation.kind,
                 start: annotation.start,
                 end: annotation.end,
+                control: annotation.control ?? null,
                 style: defaultAnnotationStyle(annotation.kind),
               };
               setWorkspace((current) => ({
@@ -1275,12 +1294,17 @@ export default function App() {
               clearEmaSelection();
               clearOverlaySelection();
             }}
-            onAnnotationUpdate={(annotationId, nextStart, nextEnd) => {
+            onAnnotationUpdate={(annotationId, nextStart, nextEnd, nextControl) => {
               setWorkspace((current) => ({
                 ...current,
                 annotations: current.annotations.map((annotation) =>
                   annotation.id === annotationId
-                    ? { ...annotation, start: nextStart, end: nextEnd }
+                    ? {
+                        ...annotation,
+                        start: nextStart,
+                        end: nextEnd,
+                        control: nextControl,
+                      }
                     : annotation,
                 ),
               }));
@@ -1320,27 +1344,6 @@ export default function App() {
             onReplayCursorSelect={handleReplayCursorSelect}
             onViewportBoundaryApproach={handleViewportBoundaryApproach}
           />
-          <ReplayTransport
-            visible={inspectorMode === "replay"}
-            hasBars={allChartBars.length > 0}
-            hasEvents={hasReplayLifecycleEvents}
-            cursorBar={replayCursorBar}
-            playing={replayPlaying}
-            speed={replaySpeed}
-            backendResolved={replayBackendResolved}
-            playbackMode={playbackSequence?.mode ?? null}
-            playbackStepTimeframe={playbackSequence?.step_timeframe ?? null}
-            onTogglePlaying={() => {
-              if (!replayCursorBar) {
-                return;
-              }
-              setReplayPlaying((current) => !current);
-            }}
-            onStepBar={handleReplayStepBar}
-            onStepEvent={handleReplayStepEvent}
-            onSpeedChange={(speed) => setWorkspaceField("replaySpeed", speed)}
-            onJumpToLatest={handleReplayJumpToLatest}
-          />
           <InspectorPanel
             overlay={selectedOverlay}
             anchorPoint={detailAnchor}
@@ -1361,6 +1364,35 @@ export default function App() {
             onClose={clearOverlaySelection}
           />
         </div>
+        <ReplayTransport
+          visible={inspectorMode === "replay"}
+          hasBars={allChartBars.length > 0}
+          hasEvents={hasReplayLifecycleEvents}
+          cursorBar={replayCursorBar}
+          playing={replayPlaying}
+          selectingCursor={replayCursorSelectionActive}
+          speed={replaySpeed}
+          backendResolved={replayBackendResolved}
+          playbackMode={playbackSequence?.mode ?? null}
+          playbackStepTimeframe={playbackSequence?.step_timeframe ?? null}
+          onToggleCursorSelection={() => {
+            if (replayPlaying || !allChartBars.length) {
+              return;
+            }
+            setReplayCursorSelectionArmed((current) => !current);
+          }}
+          onTogglePlaying={() => {
+            if (!replayCursorBar) {
+              return;
+            }
+            setReplayCursorSelectionArmed(false);
+            setReplayPlaying((current) => !current);
+          }}
+          onStepBar={handleReplayStepBar}
+          onStepEvent={handleReplayStepEvent}
+          onSpeedChange={(speed) => setWorkspaceField("replaySpeed", speed)}
+          onJumpToLatest={handleReplayJumpToLatest}
+        />
       </div>
     </div>
   );

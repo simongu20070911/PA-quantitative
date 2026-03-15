@@ -50,7 +50,7 @@ class BarFamilyTests(unittest.TestCase):
                     [1, 2, 3, 4, 5, 6],
                     type=pa.int64(),
                 ),
-                "ts_et_ns": pa.array(
+                "ts_local_ns": pa.array(
                     [1, 2, 3, 4, 5, 6],
                     type=pa.int64(),
                 ),
@@ -61,6 +61,8 @@ class BarFamilyTests(unittest.TestCase):
                 "low": pa.array([0, 0, 0, 0, 0, 0], type=pa.float64()),
                 "close": pa.array([1, 1, 1, 1, 1, 1], type=pa.float64()),
                 "volume": pa.array([1, 1, 1, 1, 1, 1], type=pa.float64()),
+                "turnover": pa.array([10, 11, 12, 13, 14, 15], type=pa.float64()),
+                "open_interest": pa.array([20, 21, 22, 23, 24, 25], type=pa.float64()),
             }
         )
 
@@ -94,7 +96,7 @@ def _sample_base_table() -> pa.Table:
                 ],
                 type=pa.int64(),
             ),
-            "ts_et_ns": pa.array(
+            "ts_local_ns": pa.array(
                 [
                     569 * NS_PER_MINUTE,
                     570 * NS_PER_MINUTE,
@@ -111,6 +113,8 @@ def _sample_base_table() -> pa.Table:
             "low": pa.array([7.0, 10.0, 6.0, 9.0, 5.0], type=pa.float64()),
             "close": pa.array([10.0, 15.0, 12.0, 10.0, 6.0], type=pa.float64()),
             "volume": pa.array([1.0, 1.0, 1.0, 1.0, 1.0], type=pa.float64()),
+            "turnover": pa.array([100.0, 110.0, 120.0, 130.0, 140.0], type=pa.float64()),
+            "open_interest": pa.array([10.0, 11.0, 12.0, 13.0, 14.0], type=pa.float64()),
         }
     )
 

@@ -31,7 +31,13 @@ export interface AnnotationDrawable {
   annotation: ChartAnnotation;
   start: { x: number; y: number };
   end: { x: number; y: number };
+  control: { x: number; y: number } | null;
   bounds: { left: number; top: number; right: number; bottom: number };
+}
+
+interface AnnotationLineSegment {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
 }
 
 export interface AnnotationHit {
@@ -52,6 +58,13 @@ export interface AnnotationDragState {
   originPointer: AnnotationPointerPosition;
   originalStart: AnnotationAnchor;
   originalEnd: AnnotationAnchor;
+  originalControl: AnnotationAnchor | null;
+}
+
+export interface AnnotationProjection {
+  start: AnnotationAnchor;
+  end: AnnotationAnchor;
+  control: AnnotationAnchor | null;
 }
 
 export interface InspectorPrimitiveState {
@@ -64,6 +77,7 @@ export interface InspectorPrimitiveState {
   sessionProfile: SessionProfile;
   draftAnnotation: ChartAnnotation | null;
   replayMode: boolean;
+  replayCursorVisible: boolean;
   replayCursorBarId: number | null;
   replayHoverBarId: number | null;
 }
@@ -71,7 +85,9 @@ export interface InspectorPrimitiveState {
 export interface InspectorRenderData {
   sessionBoundaries: number[];
   confirmationGuide: ConfirmationGuideRender | null;
-  replayCursor: ReplayCursorRender | null;
+  replayBoundary: ReplayCursorRender | null;
+  replaySelectionGuide: ReplayCursorRender | null;
+  replayWatermark: ReplayWatermarkRender | null;
   overlayDrawables: Drawable[];
   annotationDrawables: AnnotationDrawable[];
   draftDrawable: AnnotationDrawable | null;
@@ -88,7 +104,9 @@ export interface InspectorGeometryCache {
 
 export interface InspectorPresentationState {
   confirmationGuide: ConfirmationGuideRender | null;
-  replayCursor: ReplayCursorRender | null;
+  replayBoundary: ReplayCursorRender | null;
+  replaySelectionGuide: ReplayCursorRender | null;
+  replayWatermark: ReplayWatermarkRender | null;
   draftDrawable: AnnotationDrawable | null;
   selectedOverlayId: string | null;
   selectedAnnotationIds: string[];
@@ -100,6 +118,10 @@ export interface ConfirmationGuideRender {
 
 export interface ReplayCursorRender {
   x: number;
+}
+
+export interface ReplayWatermarkRender {
+  label: string;
 }
 
 interface OverlayPaint {
@@ -159,6 +181,7 @@ export function buildInspectorPresentationState(
     | "selectedOverlayId"
     | "selectedAnnotationIds"
     | "replayMode"
+    | "replayCursorVisible"
     | "replayCursorBarId"
     | "replayHoverBarId"
   >,
@@ -172,14 +195,24 @@ export function buildInspectorPresentationState(
       barTimeById,
       projector,
     ),
-    replayCursor: resolveReplayCursor(
+    replayBoundary: resolveReplayBoundary(
       state.replayMode,
+      state.replayCursorVisible,
+      state.replayCursorBarId,
+      state.bars,
+      barTimeById,
+      projector,
+    ),
+    replaySelectionGuide: resolveReplaySelectionGuide(
+      state.replayMode,
+      state.replayCursorVisible,
       state.replayCursorBarId,
       state.replayHoverBarId,
       state.bars,
       barTimeById,
       projector,
     ),
+    replayWatermark: state.replayMode ? { label: "Replay" } : null,
     draftDrawable: state.draftAnnotation
       ? resolveAnnotationDrawable(state.draftAnnotation, barTimeById, projector)
       : null,
@@ -195,7 +228,9 @@ export function composeInspectorRenderData(
   return {
     sessionBoundaries: geometry.sessionBoundaries,
     confirmationGuide: presentation.confirmationGuide,
-    replayCursor: presentation.replayCursor,
+    replayBoundary: presentation.replayBoundary,
+    replaySelectionGuide: presentation.replaySelectionGuide,
+    replayWatermark: presentation.replayWatermark,
     overlayDrawables: geometry.overlayDrawables,
     annotationDrawables: geometry.annotationDrawables,
     draftDrawable: presentation.draftDrawable,
@@ -211,6 +246,10 @@ export function drawInspectorScene(
   target.useMediaCoordinateSpace(({ context, mediaSize }) => {
     for (const x of data.sessionBoundaries) {
       drawSessionBoundary(context, x, mediaSize.height);
+    }
+
+    if (data.replayWatermark) {
+      drawReplayWatermark(context, data.replayWatermark, mediaSize.width, mediaSize.height);
     }
 
     if (data.confirmationGuide) {
@@ -234,9 +273,17 @@ export function drawInspectorScene(
       drawAnnotation(context, data.draftDrawable, false, true);
     }
 
-    if (data.replayCursor) {
-      drawReplayFutureMask(context, data.replayCursor, mediaSize.width, mediaSize.height);
-      drawReplayCursor(context, data.replayCursor, mediaSize.height);
+    if (data.replaySelectionGuide) {
+      drawReplayFutureMask(
+        context,
+        data.replaySelectionGuide,
+        mediaSize.width,
+        mediaSize.height,
+      );
+    }
+
+    if (data.replaySelectionGuide) {
+      drawReplayCursor(context, data.replaySelectionGuide, mediaSize.height);
     }
   });
 }
@@ -272,6 +319,12 @@ export function hitTestAnnotation(
   for (let index = drawables.length - 1; index >= 0; index -= 1) {
     const drawable = drawables[index];
     const style = getAnnotationStyle(drawable.annotation);
+    if (drawable.annotation.kind === "parallel_lines") {
+      const control = parallelLineControlPoint(drawable);
+      if (!style.locked && Math.hypot(x - control.x, y - control.y) <= 11) {
+        return { drawable, mode: "scale" };
+      }
+    }
     if (drawable.annotation.kind === "fib50") {
       const center = fib50CenterPoint(drawable);
       if (!style.locked && Math.hypot(x - center.x, y - center.y) <= 11) {
@@ -284,8 +337,13 @@ export function hitTestAnnotation(
     if (!style.locked && Math.hypot(x - drawable.end.x, y - drawable.end.y) <= 11) {
       return { drawable, mode: "end" };
     }
-    if (drawable.annotation.kind === "line") {
-      if (pointToSegmentDistance(x, y, drawable.start, drawable.end) <= 12) {
+    if (isLineAnnotationKind(drawable.annotation.kind)) {
+      const segments = annotationLineSegments(drawable);
+      if (
+        segments.some(
+          (segment) => pointToSegmentDistance(x, y, segment.start, segment.end) <= 12,
+        )
+      ) {
         return { drawable, mode: "move" };
       }
       continue;
@@ -315,7 +373,7 @@ export function projectDraggedAnnotation(
   dragState: AnnotationDragState,
   pointer: AnnotationPointerPosition,
   bars: ChartBar[],
-): { start: AnnotationAnchor; end: AnnotationAnchor } | null {
+): AnnotationProjection | null {
   const barIndexById = new Map(bars.map((bar, index) => [bar.bar_id, index]));
   const originalStartIndex = barIndexById.get(dragState.originalStart.bar_id);
   const originalEndIndex = barIndexById.get(dragState.originalEnd.bar_id);
@@ -325,6 +383,111 @@ export function projectDraggedAnnotation(
 
   const barDelta = pointer.barIndex - dragState.originPointer.barIndex;
   const priceDelta = pointer.price - dragState.originPointer.price;
+
+  if (dragState.annotationKind === "parallel_lines") {
+    const originalControlIndex =
+      dragState.originalControl === null
+        ? null
+        : barIndexById.get(dragState.originalControl.bar_id) ?? null;
+
+    if (dragState.mode === "move") {
+      const nextStartIndex = clampIndex(originalStartIndex + barDelta, bars.length);
+      const nextEndIndex = clampIndex(originalEndIndex + barDelta, bars.length);
+      return {
+        start: {
+          bar_id: bars[nextStartIndex].bar_id,
+          price: dragState.originalStart.price + priceDelta,
+        },
+        end: {
+          bar_id: bars[nextEndIndex].bar_id,
+          price: dragState.originalEnd.price + priceDelta,
+        },
+        control:
+          originalControlIndex === null
+            ? null
+            : {
+                bar_id: bars[clampIndex(originalControlIndex + barDelta, bars.length)].bar_id,
+                price: dragState.originalControl!.price + priceDelta,
+              },
+      };
+    }
+
+    if (dragState.mode === "start") {
+      const nextBarIndex = clampIndex(pointer.barIndex, bars.length);
+      const startBarShift = nextBarIndex - originalStartIndex;
+      return {
+        start: {
+          bar_id: bars[nextBarIndex].bar_id,
+          price: pointer.price,
+        },
+        end: dragState.originalEnd,
+        control:
+          originalControlIndex === null
+            ? null
+            : {
+                bar_id: bars[clampIndex(originalControlIndex + startBarShift, bars.length)].bar_id,
+                price:
+                  dragState.originalControl!.price +
+                  (pointer.price - dragState.originalStart.price),
+              },
+      };
+    }
+
+    if (dragState.mode === "scale") {
+      return {
+        start: dragState.originalStart,
+        end: dragState.originalEnd,
+        control: {
+          bar_id: bars[clampIndex(pointer.barIndex, bars.length)].bar_id,
+          price: pointer.price,
+        },
+      };
+    }
+
+    return {
+      start: dragState.originalStart,
+      end: {
+        bar_id: bars[clampIndex(pointer.barIndex, bars.length)].bar_id,
+        price: pointer.price,
+      },
+      control: dragState.originalControl,
+    };
+  }
+
+  if (dragState.annotationKind === "horizontal_line") {
+    const nextStartIndex =
+      dragState.mode === "end"
+        ? originalStartIndex
+        : clampIndex(
+            dragState.mode === "move" ? originalStartIndex + barDelta : pointer.barIndex,
+            bars.length,
+          );
+    const nextEndIndex =
+      dragState.mode === "move" || dragState.mode === "start"
+        ? clampIndex(originalEndIndex + barDelta, bars.length)
+        : clampIndex(pointer.barIndex, bars.length);
+    const nextPrice =
+      dragState.mode === "move"
+        ? dragState.originalStart.price + priceDelta
+        : pointer.price;
+    return {
+      start: { bar_id: bars[nextStartIndex].bar_id, price: nextPrice },
+      end: { bar_id: bars[nextEndIndex].bar_id, price: nextPrice },
+      control: null,
+    };
+  }
+
+  if (dragState.annotationKind === "vertical_line") {
+    const nextBarIndex =
+      dragState.mode === "move"
+        ? clampIndex(originalStartIndex + barDelta, bars.length)
+        : pointer.barIndex;
+    return {
+      start: { bar_id: bars[nextBarIndex].bar_id, price: dragState.originalStart.price },
+      end: { bar_id: bars[nextBarIndex].bar_id, price: pointer.price },
+      control: null,
+    };
+  }
 
   if (dragState.mode === "move") {
     const nextStartIndex = clampIndex(originalStartIndex + barDelta, bars.length);
@@ -338,6 +501,7 @@ export function projectDraggedAnnotation(
         bar_id: bars[nextEndIndex].bar_id,
         price: dragState.originalEnd.price + priceDelta,
       },
+      control: null,
     };
   }
 
@@ -356,6 +520,7 @@ export function projectDraggedAnnotation(
         bar_id: dragState.originalEnd.bar_id,
         price: ascending ? midpoint + halfRange : midpoint - halfRange,
       },
+      control: null,
     };
   }
 
@@ -366,6 +531,7 @@ export function projectDraggedAnnotation(
         price: pointer.price,
       },
       end: dragState.originalEnd,
+      control: null,
     };
   }
 
@@ -375,6 +541,7 @@ export function projectDraggedAnnotation(
       bar_id: bars[clampIndex(pointer.barIndex, bars.length)].bar_id,
       price: pointer.price,
     },
+    control: null,
   };
 }
 
@@ -461,13 +628,32 @@ export function resolveAnnotationDrawable(
   const endX = projector.timeToCoordinate(endTime);
   const startY = projector.priceToCoordinate(annotation.start.price);
   const endY = projector.priceToCoordinate(annotation.end.price);
-  if (startX === null || endX === null || startY === null || endY === null) {
+  const controlTime =
+    annotation.control === null || annotation.control === undefined
+      ? null
+      : barTimeById.get(annotation.control.bar_id) ?? null;
+  const controlX = controlTime === null ? null : projector.timeToCoordinate(controlTime);
+  const controlY =
+    annotation.control === null || annotation.control === undefined
+      ? null
+      : projector.priceToCoordinate(annotation.control.price);
+  if (
+    startX === null ||
+    endX === null ||
+    startY === null ||
+    endY === null ||
+    (annotation.control !== null &&
+      annotation.control !== undefined &&
+      (controlX === null || controlY === null))
+  ) {
     return null;
   }
   return {
     annotation,
     start: { x: startX, y: startY },
     end: { x: endX, y: endY },
+    control:
+      controlX === null || controlY === null ? null : { x: controlX, y: controlY },
     bounds: {
       left: Math.min(startX, endX),
       top: Math.min(startY, endY),
@@ -516,21 +702,48 @@ function resolveConfirmationGuide(
   return { x: x + Math.max(5, rightSpacing * 0.42) };
 }
 
-function resolveReplayCursor(
+function resolveReplayBoundary(
   replayMode: boolean,
+  replayCursorVisible: boolean,
+  replayCursorBarId: number | null,
+  bars: ChartBar[],
+  barTimeById: Map<number, number>,
+  projector: CoordinateProjector,
+): ReplayCursorRender | null {
+  if (!replayMode || !replayCursorVisible) {
+    return null;
+  }
+  if (replayCursorBarId === null) {
+    return null;
+  }
+  return resolveReplayCursorX(replayCursorBarId, bars, barTimeById, projector);
+}
+
+function resolveReplaySelectionGuide(
+  replayMode: boolean,
+  replayCursorVisible: boolean,
   replayCursorBarId: number | null,
   replayHoverBarId: number | null,
   bars: ChartBar[],
   barTimeById: Map<number, number>,
   projector: CoordinateProjector,
 ): ReplayCursorRender | null {
-  if (!replayMode) {
+  if (!replayMode || !replayCursorVisible) {
     return null;
   }
-  const activeBarId = replayCursorBarId ?? replayHoverBarId;
-  if (activeBarId === null) {
+  const guideBarId = replayHoverBarId ?? replayCursorBarId;
+  if (guideBarId === null) {
     return null;
   }
+  return resolveReplayCursorX(guideBarId, bars, barTimeById, projector);
+}
+
+function resolveReplayCursorX(
+  activeBarId: number,
+  bars: ChartBar[],
+  barTimeById: Map<number, number>,
+  projector: CoordinateProjector,
+): ReplayCursorRender | null {
   const cursorTime = barTimeById.get(activeBarId);
   if (cursorTime === undefined) {
     return null;
@@ -585,11 +798,13 @@ function drawAnnotation(
   context.fillStyle = fill;
   context.lineWidth = selected ? style.lineWidth + 0.2 : style.lineWidth;
 
-  if (annotation.kind === "line") {
-    context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-    context.stroke();
+  if (isLineAnnotationKind(annotation.kind)) {
+    for (const segment of annotationLineSegments(drawable)) {
+      context.beginPath();
+      context.moveTo(segment.start.x, segment.start.y);
+      context.lineTo(segment.end.x, segment.end.y);
+      context.stroke();
+    }
   } else if (annotation.kind === "box") {
     context.beginPath();
     context.rect(
@@ -617,11 +832,100 @@ function drawAnnotation(
   if (selected && !style.locked) {
     drawAnnotationHandle(context, start.x, start.y, style.strokeColor);
     drawAnnotationHandle(context, end.x, end.y, style.strokeColor);
+    if (annotation.kind === "parallel_lines") {
+      const control = parallelLineControlPoint(drawable);
+      drawAnnotationHandle(context, control.x, control.y, style.strokeColor);
+    }
     if (annotation.kind === "fib50") {
       const center = fib50CenterPoint(drawable);
       drawAnnotationHandle(context, center.x, center.y, style.strokeColor);
     }
   }
+  context.restore();
+}
+
+function isLineAnnotationKind(kind: ChartAnnotation["kind"]) {
+  return (
+    kind === "line" ||
+    kind === "parallel_lines" ||
+    kind === "horizontal_line" ||
+    kind === "vertical_line"
+  );
+}
+
+function annotationLineSegments(drawable: AnnotationDrawable): AnnotationLineSegment[] {
+  if (drawable.annotation.kind === "horizontal_line") {
+    return [
+      {
+        start: { x: -100000, y: drawable.start.y },
+        end: { x: 100000, y: drawable.start.y },
+      },
+    ];
+  }
+  if (drawable.annotation.kind === "vertical_line") {
+    return [
+      {
+        start: { x: drawable.start.x, y: -100000 },
+        end: { x: drawable.start.x, y: 100000 },
+      },
+    ];
+  }
+  if (drawable.annotation.kind === "parallel_lines") {
+    return parallelLineSegments(drawable.start, drawable.end, drawable.control);
+  }
+  return [{ start: drawable.start, end: drawable.end }];
+}
+
+function parallelLineSegments(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  control: { x: number; y: number } | null,
+): AnnotationLineSegment[] {
+  const translated =
+    control === null
+      ? defaultParallelTranslation(start, end)
+      : { x: control.x - start.x, y: control.y - start.y };
+  return [
+    { start, end },
+    {
+      start: { x: start.x + translated.x, y: start.y + translated.y },
+      end: { x: end.x + translated.x, y: end.y + translated.y },
+    },
+  ];
+}
+
+function parallelLineControlPoint(drawable: AnnotationDrawable) {
+  return annotationLineSegments(drawable)[1].start;
+}
+
+function defaultParallelTranslation(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) {
+    return { x: 0, y: 24 };
+  }
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  const offset = 24;
+  return { x: normalX * offset, y: normalY * offset };
+}
+
+function drawReplayWatermark(
+  context: CanvasRenderingContext2D,
+  watermark: ReplayWatermarkRender,
+  width: number,
+  height: number,
+) {
+  context.save();
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "600 52px ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  context.fillStyle = "rgba(100, 116, 139, 0.055)";
+  context.fillText(watermark.label, width / 2, height / 2);
   context.restore();
 }
 

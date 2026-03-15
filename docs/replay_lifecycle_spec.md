@@ -1,13 +1,14 @@
 # Replay And Structure Lifecycle Spec
 
 Status: active design spec
-Last updated: 2026-03-07
+Last updated: 2026-03-14
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependencies:
 
 - `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/artifact_contract.md`
 - `/Users/simongu/Projects/PA quantitative/docs/session_timeframe_spec.md`
+- `/Users/simongu/Projects/PA quantitative/docs/tick_data_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/rulebooks/pa_rulebook_v0_1.md`
 
 ## Purpose
@@ -34,6 +35,7 @@ Ownership is split as follows:
 - `docs/inspector_spec.md`: replay-mode UI and interaction behavior
 - `docs/overlay_spec.md`: overlay rendering policy for resolved structure state
 - `docs/session_timeframe_spec.md`: replay timing across session profiles and derived bar families
+- `docs/tick_data_spec.md`: normalized tick-event contracts and the raw playback-step source boundary
 
 ## Core Principles
 
@@ -228,6 +230,7 @@ Rules:
 - if a playback step occurs before the selected-family bar closes, structure visibility must remain at the prior selected-family close
 - when a playback step closes the selected-family bar, the backend may advance both the playback transport and the legal replay cursor on that step
 - the frontend may apply playback steps, but it must not reconstruct partial higher-timeframe bars or infer structure advancement from lower-timeframe raw bars
+- if playback is sourced from ticks later, the backend must still own the step ordering and post-step display-bar snapshot; the frontend must not aggregate raw tick rows into candles by itself
 
 ## Relationship To Structure Object Datasets
 

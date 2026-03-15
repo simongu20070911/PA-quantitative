@@ -24,7 +24,7 @@ class ArtifactIoContractTests(unittest.TestCase):
                 "symbol": pa.array(["ES", "ES"]),
                 "timeframe": pa.array(["1m", "1m"]),
                 "ts_utc_ns": pa.array([60, 120], type=pa.int64()),
-                "ts_et_ns": pa.array([60, 120], type=pa.int64()),
+                "ts_local_ns": pa.array([60, 120], type=pa.int64()),
                 "session_id": pa.array([20240102, 20240102], type=pa.int64()),
                 "session_date": pa.array([20240102, 20240102], type=pa.int64()),
                 "open": pa.array([1.0, 1.5], type=pa.float64()),
@@ -32,6 +32,8 @@ class ArtifactIoContractTests(unittest.TestCase):
                 "low": pa.array([0.0, 1.0], type=pa.float64()),
                 "close": pa.array([1.5, 2.0], type=pa.float64()),
                 "volume": pa.array([10.0, 11.0], type=pa.float64()),
+                "turnover": pa.array([100.0, 120.0], type=pa.float64()),
+                "open_interest": pa.array([50.0, 52.0], type=pa.float64()),
             }
         )
 
@@ -47,6 +49,10 @@ class ArtifactIoContractTests(unittest.TestCase):
                 source_sha256="abc123" * 10 + "ab",
                 symbol="ES",
                 timeframe="1m",
+                source_name="unit_test_source",
+                bar_builder_version="v_test",
+                local_timezone="America/New_York",
+                session_roll_policy="session_date=local_time_roll_at_18:00_America/New_York",
             )
             writer.write_chunk(bars)
             manifest = writer.finalize()
@@ -59,8 +65,12 @@ class ArtifactIoContractTests(unittest.TestCase):
 
             self.assertEqual(manifest.row_count, 2)
             self.assertEqual(loaded_manifest.row_count, 2)
+            self.assertEqual(loaded_manifest.source_name, "unit_test_source")
+            self.assertEqual(loaded_manifest.bar_builder_version, "v_test")
             self.assertEqual(loaded.column("bar_id").to_pylist(), [100, 101])
             self.assertEqual(loaded.column("session_date").to_pylist(), [20240102, 20240102])
+            self.assertEqual(loaded.column("turnover").to_pylist(), [100.0, 120.0])
+            self.assertEqual(loaded.column("open_interest").to_pylist(), [50.0, 52.0])
 
     def test_feature_artifact_round_trip_preserves_order_and_bundle_alignment(self) -> None:
         params = {"window": 1}

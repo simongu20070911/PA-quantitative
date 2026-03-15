@@ -8,10 +8,12 @@ export interface ReplayTransportProps {
   hasEvents: boolean;
   cursorBar: ChartBar | null;
   playing: boolean;
+  selectingCursor: boolean;
   speed: number;
   backendResolved: boolean;
   playbackMode: string | null;
   playbackStepTimeframe: string | null;
+  onToggleCursorSelection: () => void;
   onTogglePlaying: () => void;
   onStepBar: (direction: -1 | 1) => void;
   onStepEvent: (direction: -1 | 1) => void;
@@ -47,11 +49,20 @@ export function ReplayTransport(props: ReplayTransportProps) {
       : props.playbackMode === "selected_family_steps"
         ? "bar-close playback"
         : "playback";
-
   return (
     <div className="replay-transport">
       <div className="replay-transport-main">
         <div className="replay-transport-controls">
+          <button
+            className={`transport-button${
+              props.selectingCursor || !props.cursorBar ? " transport-button-primary" : ""
+            }`}
+            disabled={!props.hasBars || props.playing}
+            type="button"
+            onClick={props.onToggleCursorSelection}
+          >
+            Choose Kline
+          </button>
           <button
             className="transport-button"
             disabled={!props.hasEvents || !props.backendResolved || props.playing}
@@ -123,16 +134,6 @@ export function ReplayTransport(props: ReplayTransportProps) {
           </label>
         </div>
       </div>
-
-      <p className="replay-transport-note">
-        {!props.cursorBar
-          ? "Click empty chart space to choose a replay start point. Future bars stay visible only while you are choosing the cursor."
-          : props.playing
-            ? "Replay is running. Pause first before moving the replay cursor or jumping around the timeline."
-          : props.backendResolved
-            ? "Replay is showing backend-authored playback steps plus backend-resolved structure state. Future bars stay hidden after the active cursor."
-            : "Replay is waiting for backend replay frames for this window. Future bars will stay hidden once the replay view is ready."}
-      </p>
     </div>
   );
 }

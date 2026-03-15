@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { LogicalRange } from "lightweight-charts";
 
 import { createChartAdapter, type ChartAdapter } from "../lib/chartAdapter";
+import type { PersistedViewportState } from "../lib/inspectorPersistence";
 import { EmaToolbar } from "./EmaToolbar";
 import type {
   AnnotationToolbarPopover,
@@ -37,7 +38,9 @@ export interface ChartPaneProps {
   selectedAnnotationIds: string[];
   confirmationGuide: ConfirmationGuide | null;
   replayEnabled: boolean;
+  replayCursorVisible: boolean;
   replayInteractionLocked: boolean;
+  replayCursorSelectionEnabled: boolean;
   replayCursorBarId: number | null;
   annotationCount: number;
   annotationRailPosition: FloatingPosition;
@@ -55,20 +58,20 @@ export interface ChartPaneProps {
   onEmaToolbarOpenPopoverChange: (popover: AnnotationToolbarPopover) => void;
   onEmaStyleChange: (length: number, patch: Partial<EmaStyle>) => void;
   viewportFamilyKey: string;
-  initialViewport: { familyKey: string; centerBarId: number; span: number } | null;
-  onViewportStateChange: (
-    viewport: { familyKey: string; centerBarId: number; span: number } | null,
-  ) => void;
+  initialViewport: PersistedViewportState | null;
+  onViewportStateChange: (viewport: PersistedViewportState | null) => void;
   onAnnotationCreate: (annotation: {
     kind: AnnotationKind;
     start: { bar_id: number; price: number };
     end: { bar_id: number; price: number };
+    control?: { bar_id: number; price: number } | null;
   }) => void;
   onAnnotationSelect: (annotationIds: string[]) => void;
   onAnnotationUpdate: (
     annotationId: string,
     start: { bar_id: number; price: number },
     end: { bar_id: number; price: number },
+    control: { bar_id: number; price: number } | null,
   ) => void;
   onAnnotationDuplicate: (annotationIds: string[]) => string[];
   onAnnotationStyleChange: (
@@ -102,7 +105,9 @@ export function ChartPane({
   selectedAnnotationIds,
   confirmationGuide,
   replayEnabled,
+  replayCursorVisible,
   replayInteractionLocked,
+  replayCursorSelectionEnabled,
   replayCursorBarId,
   annotationCount,
   annotationRailPosition,
@@ -141,6 +146,13 @@ export function ChartPane({
   const onViewportBoundaryApproachRef = useRef(onViewportBoundaryApproach);
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const restoreViewportRef = useRef(initialViewport);
+  const viewportFamilyKeyRef = useRef(viewportFamilyKey);
+  const replayCursorSelectionEnabledRef = useRef(replayCursorSelectionEnabled);
+  const replayCursorSelectionPriceScaleRef = useRef<{
+    baseline: PersistedViewportState["priceScale"];
+    locked: PersistedViewportState["priceScale"];
+  } | null>(null);
+  const replayCursorSelectionRestorePendingRef = useRef(false);
 
   useEffect(() => {
     onViewportBoundaryApproachRef.current = onViewportBoundaryApproach;
@@ -151,8 +163,36 @@ export function ChartPane({
   }, [onViewportStateChange]);
 
   useEffect(() => {
+    viewportFamilyKeyRef.current = viewportFamilyKey;
+  }, [viewportFamilyKey]);
+
+  useEffect(() => {
     restoreViewportRef.current = initialViewport;
   }, [viewportFamilyKey, initialViewport]);
+
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    const previouslyEnabled = replayCursorSelectionEnabledRef.current;
+    replayCursorSelectionEnabledRef.current = replayCursorSelectionEnabled;
+    if (!adapter || previouslyEnabled === replayCursorSelectionEnabled) {
+      return;
+    }
+    if (replayCursorSelectionEnabled) {
+      const baseline = adapter.getPriceScaleState();
+      const locked =
+        baseline !== null && baseline.from !== null && baseline.to !== null
+          ? {
+              autoScale: false,
+              from: baseline.from,
+              to: baseline.to,
+            }
+          : baseline;
+      replayCursorSelectionPriceScaleRef.current = { baseline, locked };
+      replayCursorSelectionRestorePendingRef.current = false;
+      return;
+    }
+    replayCursorSelectionRestorePendingRef.current = true;
+  }, [replayCursorSelectionEnabled]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -161,21 +201,33 @@ export function ChartPane({
     }
     const adapter = createChartAdapter(container);
     adapterRef.current = adapter;
+    let pointerDrivenInteraction = false;
+    let wheelPersistTimer: number | null = null;
+
+    const publishViewportState = (rangeOverride?: { from: number; to: number } | null) => {
+      const nextBars = barsRef.current;
+      const range = rangeOverride ?? adapter.getVisibleLogicalRange();
+      if (!range || nextBars.length === 0) {
+        return;
+      }
+      const visibleCenterBarId = resolveVisibleCenterBarId(nextBars, range);
+      if (visibleCenterBarId === null) {
+        return;
+      }
+      onViewportStateChangeRef.current({
+        familyKey: viewportFamilyKeyRef.current,
+        centerBarId: visibleCenterBarId,
+        span: Math.max(range.to - range.from, 1),
+        priceScale: adapter.getPriceScaleState(),
+      });
+    };
 
     const onViewportChange = (range: { from: number; to: number } | null) => {
       const nextBars = barsRef.current;
       if (!range || nextBars.length === 0) {
         return;
       }
-      const visibleCenterBarId = resolveVisibleCenterBarId(nextBars, range);
-      const span = Math.max(range.to - range.from, 1);
-      if (visibleCenterBarId !== null) {
-        onViewportStateChangeRef.current({
-          familyKey: viewportFamilyKey,
-          centerBarId: visibleCenterBarId,
-          span,
-        });
-      }
+      publishViewportState(range);
       const from = Math.max(0, Math.floor(range.from));
       const to = Math.min(nextBars.length - 1, Math.ceil(range.to));
       const visibleSpan = Math.max(to - from, 0);
@@ -199,6 +251,39 @@ export function ChartPane({
       lastViewportCenterRef.current = centerBarId;
       onViewportBoundaryApproachRef.current(centerBarId);
     };
+
+    const scheduleViewportPersist = () => {
+      window.requestAnimationFrame(() => {
+        publishViewportState();
+      });
+    };
+
+    const handlePointerDown = () => {
+      pointerDrivenInteraction = true;
+    };
+
+    const handlePointerEnd = () => {
+      if (!pointerDrivenInteraction) {
+        return;
+      }
+      pointerDrivenInteraction = false;
+      scheduleViewportPersist();
+    };
+
+    const handleWheel = () => {
+      if (wheelPersistTimer !== null) {
+        window.clearTimeout(wheelPersistTimer);
+      }
+      wheelPersistTimer = window.setTimeout(() => {
+        wheelPersistTimer = null;
+        scheduleViewportPersist();
+      }, 160);
+    };
+
+    const handleDoubleClick = () => {
+      scheduleViewportPersist();
+    };
+
     const unsubscribeViewport = adapter.subscribeViewportChange(onViewportChange);
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -207,10 +292,23 @@ export function ChartPane({
       adapter.resize(width, height);
     });
     resizeObserver.observe(container);
+    container.addEventListener("pointerdown", handlePointerDown);
+    container.addEventListener("wheel", handleWheel, { passive: true });
+    container.addEventListener("dblclick", handleDoubleClick);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
 
     return () => {
+      if (wheelPersistTimer !== null) {
+        window.clearTimeout(wheelPersistTimer);
+      }
       unsubscribeViewport();
       resizeObserver.disconnect();
+      container.removeEventListener("pointerdown", handlePointerDown);
+      container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("dblclick", handleDoubleClick);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
       adapter.destroy();
       adapterRef.current = null;
     };
@@ -230,6 +328,7 @@ export function ChartPane({
       previousCenterLogical !== null && previousCenterIndex !== null
         ? previousCenterLogical - previousCenterIndex
         : 0;
+    const previousPriceScale = adapter?.getPriceScaleState() ?? null;
     const firstBarLoad = previousBars.length === 0;
     const restoreViewport = restoreViewportRef.current;
     const restoredRange =
@@ -249,12 +348,27 @@ export function ChartPane({
       firstBarLoad && restoreViewport?.familyKey === viewportFamilyKey
         ? restoreViewport.centerBarId
         : previousCenterBarId;
+    let restoredPriceScale =
+      firstBarLoad && restoreViewport?.familyKey === viewportFamilyKey
+        ? restoreViewport.priceScale
+        : previousPriceScale;
+    if (replayCursorSelectionEnabled) {
+      restoredPriceScale =
+        replayCursorSelectionPriceScaleRef.current?.locked ?? restoredPriceScale;
+      replayCursorSelectionRestorePendingRef.current = false;
+    } else if (replayCursorSelectionRestorePendingRef.current) {
+      restoredPriceScale =
+        replayCursorSelectionPriceScaleRef.current?.baseline ?? restoredPriceScale;
+      replayCursorSelectionRestorePendingRef.current = false;
+      replayCursorSelectionPriceScaleRef.current = null;
+    }
     adapter?.setBars(bars, emaLines, {
       displayBars,
       preserveLogicalRange: restoredRange,
       preserveAnchorTime: restoredCenterTime,
       preserveAnchorBarId: restoredCenterBarId,
       preserveAnchorOffset: firstBarLoad ? 0 : previousCenterOffset,
+      preservePriceScale: restoredPriceScale,
     });
     const settledRange = adapter?.getVisibleLogicalRange() ?? null;
     const settledCenterBarId = resolveVisibleCenterBarId(bars, settledRange);
@@ -263,11 +377,12 @@ export function ChartPane({
         familyKey: viewportFamilyKey,
         centerBarId: settledCenterBarId,
         span: Math.max(settledRange.to - settledRange.from, 1),
+        priceScale: adapter?.getPriceScaleState() ?? null,
       });
     }
     barsRef.current = bars;
     lastViewportCenterRef.current = null;
-  }, [bars, displayBars, emaLines, viewportFamilyKey]);
+  }, [bars, displayBars, emaLines, viewportFamilyKey, replayCursorSelectionEnabled]);
 
   const empty = useMemo(() => bars.length === 0, [bars.length]);
 
@@ -324,7 +439,9 @@ export function ChartPane({
         selectedAnnotationIds={selectedAnnotationIds}
         confirmationGuide={confirmationGuide}
         replayEnabled={replayEnabled}
+        replayCursorVisible={replayCursorVisible}
         replayInteractionLocked={replayInteractionLocked}
+        replayCursorSelectionEnabled={replayCursorSelectionEnabled}
         replayCursorBarId={replayCursorBarId}
         onAnnotationCreate={onAnnotationCreate}
         onAnnotationSelect={onAnnotationSelect}

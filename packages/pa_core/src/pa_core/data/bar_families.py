@@ -334,7 +334,7 @@ def _derive_bar_family(
         return empty_table(BAR_ARTIFACT_SCHEMA)
 
     timeframe_minutes = parse_timeframe_minutes(timeframe)
-    session_mask = _session_profile_mask(base_table.column("ts_et_ns").combine_chunks().to_numpy(zero_copy_only=False), session_profile)
+    session_mask = _session_profile_mask(base_table.column("ts_local_ns").combine_chunks().to_numpy(zero_copy_only=False), session_profile)
     filtered = base_table.filter(pa.array(session_mask))
 
     if timeframe_minutes == 1:
@@ -431,11 +431,11 @@ def _resolve_family_window_bounds(
     return (max(start_index - buffer_bars, 0), min(stop_index + buffer_bars, n))
 
 
-def _session_profile_mask(ts_et_ns: np.ndarray, session_profile: str) -> np.ndarray:
+def _session_profile_mask(ts_local_ns: np.ndarray, session_profile: str) -> np.ndarray:
     if session_profile == SESSION_PROFILE_ETH_FULL:
-        return np.ones(ts_et_ns.shape[0], dtype=bool)
+        return np.ones(ts_local_ns.shape[0], dtype=bool)
 
-    minutes_of_day = ((ts_et_ns // NS_PER_MINUTE) % MINUTES_PER_DAY).astype(np.int64)
+    minutes_of_day = ((ts_local_ns // NS_PER_MINUTE) % MINUTES_PER_DAY).astype(np.int64)
     return (minutes_of_day >= RTH_START_MINUTE) & (minutes_of_day < RTH_END_MINUTE)
 
 
@@ -452,7 +452,7 @@ def _aggregate_minutes(
     symbol_values = filtered_table.column("symbol").combine_chunks().to_pylist()
     bar_ids = filtered_table.column("bar_id").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
     ts_utc_ns = filtered_table.column("ts_utc_ns").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
-    ts_et_ns = filtered_table.column("ts_et_ns").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
+    ts_local_ns = filtered_table.column("ts_local_ns").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
     session_ids = filtered_table.column("session_id").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
     session_dates = filtered_table.column("session_date").combine_chunks().to_numpy(zero_copy_only=False).astype(np.int64)
     opens = filtered_table.column("open").combine_chunks().to_numpy(zero_copy_only=False).astype(np.float64)
@@ -460,8 +460,10 @@ def _aggregate_minutes(
     lows = filtered_table.column("low").combine_chunks().to_numpy(zero_copy_only=False).astype(np.float64)
     closes = filtered_table.column("close").combine_chunks().to_numpy(zero_copy_only=False).astype(np.float64)
     volumes = filtered_table.column("volume").combine_chunks().to_numpy(zero_copy_only=False).astype(np.float64)
+    turnovers = filtered_table.column("turnover").combine_chunks().to_numpy(zero_copy_only=False).astype(np.float64)
+    open_interest = filtered_table.column("open_interest").combine_chunks().to_numpy(zero_copy_only=False).astype(np.float64)
 
-    minutes_since_anchor = _minutes_since_anchor(ts_et_ns, session_profile)
+    minutes_since_anchor = _minutes_since_anchor(ts_local_ns, session_profile)
     bucket_ids = minutes_since_anchor // timeframe_minutes
 
     output: dict[str, list[object]] = {column: [] for column in BAR_ARTIFACT_COLUMNS}
@@ -486,7 +488,7 @@ def _aggregate_minutes(
             output["symbol"].append(str(symbol_values[start]))
             output["timeframe"].append(timeframe)
             output["ts_utc_ns"].append(int(ts_utc_ns[start]))
-            output["ts_et_ns"].append(int(ts_et_ns[start]))
+            output["ts_local_ns"].append(int(ts_local_ns[start]))
             output["session_id"].append(int(session_ids[start]))
             output["session_date"].append(int(session_dates[start]))
             output["open"].append(float(opens[start]))
@@ -494,6 +496,8 @@ def _aggregate_minutes(
             output["low"].append(float(np.min(lows[start:stop])))
             output["close"].append(float(closes[stop - 1]))
             output["volume"].append(float(np.sum(volumes[start:stop])))
+            output["turnover"].append(float(np.nansum(turnovers[start:stop])))
+            output["open_interest"].append(float(open_interest[stop - 1]))
         start = stop
 
     arrays = [
@@ -501,7 +505,7 @@ def _aggregate_minutes(
         pa.array(output["symbol"], type=pa.string()),
         pa.array(output["timeframe"], type=pa.string()),
         pa.array(output["ts_utc_ns"], type=pa.int64()),
-        pa.array(output["ts_et_ns"], type=pa.int64()),
+        pa.array(output["ts_local_ns"], type=pa.int64()),
         pa.array(output["session_id"], type=pa.int64()),
         pa.array(output["session_date"], type=pa.int64()),
         pa.array(output["open"], type=pa.float64()),
@@ -509,12 +513,14 @@ def _aggregate_minutes(
         pa.array(output["low"], type=pa.float64()),
         pa.array(output["close"], type=pa.float64()),
         pa.array(output["volume"], type=pa.float64()),
+        pa.array(output["turnover"], type=pa.float64()),
+        pa.array(output["open_interest"], type=pa.float64()),
     ]
     return pa.Table.from_arrays(arrays, schema=BAR_ARTIFACT_SCHEMA)
 
 
-def _minutes_since_anchor(ts_et_ns: np.ndarray, session_profile: str) -> np.ndarray:
-    minutes_of_day = ((ts_et_ns // NS_PER_MINUTE) % MINUTES_PER_DAY).astype(np.int64)
+def _minutes_since_anchor(ts_local_ns: np.ndarray, session_profile: str) -> np.ndarray:
+    minutes_of_day = ((ts_local_ns // NS_PER_MINUTE) % MINUTES_PER_DAY).astype(np.int64)
     if session_profile == SESSION_PROFILE_RTH:
         return minutes_of_day - RTH_START_MINUTE
     return np.where(

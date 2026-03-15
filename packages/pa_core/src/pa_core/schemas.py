@@ -16,7 +16,7 @@ class Bar:
     symbol: str
     timeframe: str
     ts_utc_ns: int
-    ts_et_ns: int
+    ts_local_ns: int
     session_id: int
     session_date: int
     open: float
@@ -24,6 +24,8 @@ class Bar:
     low: float
     close: float
     volume: float
+    turnover: float
+    open_interest: float
 
 
 @dataclass(frozen=True, slots=True)

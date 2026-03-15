@@ -11,7 +11,14 @@ export type StructureSourceProfile =
   | "artifact_v0_1"
   | "artifact_v0_2"
   | "runtime_v0_2";
-export type AnnotationTool = "none" | "line" | "box" | "fib50";
+export type AnnotationTool =
+  | "none"
+  | "line"
+  | "parallel_lines"
+  | "horizontal_line"
+  | "vertical_line"
+  | "box"
+  | "fib50";
 export type AnnotationKind = Exclude<AnnotationTool, "none">;
 export type AnnotationLineStyle = "solid" | "dashed" | "dotted";
 export type EmaLineStyle = AnnotationLineStyle;
@@ -109,6 +116,7 @@ export interface ChartAnnotation {
   kind: AnnotationKind;
   start: AnnotationAnchor;
   end: AnnotationAnchor;
+  control: AnnotationAnchor | null;
   style: AnnotationStyle;
 }
 

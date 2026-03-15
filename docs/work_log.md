@@ -16,6 +16,66 @@ Copy this shape for new entries:
 
 ## Entries
 
+### 2026-03-14
+- Summary: Added a dedicated tick-data contract that introduces a first-class `market_events` raw-event layer, defines normalized trade/quote dataset rules plus correction handling, and fixes the cross-doc boundary between tick ingestion, tick-backed playback transport, and still-bar-driven structure legality.
+- Files: `AGENTS.md`, `docs/tick_data_spec.md`, `docs/canonical_spec.md`, `docs/artifact_contract.md`, `docs/session_timeframe_spec.md`, `docs/replay_lifecycle_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: Re-read the updated canonical, artifact, session/timeframe, replay, status, and new tick-data specs together to confirm they now agree on `market_events -> bars -> features -> structures -> overlays -> review`, tick-to-bar ownership, and the rule that tick playback transport must not move structure legality ahead of selected-bar closes.
+- Next: Implement the first normalized `artifacts/market_events/` `trades` dataset and a bar-builder manifest path that can prove parity between tick-built `1m` bars and the current shipped vendor bar feed before switching the canonical source.
+
+### 2026-03-14
+- Summary: Upgraded `Parallel Lines` from a fixed-gap visual into a real adjustable drawing by persisting a third control anchor, using that anchor to position the second line, and exposing a selected-state drag handle so the gap can be resized directly on-chart.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/types.ts`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we want TradingView-style channel tools later, extend this same third-anchor model into a fuller line-family geometry contract rather than adding one-off UI controls.
+
+### 2026-03-14
+- Summary: Changed the line control in the annotation rail into a split button so the main icon reuses the most recently selected line variant and only the tiny embedded chevron opens the flyout, and hardened the chart pointer guard so rail clicks no longer leak through as accidental drawing gestures.
+- Files: `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/index.css`, `docs/inspector_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If we extend split-button behavior to other tool families, keep the default action tied to the last real variant used instead of adding empty submenus for tools that do not need them.
+
+### 2026-03-14
+- Summary: Slimmed the floating annotation style toolbar by reducing its fixed footprint, shell padding, button sizing, and inline control widths so selected-drawing controls read like a thin utility strip instead of a chunky card.
+- Files: `packages/pa_inspector/src/components/AnnotationToolbar.tsx`, `packages/pa_inspector/src/index.css`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the toolbar still feels heavy in live use, collapse low-frequency actions like duplicate and lock into a small overflow affordance instead of shrinking the frequently used style controls any further.
+
+### 2026-03-14
+- Summary: Extended the compact line flyout in the annotation rail with a real `Parallel Lines` tool and updated the shared inspector scene so the paired guides render, hit-test, and drag like an actual drawing instead of a menu-only placeholder.
+- Files: `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/types.ts`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`
+- Next: If the line family grows further, add tiny per-tool secondary flyouts only where the underlying annotation model supports a real behavior rather than extra menu chrome.
+
+### 2026-03-13
+- Summary: Fixed the replay layout so the transport no longer overlays the chart surface, which restores the native bottom time axis and keeps time-scale dragging available during replay on the live inspector.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/index.css`, `docs/inspector_spec.md`, `docs/status.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; synced the updated inspector files to `homebox`, restarted `pa-inspector.service`, and rechecked `http://192.168.110.42:2000` from the Mac with Playwright to confirm the replay view now shows the bottom time axis with the transport docked below the chart.
+- Next: If replay needs more controls, keep expanding the docked transport region rather than reintroducing any overlay that blocks the chart's time or price axes.
+
+### 2026-03-13
+- Summary: Tightened the replay transport into a more compact dock by shrinking outer layout padding, reducing transport control sizing, and shortening the replay status copy so replay mode gives more vertical space back to the chart.
+- Files: `packages/pa_inspector/src/components/ReplayTransport.tsx`, `packages/pa_inspector/src/index.css`, `docs/inspector_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; synced the updated replay transport files to `homebox`, restarted `pa-inspector.service`, and rechecked `http://192.168.110.42:2000` from the Mac with Playwright to confirm the live replay dock is shorter and the chart area is taller.
+- Next: If we still want more chart room, the next safe step is to collapse secondary replay metadata into a single optional overflow menu instead of removing primary transport controls.
+
+### 2026-03-13
+- Summary: Removed the replay transport info line entirely so the lower replay dock uses only the control row and metadata chips, freeing more vertical room for the chart.
+- Files: `packages/pa_inspector/src/components/ReplayTransport.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; synced the replay transport files to `homebox`, restarted `pa-inspector.service`, and rechecked `http://192.168.110.42:2000` from the Mac with Playwright to confirm the live replay dock no longer renders the extra text row.
+- Next: If we want one more height reduction, collapse some of the right-side replay metadata chips into a single compact summary control.
+
+### 2026-03-13
+- Summary: Upgraded the left drawing rail into an English expandable control drawer with labeled tool cards, grouped actions, active-state badges, outside-click dismissal, and responsive sizing so the chart controls feel closer to a polished workstation surface than a stack of bare icons.
+- Files: `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; synced the updated rail files to `homebox`, restarted `pa-inspector.service`, and checked `http://192.168.110.42:2000` from the Mac with Playwright to confirm the live inspector shows the new English drawing-tools drawer and action section.
+- Next: If we want to push the control system further, the next step is to add per-tool secondary options inside the drawer, such as line presets or snapping toggles, instead of overloading the main chart toolbar.
+
+### 2026-03-13
+- Summary: Replaced the oversized drawing drawer with a compact line-tool flyout anchored directly to the line icon, and added working `Trend Line`, `Horizontal Line`, and `Vertical Line` variants so the rail now behaves like a per-tool menu rather than a generic side panel.
+- Files: `packages/pa_inspector/src/components/AnnotationRail.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/lib/types.ts`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/index.css`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; synced the updated inspector files to `homebox`, restarted `pa-inspector.service`, and checked `http://192.168.110.42:2000` from the Mac with Playwright to confirm the live line button opens a compact embedded flyout instead of the large drawer.
+- Next: Add compact flyouts for the other annotation families only when each one has real extra options worth exposing, rather than forcing every tool into a submenu.
+
 ### 2026-03-10
 - Summary: Removed the active breakout stack end to end at user request, deleting breakout definitions and materializers, stripping runtime/API/inspector breakout plumbing, and resetting the current docs/rulebooks so breakout is explicitly absent pending a fresh user-authored redesign.
 - Files: `docs/canonical_spec.md`, `docs/artifact_contract.md`, `docs/status.md`, `docs/roadmap.md`, `docs/dev_setup.md`, `docs/inspector_spec.md`, `docs/overlay_spec.md`, `docs/replay_lifecycle_spec.md`, `docs/rulebooks/pa_rulebook_v0_1.md`, `docs/rulebooks/pa_rulebook_v0_2.md`, `docs/work_log.md`, `packages/pa_core/src/pa_core/__init__.py`, `packages/pa_core/src/pa_core/chart_reads.py`, `packages/pa_core/src/pa_core/overlays/projectors.py`, `packages/pa_core/src/pa_core/structures/__init__.py`, `packages/pa_core/src/pa_core/structures/registry.py`, `packages/pa_core/src/pa_core/structures/runtime.py`, `packages/pa_api/src/pa_api/models.py`, `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/InspectorPanel.tsx`, `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/overlayLayers.ts`, `packages/pa_inspector/src/lib/overlaySemantics.ts`, `packages/pa_inspector/src/lib/types.ts`
@@ -933,6 +993,24 @@ Copy this shape for new entries:
 - Verification: `cd packages/pa_inspector && npm run build`; pushed `3f8aff2`, pulled on `homebox`, restarted `pa-inspector.service`; live Playwright check at `http://192.168.110.42:2000` confirmed a selected drawing now deselects on the first empty-chart click while the drawing itself remains on chart
 - Next: add a small checked-in browser interaction smoke test for selection/deselection and draw/create/delete flows so these canvas-path regressions are caught automatically.
 
+### 2026-03-15
+- Summary: Added the first backend-owned China-futures tick integration slice: a new `artifacts/market_events/` family, a `pa_core.data.cn_futures_ticks` adapter that derives the vendor zip password and normalizes pre-`2025-05-01` trading-day archives into `trades` parquet, and a dedicated source-profile doc that maps the raw fields onto Databento-style trade and L1 semantics without overclaiming strict `tbbo`.
+- Files: `packages/pa_core/src/pa_core/artifacts/layout.py`, `packages/pa_core/src/pa_core/artifacts/market_events.py`, `packages/pa_core/src/pa_core/artifacts/__init__.py`, `packages/pa_core/src/pa_core/data/cn_futures_ticks.py`, `packages/pa_core/src/pa_core/data/__init__.py`, `packages/pa_core/tests/test_cn_futures_ticks.py`, `docs/china_futures_tick_profile.md`, `docs/tick_data_spec.md`, `docs/session_timeframe_spec.md`, `docs/status.md`, `docs/dev_setup.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_cn_futures_ticks -v`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_artifact_io -v`
+- Next: sync the new `pa_core` slice to `homebox`, materialize one real `trades` dataset on `/mnt/data980/PA_quantitative/artifacts`, then build a parity checker that reconstructs `1m` OHLCV from normalized trades and compares it with the vendor `1m` source.
+
+### 2026-03-12
+- Summary: Changed replay chart chrome and interaction so replay enters in a neutral state with no blue line by default, and both the blue line and gray future-region mask now appear only while the explicit bottom-bar `Choose Kline` picker is armed; ordinary paused replay clicks return to normal chart behavior, active replay is otherwise indicated by a very light background watermark with the normal chart background preserved to the right of the active replay bar, arming the picker now preserves the current price scale instead of jumping the chart, and re-arming `Choose Kline` after a paused replay now immediately shows the guide again by falling back to the current replay bar until hover moves it.
+- Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/components/OverlayCanvas.tsx`, `packages/pa_inspector/src/components/ReplayTransport.tsx`, `packages/pa_inspector/src/lib/inspectorScene.ts`, `packages/pa_inspector/src/lib/inspectorPrimitive.ts`, `docs/inspector_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; live browser replay check on `http://192.168.110.42:2000`
+- Next: if replay chrome needs more polish, tune the watermark placement and opacity against denser overlay scenes without reintroducing a persistent cursor line.
+
+### 2026-03-12
+- Summary: Extended browser-local viewport persistence to include the right price scale, so a manual vertical range now survives inspector reloads instead of falling back to autoscale on a fresh chart instance.
+- Files: `packages/pa_inspector/src/lib/inspectorPersistence.ts`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `packages/pa_inspector/src/components/ChartPane.tsx`, `docs/inspector_spec.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_inspector && npm run build`; live browser reload check after manually changing the right price scale
+- Next: add a browser smoke test that drags the right price axis, reloads, and asserts the persisted visible price range is restored instead of autoscale.
+
 ### 2026-03-12
 - Summary: Stopped replay cursor placement from shoving the chart toward the right edge by separating the mounted chart timeline from the replay-visible candle set, so future bars now become intentional whitespace instead of the series being truncated to history-only length when the cursor moves.
 - Files: `packages/pa_inspector/src/App.tsx`, `packages/pa_inspector/src/components/ChartPane.tsx`, `packages/pa_inspector/src/lib/chartAdapter.ts`, `docs/inspector_spec.md`, `docs/replay_lifecycle_spec.md`, `docs/work_log.md`
@@ -998,3 +1076,21 @@ Copy this shape for new entries:
 - Files: `packages/pa_inspector/src/lib/inspectorScene.ts`, `docs/work_log.md`
 - Verification: `cd packages/pa_inspector && npm run build`
 - Next: add a replay-focused browser smoke test that freezes on a known bar and pixel-checks that the cursor boundary lands just to the right of the active candle rather than bisecting it.
+
+### 2026-03-15
+- Summary: Hardened the China-futures tick-to-`1m` quality gate by turning the parity checker into a durable backend audit path: it now writes per-minute `match`/`mismatch`/`missing_tick`/`missing_vendor` parquet plus a manifest under the normalized tick `data_version`, keeps explicit builder and comparison policy in the manifest, and documents the writable `homebox` artifact root under `/mnt/data980/期货/PA_quantitative/artifacts`.
+- Files: `packages/pa_core/src/pa_core/artifacts/bar_parity.py`, `packages/pa_core/src/pa_core/artifacts/layout.py`, `packages/pa_core/src/pa_core/artifacts/__init__.py`, `packages/pa_core/src/pa_core/data/cn_futures_bar_parity.py`, `packages/pa_core/tests/test_cn_futures_bar_parity.py`, `docs/artifact_contract.md`, `docs/status.md`, `docs/dev_setup.md`, `docs/tick_data_spec.md`, `docs/china_futures_tick_profile.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_cn_futures_ticks tests.test_cn_futures_bar_parity tests.test_artifact_io -v`; `PYTHONPATH=packages/pa_core/src python3 -m py_compile packages/pa_core/src/pa_core/artifacts/bar_parity.py packages/pa_core/src/pa_core/data/cn_futures_bar_parity.py`
+- Next: sync this audit path to `homebox`, rerun the live `ag2508` parity build, and classify the remaining mismatched vendor `1m` buckets before introducing a canonical tick-built `1m` bar dataset.
+
+### 2026-03-15
+- Summary: Corrected the China-futures trading-day timestamp semantics so evening-session rows map to the previous natural day instead of being stamped onto the stated `TradingDay`, which makes the normalized wall-clock timestamps align with actual session order and keeps the parity audit from comparing clearly wrong calendar minutes.
+- Files: `packages/pa_core/src/pa_core/data/cn_futures_ticks.py`, `packages/pa_core/tests/test_cn_futures_ticks.py`, `packages/pa_core/src/pa_core/data/cn_futures_bar_parity.py`, `packages/pa_core/tests/test_cn_futures_bar_parity.py`, `docs/tick_data_spec.md`, `docs/china_futures_tick_profile.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_cn_futures_ticks tests.test_cn_futures_bar_parity tests.test_artifact_io -v`
+- Next: resync to `homebox`, rerun the live `ag2508` parity audit, then decide whether the remaining gaps are reference-archive coverage issues or real vendor-versus-tick disagreement before designing canonical tick-built `1m` bars.
+
+### 2026-03-15
+- Summary: Generalized the canonical bar contract to source-local `ts_local_ns` plus `turnover` and `open_interest`, added canonical China-futures contract-level `1m` bar materialization from normalized `market_events/trades`, upgraded the parity runner to compare those canonical bars against a neighboring-day-assembled vendor `1m` reference surface, and added an initial unadjusted OI-first China-futures continuous `v.0` builder with manifest-level rollover provenance.
+- Files: `packages/pa_core/src/pa_core/artifacts/bars.py`, `packages/pa_core/src/pa_core/data/canonical_bars.py`, `packages/pa_core/src/pa_core/data/bar_arrays.py`, `packages/pa_core/src/pa_core/data/bar_families.py`, `packages/pa_core/src/pa_core/structures/input.py`, `packages/pa_core/src/pa_core/structures/runtime.py`, `packages/pa_core/src/pa_core/features/edge_features.py`, `packages/pa_core/src/pa_core/schemas.py`, `packages/pa_core/src/pa_core/data/cn_futures_contract_bars.py`, `packages/pa_core/src/pa_core/data/cn_futures_continuous_bars.py`, `packages/pa_core/src/pa_core/data/cn_futures_bar_parity.py`, `packages/pa_core/src/pa_core/data/__init__.py`, `packages/pa_core/tests/test_artifact_io.py`, `packages/pa_core/tests/test_bar_arrays.py`, `packages/pa_core/tests/test_canonical_bars.py`, `packages/pa_core/tests/test_bar_families.py`, `packages/pa_core/tests/test_pivots.py`, `packages/pa_core/tests/test_pivots_v0_2.py`, `packages/pa_core/tests/test_runtime_structures.py`, `packages/pa_core/tests/test_cn_futures_contract_bars.py`, `packages/pa_core/tests/test_cn_futures_continuous_bars.py`, `docs/canonical_spec.md`, `docs/artifact_contract.md`, `docs/session_timeframe_spec.md`, `docs/tick_data_spec.md`, `docs/status.md`, `docs/dev_setup.md`, `docs/definitions/continuous_contract.md`, `docs/work_log.md`
+- Verification: `cd packages/pa_core && PYTHONPATH=src python3 -m py_compile src/pa_core/artifacts/bars.py src/pa_core/data/cn_futures_contract_bars.py src/pa_core/data/cn_futures_continuous_bars.py src/pa_core/data/cn_futures_bar_parity.py src/pa_core/data/__init__.py`; `cd packages/pa_core && PYTHONPATH=src python3 -m unittest tests.test_cn_futures_ticks tests.test_cn_futures_contract_bars tests.test_cn_futures_continuous_bars tests.test_cn_futures_bar_parity tests.test_artifact_io tests.test_bar_arrays tests.test_canonical_bars tests.test_bar_families tests.test_pivots tests.test_pivots_v0_2 tests.test_runtime_structures -v`
+- Next: sync the new contract-bar and continuous-bar modules to `homebox`, run a real contract-bar materialization plus parity sample there, and then broaden the live parity batch beyond `ag` before treating the `09:00` open-minute difference as an accepted promotion-policy exception.

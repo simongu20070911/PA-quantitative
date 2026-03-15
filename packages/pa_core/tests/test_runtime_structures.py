@@ -37,9 +37,6 @@ class RuntimeStructureChainTests(unittest.TestCase):
             pivot_frame = frames["pivot"]
             leg_frame = frames["leg"]
             major_frame = frames["major_lh"]
-            break_level_frame = frames["break_level"]
-            breakout_impulse_frame = frames["breakout_impulse"]
-            failed_breakout_frame = frames["failed_breakout"]
             self.assertIn("pivot_st", event_frames)
             self.assertIn("pivot", event_frames)
             self.assertGreater(event_frames["pivot_st"].num_rows, 0)
@@ -64,9 +61,7 @@ class RuntimeStructureChainTests(unittest.TestCase):
                 {("leg_up", 1025, 1055, "confirmed"), ("leg_down", 1055, 1080, "candidate")},
             )
             self.assertEqual(major_frame.num_rows, 0)
-            self.assertEqual(break_level_frame.num_rows, 0)
-            self.assertEqual(breakout_impulse_frame.num_rows, 0)
-            self.assertEqual(failed_breakout_frame.num_rows, 0)
+            self.assertEqual(set(frames), {"pivot_st", "pivot", "leg", "major_lh"})
             specs_by_kind = {
                 spec.kind: spec
                 for spec in resolve_structure_dataset_specs(
@@ -95,7 +90,7 @@ def _write_native_5m_source_bars(root: Path) -> None:
     symbol: list[str] = []
     timeframe: list[str] = []
     ts_utc_ns: list[int] = []
-    ts_et_ns: list[int] = []
+    ts_local_ns: list[int] = []
     session_id: list[int] = []
     session_date: list[int] = []
     opens: list[float] = []
@@ -114,7 +109,7 @@ def _write_native_5m_source_bars(root: Path) -> None:
             symbol.append("ES")
             timeframe.append("1m")
             minute_of_day = anchor_minute + bucket_index * 5 + minute_offset
-            ts_et_ns.append(minute_of_day * 60_000_000_000)
+            ts_local_ns.append(minute_of_day * 60_000_000_000)
             ts_utc_ns.append((1_700_000_000 + bucket_index * 300 + minute_offset * 60) * 1_000_000_000)
             session_id.append(20240102)
             session_date.append(20240102)
@@ -130,7 +125,7 @@ def _write_native_5m_source_bars(root: Path) -> None:
             "symbol": pa.array(symbol),
             "timeframe": pa.array(timeframe),
             "ts_utc_ns": pa.array(ts_utc_ns, type=pa.int64()),
-            "ts_et_ns": pa.array(ts_et_ns, type=pa.int64()),
+            "ts_local_ns": pa.array(ts_local_ns, type=pa.int64()),
             "session_id": pa.array(session_id, type=pa.int64()),
             "session_date": pa.array(session_date, type=pa.int64()),
             "open": pa.array(opens, type=pa.float64()),
@@ -138,6 +133,8 @@ def _write_native_5m_source_bars(root: Path) -> None:
             "low": pa.array(lows, type=pa.float64()),
             "close": pa.array(closes, type=pa.float64()),
             "volume": pa.array(volumes, type=pa.float64()),
+            "turnover": pa.array(volumes, type=pa.float64()),
+            "open_interest": pa.array([float(1000 + index) for index in range(len(bar_ids))], type=pa.float64()),
         }
     )
     source = root / "source.csv"

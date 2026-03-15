@@ -1,13 +1,14 @@
 # Session And Timeframe Spec
 
 Status: active design spec
-Last updated: 2026-03-07
+Last updated: 2026-03-15
 Project root: `/Users/simongu/Projects/PA quantitative`
 Spec dependencies:
 
 - `/Users/simongu/Projects/PA quantitative/docs/canonical_spec.md`
 - `/Users/simongu/Projects/PA quantitative/docs/artifact_contract.md`
 - `/Users/simongu/Projects/PA quantitative/docs/inspector_spec.md`
+- `/Users/simongu/Projects/PA quantitative/docs/tick_data_spec.md`
 
 ## Purpose
 
@@ -37,6 +38,8 @@ Current implementation status:
 - the only materialized canonical bar dataset is full-session `ES` `1m`
 - the current canonical base dataset corresponds to `session_profile = eth_full`
 - `session_date` is computed from ET time with an `18:00` America/New_York rollover
+- an initial China-futures `market_events/trades` artifact path now exists, and canonical contract-level China-futures `1m` bars can now be materialized from it
+- an initial unadjusted OI-first China-futures continuous `v.0` bar path now exists as a derived `bars` dataset
 - no dedicated `RTH`-filtered bar artifacts exist yet
 - no derived multi-minute bar artifacts exist yet
 - backend runtime support now exists for `rth`-filtered `1m` and derived minute families such as `eth_full 5m`
@@ -44,7 +47,7 @@ Current implementation status:
 
 ## Core Principles
 
-1. Canonical raw truth starts from full-session `1m` bars.
+1. Current canonical bar-family truth starts from full-session `1m` bars.
 2. Session profile is an explicit analytical dimension, not a UI-only toggle.
 3. Timeframe is an explicit analytical dimension, not an inferred display choice.
 4. The frontend must not aggregate or filter bars ad hoc.
@@ -108,6 +111,12 @@ This means:
 - `RTH 5m` is an aggregated derivative of canonical `1m` bars under the `RTH` session profile
 - `ETH 5m` is an aggregated derivative of canonical `1m` bars under the `eth_full` session profile
 
+Tick-data note:
+
+- raw market events are upstream inputs, not themselves a `session_profile x timeframe` bar family
+- when tick artifacts are added, session and timeframe semantics still apply at the bar-family layer defined here
+- the raw-event normalization contract lives in `/Users/simongu/Projects/PA quantitative/docs/tick_data_spec.md`
+
 ## Session Profile Model
 
 Session profiles are defined in `America/New_York` clock time.
@@ -117,7 +126,7 @@ They are not vague UI labels, and they are not left to chart-library defaults.
 
 Profile evaluation rules:
 
-- membership is based on each bar's `ts_et_ns`
+- membership is based on each bar's `ts_local_ns`
 - profile membership uses the bar timestamp already present in the canonical dataset
 - bars are never synthesized to fill inactive periods
 - profile filtering preserves bar order and original OHLCV values
@@ -200,6 +209,7 @@ Required rules:
 - replay may additionally expose backend-authored lower-granularity playback steps for visual transport
 - lower-granularity playback steps may update the currently forming selected-family candle, but they must not advance structure legality before the selected-family close
 - the lower-granularity playback contract should support `1m` source bars now and later `tick` source steps without changing the selected-family replay timing rules
+- if playback later uses tick steps, those steps still remain transport-only unless the selected-family bar itself closes on that step
 
 ## Holidays, Early Closes, And Missing Data
 
@@ -303,7 +313,7 @@ Required rules:
 
 - the derived bar's `bar_id` is the `bar_id` of its first constituent `1m` bar
 - the derived bar's `ts_utc_ns` is the `ts_utc_ns` of its first constituent `1m` bar
-- the derived bar's `ts_et_ns` is the `ts_et_ns` of its first constituent `1m` bar
+- the derived bar's `ts_local_ns` is the `ts_local_ns` of its first constituent `1m` bar
 - `session_id` and `session_date` inherit from the active interval the bucket belongs to
 
 This keeps derived bars:
